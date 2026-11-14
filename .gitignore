@@ -1,0 +1,37 @@
+# Visual Studio and .NET build output
+.vs/
+**/bin/
+**/obj/
+*.csproj.user
+*.suo
+TestResults/
+**/coverage/
+*.coverage
+*.coveragexml
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+**/appsettings.Local.json
+**/appsettings.*.local.json
+*.pfx
+*.p12
+*.key
+secrets.json
+
+# Logs and temporary files
+*.log
+logs/
+*.tmp
+
+# Angular, when the frontend is added
+**/node_modules/
+**/.angular/
+**/dist/
+
+# Editor and operating system
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

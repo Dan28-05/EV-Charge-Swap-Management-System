@@ -1,0 +1,56 @@
+services:
+  api:
+    container_name: ev-charge-swap-api-dev
+    image: ev-charge-swap-api:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_HTTP_PORTS: "8080"
+      HttpsRedirection__Enabled: "false"
+      ConnectionStrings__Default: "Host=postgres;Port=5432;Database=ev_charge_swap;Username=ev_user;Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}"
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  migrate:
+    container_name: ev-charge-swap-migrate-dev
+    image: ev-charge-swap-migration:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: migration
+    restart: "no"
+    environment:
+      ConnectionStrings__Default: "Host=postgres;Port=5432;Database=ev_charge_swap;Username=ev_user;Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    container_name: ev-charge-swap-postgres-dev
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ev_charge_swap
+      POSTGRES_USER: ev_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ev_user -d ev_charge_swap"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:

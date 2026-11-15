@@ -16,7 +16,7 @@ Tài liệu nguồn của dự án:
 | Locations | Đã có entity, mapping EF Core, service, response DTO và API đọc/phân trang |
 | PostgreSQL | Đã có cấu hình provider, migration đầu tiên, Docker Compose và seed local tùy chọn |
 | API trong Docker | Có Dockerfile multi-stage, runtime non-root và job migration riêng cho local |
-| Scalar API Reference | Có tại `/scalar/v1`, chỉ trong Development |
+| Swagger UI | Có tại `/swagger`, chỉ trong Development |
 | Common | Đã có phân trang dùng chung và xử lý lỗi không lộ thông tin nội bộ |
 | Middleware | Ghi method/path/status/thời gian xử lý và request ID; không ghi body, query string hoặc thông tin đăng nhập |
 | Health | Liveness của API và readiness kiểm tra kết nối database |
@@ -153,7 +153,7 @@ solution-root/
 | `Middleware/*` | Hành vi HTTP dùng chung; không đặt nghiệp vụ đặt chỗ/sạc ở đây |
 | `Program.cs` | Đăng ký dependency injection và sắp thứ tự middleware/endpoints |
 
-Luồng đọc hiện tại: Angular/Scalar → Controller → Service → AppDbContext → PostgreSQL → Response DTO → JSON.
+Luồng đọc hiện tại: Angular/Swagger UI → Controller → Service → AppDbContext → PostgreSQL → Response DTO → JSON.
 
 ## 4. Điều kiện chạy local
 
@@ -221,7 +221,7 @@ Container local dùng tên theo quy ước `project-service-environment`:
 
 Các lệnh `docker compose logs/exec` vẫn dùng tên service `api`, `postgres`, `migrate`.
 
-- Scalar: `http://localhost:8080/scalar/v1`
+- Swagger UI: `http://localhost:8080/swagger`
 - API: `http://localhost:8080/api/locations`
 - Readiness: `http://localhost:8080/health/ready`
 
@@ -238,7 +238,7 @@ docker compose logs -f api
 
 Dockerfile dùng stage SDK để restore/publish; image API cuối chỉ chứa ASP.NET runtime và ứng dụng publish, chạy bằng user không phải root. Stage `migration` dùng SDK + EF CLI để hỗ trợ database local. `.env`, user-secrets, chứng chỉ và thư mục build không được đưa vào build context.
 
-Đây là cấu hình **Development local**: HTTP cổng 8080, Scalar được bật và HTTPS redirection được tắt qua `HttpsRedirection__Enabled=false`. Cấu hình triển khai Production sẽ cần môi trường, secret và TLS phù hợp; không dùng nguyên cấu hình local làm production.
+Đây là cấu hình **Development local**: HTTP cổng 8080, Swagger UI được bật và HTTPS redirection được tắt qua `HttpsRedirection__Enabled=false`. Cấu hình triển khai Production sẽ cần môi trường, secret và TLS phù hợp; không dùng nguyên cấu hình local làm production.
 
 Dừng stack bằng `docker compose down`; lệnh này giữ dữ liệu trong volume. Khi thay đổi code/migration, chạy lại `docker compose up -d --build`.
 
@@ -258,11 +258,11 @@ Nếu máy chưa có EF CLI, cài bằng `dotnet tool install --global dotnet-ef
 
 Migration không tự chạy khi API khởi động. Container dùng volume `postgres_data` để giữ dữ liệu. Đổi mật khẩu trong `.env` không tự đổi mật khẩu role của database đã được khởi tạo; cần cập nhật database và connection string cho khớp.
 
-## 7. Scalar, API và health endpoints
+## 7. Swagger UI, API và health endpoints
 
 | Endpoint local | Mục đích |
 | --- | --- |
-| `https://localhost:7195/scalar/v1` | Giao diện Scalar để đọc tài liệu và gọi thử API |
+| `https://localhost:7195/swagger` | Swagger UI để đọc tài liệu và gọi thử API |
 | `https://localhost:7195/openapi/v1.json` | Tài liệu OpenAPI JSON |
 | `GET /api/locations?page=1&pageSize=20` | Danh sách địa điểm đang hoạt động |
 | `GET /api/locations/{id}` | Chi tiết địa điểm, 404 khi không có/đã ẩn |
@@ -275,7 +275,9 @@ Migration không tự chạy khi API khởi động. Container dùng volume `pos
 | `GET /health/live` | Process API đang phản hồi; không kiểm tra database |
 | `GET /health/ready` | Kiểm tra kết nối database; 503 nếu không sẵn sàng |
 
-Scalar và OpenAPI chỉ được expose trong **Development**. Health endpoints là sức khỏe hệ thống backend, không phải trạng thái đầu sạc hoặc pin.
+Swagger UI và OpenAPI chỉ được mở trong **Development**. Để thử login, mở `POST /api/auth/login`, chọn **Try it out**, nhập email và mật khẩu thử nghiệm rồi bấm **Execute**. Để gọi endpoint cần đăng nhập, chọn **Authorize** và dán `accessToken` (Swagger tự thêm tiền tố `Bearer`).
+
+Health endpoints kiểm tra sức khỏe hệ thống backend.
 
 Logout thu hồi refresh token của phiên hiện tại. Access token đã phát hành tiếp tục hợp lệ tối đa 15 phút; mọi request có token vẫn kiểm tra tài khoản còn active và `SecurityStamp` chưa thay đổi.
 
@@ -301,7 +303,7 @@ dotnet test '.\EV Charge & Swap Management System.sln' -m:1
 
 - Unit test kiểm tra quy tắc Location, giới hạn tọa độ/độ dài, bắt buộc có dịch vụ và validation/overflow của phân trang.
 - HTTP integration test dùng `WebApplicationFactory` để chạy API trong test server và SQLite trong bộ nhớ để kiểm tra truy vấn, phân trang, lọc địa điểm đã ẩn và 404.
-- Test nền tảng kiểm tra liveness/readiness, tình huống dependency thất bại, Scalar/OpenAPI chỉ xuất hiện trong Development, lỗi không lộ thông tin và request ID khớp.
+- Test nền tảng kiểm tra liveness/readiness, tình huống dependency thất bại, Swagger UI/OpenAPI chỉ xuất hiện trong Development, lỗi không lộ thông tin và request ID khớp.
 - Test auth kiểm tra đăng ký/đăng nhập, không dò email qua lỗi đăng nhập, profile, refresh rotation và reuse detection, logout idempotent cùng quyền Admin tạo Operator.
 - Không cần Docker để chạy bộ test này. SQLite không chứng minh PostgreSQL migration hay constraint hoạt động giống hoàn toàn; kiểm thử PostgreSQL thật là bước riêng khi có Docker/database test.
 - Test project không được dùng làm nơi chứa code production. SQLite `EnsureCreated` chỉ dùng để tạo database test tạm thời; database ứng dụng dùng migrations.
@@ -338,7 +340,7 @@ Bảng mở rộng như Tariff, OperatorAssignment, ServiceHours, IncidentReport
 
 ## Tài liệu tham khảo
 
-- [Scalar ASP.NET Core integration](https://scalar.com/products/api-references/integrations/aspnetcore/integration)
+- [Swagger UI với OpenAPI tích hợp của ASP.NET Core](https://learn.microsoft.com/en-us/aspnet/core/fundamentals/openapi/using-openapi-documents?view=aspnetcore-9.0)
 - [ASP.NET Core health checks](https://learn.microsoft.com/en-us/aspnet/core/host-and-deploy/health-checks?view=aspnetcore-9.0)
 - [ASP.NET Core integration tests](https://learn.microsoft.com/en-us/aspnet/core/test/integration-tests?view=aspnetcore-9.0)
 - [EF Core migrations](https://learn.microsoft.com/en-us/ef/core/managing-schemas/migrations/)

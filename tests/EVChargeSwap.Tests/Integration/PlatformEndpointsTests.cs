@@ -46,22 +46,31 @@ public sealed class PlatformEndpointsTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
-    public async Task Scalar_and_openapi_are_available_in_development()
+    public async Task Swagger_and_openapi_are_available_in_development()
     {
-        var scalar = await client.GetAsync("/scalar/v1");
-        Assert.Equal(HttpStatusCode.OK, scalar.StatusCode);
-        Assert.Equal("text/html", scalar.Content.Headers.ContentType?.MediaType);
-        Assert.Contains("EV Charge & Swap API", await scalar.Content.ReadAsStringAsync());
+        var swagger = await client.GetAsync("/swagger");
+        Assert.Equal(HttpStatusCode.OK, swagger.StatusCode);
+        Assert.Equal("text/html", swagger.Content.Headers.ContentType?.MediaType);
+        Assert.Contains("EV Charge & Swap API", await swagger.Content.ReadAsStringAsync());
+        Assert.Contains("/openapi/v1.json", await client.GetStringAsync("/swagger/index.js"));
+        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync("/scalar/v1")).StatusCode);
         var openapi = await client.GetStringAsync("/openapi/v1.json");
-        Assert.Contains("/api/locations", openapi);
+        using var document = JsonDocument.Parse(openapi);
+        var paths = document.RootElement.GetProperty("paths");
+        Assert.True(paths.TryGetProperty("/api/locations", out _));
+        Assert.Equal("bearer", document.RootElement.GetProperty("components").GetProperty("securitySchemes")
+            .GetProperty("Bearer").GetProperty("scheme").GetString());
+        Assert.False(paths.GetProperty("/api/auth/login").GetProperty("post").TryGetProperty("security", out _));
+        Assert.True(paths.GetProperty("/api/users/me").GetProperty("get").GetProperty("security")[0]
+            .TryGetProperty("Bearer", out _));
     }
 
     [Fact]
-    public async Task Scalar_and_openapi_are_not_exposed_in_production()
+    public async Task Swagger_and_openapi_are_not_exposed_in_production()
     {
         using var productionFactory = factory.WithWebHostBuilder(builder => builder.UseEnvironment("Production"));
         using var productionClient = productionFactory.CreateClient(new() { BaseAddress = new Uri("https://localhost") });
-        Assert.Equal(HttpStatusCode.NotFound, (await productionClient.GetAsync("/scalar/v1")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await productionClient.GetAsync("/swagger/index.html")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await productionClient.GetAsync("/openapi/v1.json")).StatusCode);
     }
 

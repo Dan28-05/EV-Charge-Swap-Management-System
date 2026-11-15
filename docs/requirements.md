@@ -19,6 +19,8 @@ Version one does not integrate with real chargers or battery cabinets. **Operato
 
 ## 2. Roles
 
+Customer registration collects full name, email, Vietnamese mobile number, and password. Email and phone are verified separately; verifying either channel permits login through that channel. Email or phone plus password both resolve to the same account. Operator/Admin accounts remain provisioned by administrators or bootstrap. Access JWTs are short lived; a refresh-token family has a fixed maximum lifetime of 30 days from login, unaffected by rotation. Development uses a local verification-code inbox; real email/SMS delivery requires provider configuration before production registration is enabled.
+
 | Role | Primary permissions |
 | --- | --- |
 | **Customer** | Find locations, reserve/cancel, view history and invoices, and pay |

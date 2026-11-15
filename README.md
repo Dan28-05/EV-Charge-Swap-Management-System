@@ -4,6 +4,11 @@ Nền tảng quản lý địa điểm sạc ô tô điện và đổi pin xe m�
 
 Backend dùng **ASP.NET Core .NET 9 + EF Core + PostgreSQL**, tổ chức thành một ứng dụng monolith chia thư mục theo chức năng. Angular sẽ được phát triển thành ứng dụng riêng.
 
+Tài liệu nguồn của dự án:
+
+- [Product requirements](docs/requirements.md)
+- [Architecture and technology roadmap](docs/architecture-roadmap.md)
+
 ## 1. Trạng thái triển khai
 
 | Hạng mục | Hiện trạng |

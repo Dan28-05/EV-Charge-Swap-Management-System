@@ -1,0 +1,199 @@
+# Architecture and Technology Roadmap
+
+Last updated: 2026-11-15
+
+This document records the intended architecture and the approved use of portfolio technologies. Technology is introduced to solve a concrete problem, not to increase the tool count.
+
+## 1. Architectural baseline
+
+- ASP.NET Core REST API organized as a modular monolith.
+- Angular client with Customer, Operator, and Admin experiences.
+- PostgreSQL is the transactional source of truth.
+- EF Core Code First migrations define schema history.
+- ASP.NET Core Identity, JWT access tokens, and hashed rotating refresh tokens provide authentication.
+- Physical state is confirmed by Operators. Scheduled jobs only handle time-based transitions.
+- Public API contracts and schema changes require tests and review.
+
+Target topology:
+
+```text
+Angular
+   ↓
+ASP.NET Core modular monolith
+   ├── PostgreSQL               source of truth
+   ├── Redis                    cache and distributed rate limits
+   └── Transactional Outbox
+           ↓
+        RabbitMQ
+        ├── Notification Worker
+        ├── Search Indexer Worker
+        └── Reporting Worker
+                 ↓
+           Elasticsearch
+
+API and workers
+   ↓ OpenTelemetry/OTLP
+Aspire Dashboard locally; production-compatible observability backend later
+```
+
+Do not split the API into microservices merely to use infrastructure. A separate Worker process is introduced when message consumption exists.
+
+## 2. Redis decisions
+
+Approved use cases:
+
+- Cache public Location details and popular read queries.
+- Distributed rate limiting for login, reservation, and sensitive endpoints when multiple API instances exist.
+- Optional short-lived cache of account security state when database validation becomes a measured bottleneck.
+- OTP or verification codes with TTL when that feature is implemented.
+- Optional per-access-token denylist when immediate, per-session access-token logout becomes a requirement.
+
+Guardrails:
+
+- Redis is not the source of truth.
+- Redis availability never decides whether a charging bay or battery can be reserved.
+- Reservation creation always rechecks PostgreSQL inside a transaction protected by constraints.
+- Cache failure must fall back to PostgreSQL where safe.
+- Refresh-token history remains durable in PostgreSQL.
+
+Redis is not required for the current login implementation. Introduce it only with one of the approved use cases and corresponding failure tests.
+
+## 3. RabbitMQ and reliable messaging
+
+RabbitMQ is the selected first message broker. Do not add Kafka in parallel without a distinct streaming requirement.
+
+Candidate integration events:
+
+- `ReservationCreated`
+- `ReservationCancelled`
+- `ReservationExpired`
+- `CustomerCheckedIn`
+- `ChargingSessionCompleted`
+- `BatterySwapCompleted`
+- `InvoiceCreated`
+- `PaymentSucceeded`
+- `IncidentReported`
+- `LocationUpdated`
+
+Required reliability patterns:
+
+1. Write the business change and `OutboxMessage` in the same PostgreSQL transaction.
+2. A background publisher reads unprocessed Outbox rows and publishes to RabbitMQ.
+3. Use durable queues, persistent messages, publisher confirms, and explicit consumer acknowledgements.
+4. Assume at-least-once delivery. Consumers must be idempotent.
+5. Record processed message IDs in an Inbox/consumer table when the side effect is not naturally idempotent.
+6. Use bounded retry for transient errors and a dead-letter queue for poison messages.
+7. Expose outbox backlog, retry, and DLQ metrics.
+
+Failure demonstration required for the portfolio:
+
+```text
+RabbitMQ is unavailable
+→ business transaction still commits with an Outbox row
+→ RabbitMQ returns
+→ publisher sends the pending event
+→ consumer processes it once logically
+```
+
+## 4. Elasticsearch decisions
+
+Approved use cases for the Location search read model:
+
+- Name and address full-text search.
+- Search-as-you-type/autocomplete.
+- Service and price filters.
+- `geo_point` indexing and distance/radius search.
+- Distance sorting.
+- Search result ranking independent from transactional tables.
+
+Synchronization flow:
+
+```text
+Location changes in PostgreSQL
+→ LocationUpdated stored in Outbox
+→ RabbitMQ
+→ Search Indexer Worker
+→ Elasticsearch index
+```
+
+Guardrails:
+
+- PostgreSQL remains the source of truth.
+- Search results are eventually consistent.
+- Reservation and payment workflows never depend on Elasticsearch consistency.
+- Provide a repeatable full-index rebuild from PostgreSQL.
+- Indexer consumers are idempotent and use the Location ID as document ID.
+
+## 5. Observability
+
+Use OpenTelemetry for correlated logs, distributed traces, and metrics across HTTP requests, PostgreSQL, Redis, RabbitMQ, Elasticsearch, and workers.
+
+Minimum telemetry:
+
+- HTTP request duration and error rate.
+- PostgreSQL query and transaction duration.
+- Redis hit/miss and fallback counts.
+- Outbox backlog and oldest-message age.
+- RabbitMQ publish, consume, retry, and DLQ counts.
+- Elasticsearch indexing/search latency and failures.
+- Business metrics for reservations, sessions, swaps, payments, and incidents.
+
+Propagate trace context through message headers so an API request can be correlated with background consumers. Use the standalone Aspire Dashboard locally through OTLP; choose a production backend later without changing application instrumentation.
+
+## 6. Delivery order
+
+### Phase 1 — Core resources
+
+1. Admin Location CRUD.
+2. `ChargingBay` with equipment and parking state.
+3. `Battery` lifecycle.
+4. `ServiceHours`.
+5. `OperatorAssignment` and location-scoped authorization.
+
+### Phase 2 — Reservations and operations
+
+1. Fifteen-minute holds for a specific resource.
+2. Database-enforced concurrency and one-active-reservation-per-customer rule.
+3. Idempotent expiry job.
+4. Check-in, charging session, vehicle departure, and no-charge flow.
+5. Battery swap and inspection/charging lifecycle.
+
+### Phase 3 — Reliable asynchronous processing
+
+1. Outbox schema and publisher.
+2. RabbitMQ topology.
+3. Notification Worker.
+4. Idempotent consumers, retry, and DLQ.
+
+### Phase 4 — Redis
+
+1. Location read cache with explicit invalidation and fallback.
+2. Distributed rate limiting.
+3. Cache metrics and outage tests.
+
+### Phase 5 — Elasticsearch
+
+1. Location index mapping.
+2. Search Indexer Worker.
+3. Full-text, autocomplete, filters, and geo-distance endpoints.
+4. Full-index rebuild and eventual-consistency tests.
+
+### Phase 6 — Billing and observability completion
+
+1. Tariffs, immutable applied prices, invoices, and payments.
+2. Verified idempotent payment webhooks.
+3. OpenTelemetry traces and business/infrastructure metrics.
+4. Demonstrable failure and recovery scenarios.
+
+## 7. Portfolio quality bar
+
+The implementation must be explainable through failure behavior:
+
+- Two concurrent reservation requests cannot both succeed.
+- RabbitMQ downtime does not lose a committed business event.
+- Duplicate messages do not duplicate side effects.
+- Redis downtime degrades performance rather than correctness.
+- Elasticsearch can be rebuilt from PostgreSQL.
+- Trace IDs connect API requests, Outbox publishing, and Worker consumption.
+
+Avoid adding both RabbitMQ and Kafka, premature microservices, Kubernetes before multiple deployable processes exist, or infrastructure without tests and observable failure behavior.

@@ -1,0 +1,42 @@
+:host {
+  display: block;
+  min-height: 100dvh;
+}
+
+.auth-layout {
+  min-height: calc(100dvh - 32px);
+  margin: 16px;
+  display: grid;
+  grid-template-columns: minmax(540px, 1.12fr) minmax(460px, 0.88fr);
+  overflow: hidden;
+  border: 1px solid #dfe3dd;
+  border-radius: 28px;
+  background: #fffefa;
+  box-shadow: 0 20px 70px #213b3212;
+}
+
+.auth-content {
+  min-width: 0;
+  min-height: 0;
+  background: #fffefa;
+}
+
+.auth-content > :not(router-outlet) {
+  display: block;
+  height: 100%;
+}
+
+@media (max-width: 1080px) {
+  .auth-layout {
+    grid-template-columns: minmax(480px, 1fr) minmax(420px, 0.92fr);
+  }
+}
+
+@media (max-width: 860px) {
+  .auth-layout {
+    grid-template-columns: 1fr;
+    min-height: calc(100dvh - 20px);
+    margin: 10px;
+    border-radius: 24px;
+  }
+}

@@ -139,7 +139,7 @@ namespace EVChargeSwap.Data.Migrations
                     b.ToTable("verification_challenges", (string)null);
                 });
 
-            modelBuilder.Entity("EVChargeSwap.Features.Locations.Location", b =>
+            modelBuilder.Entity("EVChargeSwap.Features.Locations.Entities.Location", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()

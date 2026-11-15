@@ -1,7 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using EVChargeSwap.Features.Locations.Entities;
 
-namespace EVChargeSwap.Features.Locations;
+namespace EVChargeSwap.Features.Locations.Persistence;
 
 public sealed class LocationConfiguration : IEntityTypeConfiguration<Location>
 {

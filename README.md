@@ -2,7 +2,7 @@
 
 Nền tảng quản lý địa điểm sạc ô tô điện và đổi pin xe máy điện, phục vụ tìm địa điểm trên bản đồ, giữ chỗ, ghi nhận sử dụng dịch vụ, tính phí và thanh toán.
 
-Backend dùng **ASP.NET Core .NET 9 + EF Core + PostgreSQL**, tổ chức thành một ứng dụng monolith chia thư mục theo chức năng. Angular sẽ được phát triển thành ứng dụng riêng.
+Backend dùng **ASP.NET Core .NET 9 + EF Core + PostgreSQL**, tổ chức thành một ứng dụng monolith chia thư mục theo chức năng. Frontend là **Angular SPA**, dùng Leaflet và OpenStreetMap cho bản đồ.
 
 Tài liệu nguồn của dự án:
 
@@ -15,6 +15,7 @@ Tài liệu nguồn của dự án:
 | --- | --- |
 | Locations | Đã có entity, mapping EF Core, service, response DTO và API đọc/phân trang |
 | PostgreSQL | Đã có cấu hình provider, migration đầu tiên, Docker Compose và seed local tùy chọn |
+| Redis | Container Redis 7 Alpine, cache thông tin trạm với explicit invalidation và fallback tự động |
 | API trong Docker | Có Dockerfile multi-stage, runtime non-root và job migration riêng cho local |
 | Swagger UI | Có tại `/swagger`, chỉ trong Development |
 | Common | Đã có phân trang dùng chung và xử lý lỗi không lộ thông tin nội bộ |
@@ -25,7 +26,8 @@ Tài liệu nguồn của dự án:
 | Users/JWT/RBAC | Đã có Identity, đăng ký Customer, JWT, refresh rotation/reuse detection, logout, hồ sơ hiện tại, bootstrap Admin và Admin tạo Operator |
 | ChargingBays, Batteries, Reservations | Chưa triển khai |
 | ChargingSessions, BatterySwaps, Invoice, Payment | Chưa triển khai |
-| Angular, bản đồ và thông báo nghiệp vụ | Chưa triển khai |
+| Angular / Station Finder | Trang công khai `/`: danh sách phân trang, bản đồ, chi tiết và chỉ đường; có giao diện desktop/mobile |
+| Thông báo nghiệp vụ | Chưa triển khai |
 
 Các phần nghiệp vụ bên dưới là mục tiêu phát triển, không phải tính năng đã hoàn thành.
 
@@ -97,10 +99,11 @@ solution-root/
 │   │   │   │   ├── Persistence/
 │   │   │   │   └── AppRoles.cs
 │   │   │   └── Locations/
-│   │   │       ├── Location.cs
-│   │   │       ├── LocationConfiguration.cs
-│   │   │       ├── LocationResponse.cs
-│   │   │       ├── LocationService.cs
+│   │   │       ├── Entities/Location.cs
+│   │   │       ├── Persistence/LocationConfiguration.cs
+│   │   │       ├── Requests/
+│   │   │       ├── Responses/
+│   │   │       ├── Services/LocationService.cs
 │   │   │       └── LocationsController.cs
 │   │   ├── Common/
 │   │   │   ├── Errors/GlobalExceptionHandler.cs
@@ -151,7 +154,7 @@ solution-root/
 | `Services/*` | Xử lý use case; Auth và User được tách để tránh gom nhiều trách nhiệm vào một service |
 | Request DTO, ví dụ `PaginationRequest.cs` | Dữ liệu nhận từ HTTP; validation tham số đầu vào |
 | Response DTO, ví dụ `LocationResponse.cs` | Dữ liệu chọn lọc trả cho Angular, không trả nguyên entity |
-| `LocationService.cs` | Thực hiện truy vấn/use case; hiện đọc không tracking và phân trang ổn định |
+| `LocationService.cs` | Danh sách/chi tiết trạm, tìm theo bán kính và thao tác quản trị; truy vấn công khai chỉ lấy trạm đang hiển thị |
 | `LocationsController.cs` | Nhận request, gọi service và trả HTTP response |
 | `LocationConfiguration.cs` | Mapping tên cột, precision, độ dài, index và check constraint |
 | `AppDbContext.cs` | Điểm truy vấn/lưu dữ liệu của EF Core |
@@ -170,7 +173,7 @@ Luồng đọc hiện tại: Angular/Swagger UI → Controller → Service → A
 - .NET 9 SDK và một IDE hỗ trợ .NET 9.
 - EF Core CLI tương thích EF Core 9 để quản lý migration.
 - Docker Desktop đang chạy nếu dùng PostgreSQL qua Compose; hoặc một PostgreSQL server riêng.
-- Node.js/Angular CLI chỉ cần khi bắt đầu frontend.
+- Node.js 22.12+ hoặc 24 và npm để chạy frontend; Angular CLI đã có trong dependency của project.
 
 Các lệnh bên dưới chạy trong **thư mục chứa file solution**.
 
@@ -270,6 +273,40 @@ Nếu máy chưa có EF CLI, cài bằng `dotnet tool install --global dotnet-ef
 
 Migration không tự chạy khi API khởi động. Container dùng volume `postgres_data` để giữ dữ liệu. Đổi mật khẩu trong `.env` không tự đổi mật khẩu role của database đã được khởi tạo; cần cập nhật database và connection string cho khớp.
 
+### 6.3. Dashboard khách hàng (Angular)
+
+Từ root repo, khởi động API/PostgreSQL (cần `.env` ở mục 5):
+
+```powershell
+docker compose up -d --build postgres migrate api
+cd frontend
+npm ci
+npm start
+```
+
+Mở **http://localhost:4200/**. Không cần đăng nhập để xem trạm. Nếu frontend Docker đang chiếm cổng 4200, dùng `npm start -- --port 4300` và mở http://localhost:4300/.
+
+- Cấu hình URL API và tile map: `frontend/src/app/features/station-finder/station-finder.config.ts`. Mặc định API là `/api`.
+- Khi chạy Angular local, `frontend/proxy.conf.json` chuyển `/api/**` sang `http://localhost:8080`. Nếu chạy API bằng Visual Studio, đổi target theo cổng của API.
+- Khi chạy Docker Compose, Nginx chuyển `/api/` sang `api:8080`; đường dẫn SPA vẫn trả về `index.html`. Build frontend dùng `npm ci` và output Angular `dist/*/browser`.
+- Nạp seed demo theo mục 8: 10 trạm trọng điểm mẫu hoặc 100 trạm sạc & đổi pin thực tế trải khắp các đô thị toàn quốc (TP.HCM, Hà Nội, Đà Nẵng, Quy Nhơn, Hải Phòng, Bình Dương, Cần Thơ, Nha Trang, Vũng Tàu...). Sau đó tải lại dashboard; nút **Tải thêm địa điểm** lấy 20 trạm mỗi lần. Danh sách và marker luôn dùng chung tập dữ liệu, loại trùng theo ID.
+- Feature nằm trong `features/station-finder/`: page điều phối trạng thái, `station-list/` hiển thị danh sách, `station-map/` quản lý Leaflet, `services/` gọi API và `models/` định nghĩa DTO. Chọn thẻ hoặc marker mở chi tiết từ API; Chỉ đường mở Google Maps bằng tọa độ đích.
+- Mốc này chỉ duyệt danh sách, chọn trạm, xem chi tiết và chỉ đường. Chưa có tìm tên/bán kính, vị trí hiện tại, giá, tồn kho, đặt chỗ hoặc lịch sử. Bản đồ cần Internet để tải tile OpenStreetMap và luôn hiển thị attribution.
+
+Kiểm tra frontend (tại `frontend/`):
+
+```powershell
+npm run build
+npm test -- --watch=false
+npm run test:e2e
+# Thêm kiểm tra dữ liệu thật khi API cổng 8080 và PostgreSQL đã có seed:
+$env:LIVE_API = '1'
+npm run test:e2e
+Remove-Item Env:LIVE_API
+```
+
+Browser test dùng Microsoft Edge đã cài, tự mở Angular cổng 4300, chạy desktop và mobile. Nếu máy không có Edge, cài Edge hoặc đổi `channel` trong `playwright.config.ts` sang browser đã cài. Test mặc định dùng API giả lập để kiểm tra lỗi/rỗng, tải thêm, chọn từ hai phía và tọa độ chỉ đường; `LIVE_API=1` kiểm tra cả trang thứ hai từ API thật. Ảnh kiểm tra được lưu dưới `frontend/test-results/` (không commit).
+
 ## 7. Swagger UI, API và health endpoints
 
 | Endpoint local | Mục đích |
@@ -278,6 +315,11 @@ Migration không tự chạy khi API khởi động. Container dùng volume `pos
 | `https://localhost:7195/openapi/v1.json` | Tài liệu OpenAPI JSON |
 | `GET /api/locations?page=1&pageSize=20` | Danh sách địa điểm đang hoạt động |
 | `GET /api/locations/{id}` | Chi tiết địa điểm, 404 khi không có/đã ẩn |
+| `GET /api/locations/nearby?latitude=13.766667&longitude=109.233333&radiusKm=10&service=charging` | Tìm trạm trong bán kính, lọc dịch vụ/tên/địa chỉ, phân trang theo khoảng cách |
+| `GET /api/locations/admin` | Admin xem cả trạm đang ẩn |
+| `POST /api/locations` | Admin tạo trạm |
+| `PUT /api/locations/{id}` | Admin sửa tên, địa chỉ, tọa độ và dịch vụ |
+| `PATCH /api/locations/{id}/visibility` | Admin ẩn/hiện trạm bằng `{ "isActive": false/true }` |
 | `POST /api/auth/register` | Đăng ký Customer với họ tên, email, số điện thoại và mật khẩu; trả 202, chưa cấp token |
 | `POST /api/auth/verification/confirm` | Xác minh email hoặc số điện thoại bằng mã 6 chữ số |
 | `POST /api/auth/verification/resend` | Gửi lại mã sau 60 giây; trả 202 kể cả khi email không tồn tại |
@@ -302,13 +344,17 @@ Các response lỗi dùng Problem Details. Middleware thêm header `X-Request-ID
 
 ## 8. Dữ liệu demo
 
-Sau khi áp dụng migration, có thể thêm hai địa điểm giả lập local:
+Sau khi áp dụng migration, có thể thêm 10 trạm trọng điểm minh họa tại TP.HCM, Hà Nội, Đà Nẵng và Quy Nhơn vào database local:
 
 ```powershell
-Get-Content -Raw '.\backend\EV Charge & Swap Management System\Data\Seed\dev-locations.sql' | docker compose exec -T postgres psql -U ev_user -d ev_charge_swap
+Get-Content -Raw '.\backend\EV Charge & Swap Management System\Data\Seed\dev-locations.sql' | docker exec -i ev-charge-swap-postgres-dev psql -v ON_ERROR_STOP=1 -U ev_user -d ev_charge_swap
 ```
 
-Seed có thể chạy lại mà không tạo trùng hai địa điểm. Không chạy seed trên database thật. Chưa có endpoint tạo/sửa địa điểm; RBAC Admin đã có nhưng Location CRUD là chức năng kế tiếp.
+Để thử bản đồ và tìm trạm theo bán kính trên tập dữ liệu hoàn chỉnh, có thêm seed **100 trạm sạc & đổi pin thực tế** trải dài khắp các tỉnh thành trên toàn quốc (TP.HCM, Hà Nội, Đà Nẵng, Quy Nhơn, Hải Phòng, Quảng Ninh, Bình Dương, Đồng Nai, Cần Thơ, Nha Trang, Vũng Tàu, Đà Lạt...). Tọa độ được đối chiếu chính xác theo các địa danh thực tế (TTTM Vincom, AEON Mall, Lotte Mart, Bến xe, Sân bay, Trạm dừng cao tốc, Cây xăng Petrolimex) hoàn toàn trên đất liền, không rơi ra biển hoặc núi. Phân bổ thực tế gồm 3 loại: vừa sạc vừa đổi pin, chỉ sạc ô tô điện, và chỉ đổi pin xe máy điện:
+
+```powershell
+Get-Content -Raw '.\backend\EV Charge & Swap Management System\Data\Seed\dev-national-charging-locations.sql' | docker exec -i ev-charge-swap-postgres-dev psql -v ON_ERROR_STOP=1 -U ev_user -d ev_charge_swap
+```
 
 ## 9. Chạy test
 
@@ -345,11 +391,11 @@ Khi tự viết CI, có thể đặt workflow build/test trong thư mục này; 
 
 Chín entity lõi dự kiến: `User`, `Location`, `ChargingBay`, `Battery`, `Reservation`, `ChargingSession`, `BatterySwap`, `Invoice`, `Payment`. Hiện đã triển khai `User`, `Location` và entity hạ tầng `RefreshToken`.
 
-1. Thêm Location CRUD cho Admin, chỗ sạc, pin, phân công nhân viên và giờ phục vụ.
+1. Thêm chỗ sạc, pin, phân công nhân viên và giờ phục vụ cho các Location đã có.
 2. Thêm đặt chỗ 15 phút, chống đặt trùng và job hết hạn.
 3. Thêm phiên sạc, giao nhận pin và lịch sử sự cố.
 4. Thêm bảng giá, hóa đơn, payment webhook và test đồng thời/idempotency.
-5. Thêm Angular, bản đồ/chỉ đường, thông báo và báo cáo.
+5. Mở rộng Angular với tìm kiếm/bán kính, đặt chỗ, lịch sử, thông báo và báo cáo; bản đồ/chỉ đường cơ bản đã có.
 
 Bảng mở rộng như Tariff, OperatorAssignment, ServiceHours, IncidentReport và AuditLog được thêm theo chức năng thực tế. Chưa triển khai đặt lịch tương lai, nhiều hệ pin, tính phí đỗ quá giờ hoặc kết nối phần cứng.
 

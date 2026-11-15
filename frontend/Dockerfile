@@ -5,7 +5,7 @@ WORKDIR /app
 
 # Copy dependency manifests and install packages
 COPY package*.json ./
-RUN npm install
+RUN npm ci
 
 # Copy source files and build production bundle
 COPY . .

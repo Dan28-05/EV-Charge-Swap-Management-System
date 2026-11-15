@@ -144,6 +144,12 @@ Propagate trace context through message headers so an API request can be correla
 
 ## 6. Delivery order
 
+### Customer Station Finder milestone
+
+The public Angular route `/` uses Leaflet with OpenStreetMap attribution. It consumes the existing paged `GET /api/locations` and `GET /api/locations/{id}` contracts without changing the API or schema. The page owns selection and pagination; list and map components share the same deduplicated set of loaded locations. Each load adds 20 locations. Directions open Google Maps with destination coordinates.
+
+This milestone includes browsing, selection, detail, directions, responsive list/map switching, loading, empty and retry states. Name/radius search, geolocation, price/availability, booking and personal history remain later milestones. Only fields returned by the API are presented. No Redis, messaging or search infrastructure is needed for this page.
+
 ### Phase 1 — Core resources
 
 1. Admin Location CRUD.

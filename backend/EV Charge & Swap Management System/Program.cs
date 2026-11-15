@@ -1,7 +1,8 @@
 using EVChargeSwap.Data;
 using EVChargeSwap.Features.Authentication;
 using EVChargeSwap.Features.Authentication.Services;
-using EVChargeSwap.Features.Locations;
+using EVChargeSwap.Features.Locations.Caching;
+using EVChargeSwap.Features.Locations.Services;
 using EVChargeSwap.Features.Users.Entities;
 using EVChargeSwap.Features.Users.Services;
 using EVChargeSwap.Common.Errors;
@@ -14,6 +15,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using StackExchange.Redis;
 using System.Diagnostics;
 using System.IdentityModel.Tokens.Jwt;
 using System.Text;
@@ -79,6 +81,26 @@ var connectionString = builder.Configuration.GetConnectionString("Default")
     ?? throw new InvalidOperationException("Set ConnectionStrings:Default with user-secrets or an environment variable.");
 
 builder.Services.AddDbContext<AppDbContext>(options => options.UseNpgsql(connectionString));
+
+var redisConn = builder.Configuration.GetConnectionString("Redis");
+if (!string.IsNullOrWhiteSpace(redisConn))
+{
+    builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
+    {
+        var options = ConfigurationOptions.Parse(redisConn);
+        options.AbortOnConnectFail = false;
+        options.ConnectTimeout = 3000;
+        options.SyncTimeout = 2000;
+        return ConnectionMultiplexer.Connect(options);
+    });
+}
+
+builder.Services.AddSingleton<ILocationCache>(sp =>
+{
+    var multiplexer = sp.GetService<IConnectionMultiplexer>();
+    var logger = sp.GetRequiredService<ILogger<RedisLocationCache>>();
+    return new RedisLocationCache(multiplexer, logger);
+});
 builder.Services.AddScoped<LocationService>();
 builder.Services.AddIdentityCore<ApplicationUser>(options =>
     {

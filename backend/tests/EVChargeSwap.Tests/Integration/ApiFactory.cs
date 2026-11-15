@@ -1,5 +1,5 @@
 using EVChargeSwap.Data;
-using EVChargeSwap.Features.Locations;
+using EVChargeSwap.Features.Locations.Entities;
 using EVChargeSwap.Features.Authorization;
 using EVChargeSwap.Features.Users.Entities;
 using Microsoft.AspNetCore.Identity;

@@ -1,0 +1,347 @@
+:host {
+  min-width: 0;
+}
+button,
+input {
+  font: inherit;
+}
+button {
+  color: inherit;
+}
+
+.login-panel {
+  min-height: calc(100dvh - 32px);
+  display: grid;
+  grid-template-rows: 1fr auto;
+  place-items: center;
+  padding: clamp(42px, 6vw, 82px) clamp(38px, 6vw, 92px) 28px;
+  color: #173e34;
+  background: #fffefa;
+  border-radius: 0 26px 26px 0;
+}
+
+.form-shell {
+  width: min(430px, 100%);
+}
+.kicker {
+  display: block;
+  margin-bottom: 12px;
+  color: #9b7b34;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+h2 {
+  margin: 0;
+  font-size: clamp(30px, 3vw, 40px);
+  font-weight: 650;
+  line-height: 1.15;
+  letter-spacing: -0.035em;
+}
+.form-heading p {
+  margin: 12px 0 40px;
+  color: #6b7973;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.field {
+  margin-bottom: 27px;
+}
+.field label {
+  color: #334f46;
+  font-size: 13px;
+  font-weight: 650;
+}
+.label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.text-action {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #1d6a56;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.line-control {
+  position: relative;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1.5px solid #cbd4cf;
+  transition: border-color 0.22s ease;
+}
+.line-control::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: -1.5px;
+  left: 0;
+  height: 2px;
+  background: #17634f;
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.line-control:focus-within::after {
+  transform: scaleX(1);
+}
+.line-control.invalid {
+  border-color: #bd514b;
+}
+.line-control.invalid::after {
+  background: #bd514b;
+  transform: scaleX(1);
+}
+.line-control > svg,
+.icon-action svg {
+  width: 19px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: #73867e;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.line-control input {
+  width: 100%;
+  min-width: 0;
+  padding: 13px 0 11px;
+  border: 0;
+  outline: 0;
+  color: #173e34;
+  background: transparent;
+  font-size: 15px;
+}
+.line-control input::placeholder {
+  color: #a2aca7;
+}
+.icon-action {
+  display: grid;
+  place-items: center;
+  padding: 7px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.icon-action:hover {
+  background: #edf3ef;
+}
+.field > small {
+  display: block;
+  margin-top: 7px;
+  color: #aa403b;
+  font-size: 12px;
+}
+
+.remember {
+  width: fit-content;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: -2px 0 25px;
+  color: #65736d;
+  font-size: 12px;
+  cursor: pointer;
+}
+.remember input {
+  position: absolute;
+  opacity: 0;
+}
+.check {
+  width: 19px;
+  height: 19px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #bfcac4;
+  border-radius: 6px;
+  background: #fff;
+  transition: 0.2s;
+}
+.check svg {
+  width: 12px;
+  fill: none;
+  stroke: transparent;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.remember input:checked + .check {
+  border-color: #17634f;
+  background: #17634f;
+}
+.remember input:checked + .check svg {
+  stroke: #fff;
+}
+
+.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: -5px 0 18px;
+  padding: 11px 13px;
+  border-radius: 12px;
+  color: #983b36;
+  background: #fff0ef;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.notice > span {
+  width: 19px;
+  height: 19px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #fff;
+  background: #bf514b;
+  font-weight: 700;
+}
+.notice.success {
+  color: #176044;
+  background: #eaf5ed;
+}
+.notice.success > span {
+  background: #217859;
+}
+.notice.info {
+  color: #705816;
+  background: #f8f1dc;
+}
+.notice.info > span {
+  background: #a48231;
+}
+
+.submit {
+  width: 100%;
+  height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 21px;
+  border: 0;
+  border-radius: 15px;
+  background: #17634f;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 14px 30px #173e3424;
+  transition:
+    transform 0.22s,
+    background 0.22s,
+    box-shadow 0.22s;
+}
+.submit:hover:not(:disabled) {
+  transform: translateY(-2px);
+  background: #104f3e;
+  box-shadow: 0 18px 34px #173e3430;
+}
+.submit:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+.submit svg {
+  width: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid #ffffff55;
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+.register {
+  margin: 27px 0 0;
+  text-align: center;
+  color: #717e78;
+  font-size: 13px;
+}
+.register a {
+  margin-left: 4px;
+  color: #17634f;
+  font-weight: 700;
+  text-decoration: none;
+}
+footer {
+  align-self: end;
+  width: min(430px, 100%);
+  display: flex;
+  gap: 20px;
+  color: #8e9994;
+  font-size: 11px;
+}
+footer span {
+  margin-right: auto;
+}
+footer button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+.text-action:hover,
+.register a:hover,
+footer button:hover {
+  color: #9a7830;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 1080px) {
+  .login-panel {
+    padding-inline: 38px;
+  }
+}
+@media (max-width: 860px) {
+  .login-panel {
+    min-height: auto;
+    padding: 52px clamp(24px, 8vw, 80px) 26px;
+    border-radius: 0 0 24px 24px;
+  }
+  footer {
+    margin-top: 58px;
+  }
+}
+@media (max-width: 560px) {
+  .login-panel {
+    padding-top: 40px;
+  }
+  h2 {
+    font-size: 32px;
+  }
+  .form-heading p {
+    margin-bottom: 32px;
+  }
+  footer {
+    gap: 12px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .line-control::after,
+  .submit,
+  .spinner {
+    animation: none;
+    transition: none;
+  }
+}

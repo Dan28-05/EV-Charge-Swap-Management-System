@@ -1,0 +1,314 @@
+<header class="header">
+  <div class="header-left">
+    <a class="brand" routerLink="/">
+      <span class="brand-badge" aria-hidden="true">⚡</span>
+      <span class="brand-text">EVGo</span>
+      <span class="brand-tag">Charge & Swap</span>
+    </a>
+  </div>
+
+  <nav class="header-nav" aria-label="Điều hướng chính">
+    <span class="nav-item current">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+        <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
+      </svg>
+      Bản đồ trạm
+    </span>
+
+    @if (currentUser(); as user) {
+      <div class="user-pill">
+        <span class="user-avatar" aria-hidden="true">{{ user.fullName.charAt(0).toUpperCase() }}</span>
+        <div class="user-meta">
+          <strong class="user-name">{{ user.fullName }}</strong>
+          <small class="user-role">{{ user.roles[0] || 'Khách hàng' }}</small>
+        </div>
+        <button type="button" class="logout-btn" title="Đăng xuất" (click)="logout()">
+          Đăng xuất
+        </button>
+      </div>
+    } @else {
+      <a class="login-link" routerLink="/login">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3" />
+        </svg>
+        Đăng nhập
+      </a>
+    }
+  </nav>
+</header>
+
+<main class="main-container">
+  <!-- Mobile Tab Switcher -->
+  <div class="mobile-switch" aria-label="Chế độ hiển thị">
+    <button
+      type="button"
+      [attr.aria-pressed]="mobileView() === 'list'"
+      (click)="mobileView.set('list')"
+    >
+      Danh sách ({{ displayedStations().length }})
+    </button>
+    <button
+      type="button"
+      [attr.aria-pressed]="mobileView() === 'map'"
+      (click)="mobileView.set('map')"
+    >
+      Bản đồ
+    </button>
+  </div>
+
+  <div class="map-viewport">
+    <!-- Google Maps Full Canvas -->
+    <section
+      class="map-panel"
+      [class.mobile-hidden]="mobileView() === 'list'"
+      aria-label="Bản đồ địa điểm"
+    >
+      <app-station-map
+        [stations]="stations()"
+        [selectedId]="selectedId()"
+        [userLocation]="userLocation()"
+        [radiusKm]="selectedRadiusKm()"
+        (stationSelected)="selectStation($event)"
+        (userLocated)="onUserLocated($event)"
+      />
+    </section>
+
+    <!-- Google Maps Floating Sidebar -->
+    <aside
+      class="floating-sidebar"
+      [class.collapsed]="sidebarCollapsed()"
+      [class.mobile-hidden]="mobileView() === 'map'"
+      aria-labelledby="finder-heading"
+    >
+      <!-- Search & Filters Header -->
+      <div class="sidebar-header">
+        <div class="search-box">
+          <svg class="search-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5">
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+          <input
+            type="text"
+            id="finder-heading"
+            class="search-input"
+            placeholder="Tìm trạm sạc, đổi pin, địa chỉ..."
+            [ngModel]="searchQuery()"
+            (ngModelChange)="searchQuery.set($event)"
+            aria-label="Tìm kiếm trạm"
+          />
+          @if (searchQuery()) {
+            <button
+              type="button"
+              class="clear-btn"
+              title="Xóa tìm kiếm"
+              (click)="searchQuery.set('')"
+            >
+              ✕
+            </button>
+          }
+        </div>
+
+        <!-- Filter Chips Row -->
+        <div class="filter-chips" role="radiogroup" aria-label="Lọc theo dịch vụ">
+          <button
+            type="button"
+            class="chip"
+            [class.active]="activeFilter() === 'all'"
+            (click)="setFilter('all')"
+          >
+            Tất cả
+          </button>
+          <button
+            type="button"
+            class="chip"
+            [class.active]="activeFilter() === 'charging'"
+            (click)="setFilter('charging')"
+          >
+            ⚡ Sạc ô tô
+          </button>
+          <button
+            type="button"
+            class="chip"
+            [class.active]="activeFilter() === 'swap'"
+            (click)="setFilter('swap')"
+          >
+            ↔ Đổi pin
+          </button>
+        </div>
+
+        <!-- Radius Selector Row -->
+        <div class="radius-chips-row" aria-label="Bán kính tìm kiếm xung quanh bạn">
+          <span class="radius-label">Bán kính:</span>
+          @for (r of radiusOptions; track r) {
+            <button
+              type="button"
+              class="radius-chip"
+              [class.active]="selectedRadiusKm() === r"
+              (click)="setRadius(r)"
+            >
+              {{ r }} km
+            </button>
+          }
+          <button
+            type="button"
+            class="radius-chip"
+            [class.active]="selectedRadiusKm() === 0"
+            (click)="setRadius(0)"
+          >
+            Toàn quốc
+          </button>
+        </div>
+
+        <!-- Results count & Collapse Toggle -->
+        <div class="sidebar-meta">
+          <span class="result-count" aria-live="polite">
+            <strong>{{ displayedStations().length }}</strong> trạm
+            @if (userLocation() && selectedRadiusKm() > 0) {
+              (trong bán kính {{ selectedRadiusKm() }} km)
+            }
+          </span>
+          <button
+            type="button"
+            class="collapse-toggle"
+            [title]="sidebarCollapsed() ? 'Mở rộng danh sách' : 'Thu gọn danh sách'"
+            (click)="toggleSidebar()"
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5">
+              @if (sidebarCollapsed()) {
+                <polyline points="9 18 15 12 9 6" />
+              } @else {
+                <polyline points="15 18 9 12 15 6" />
+              }
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Scrollable Station List -->
+      <div class="sidebar-scrollable">
+        <app-station-list
+          [stations]="displayedStations()"
+          [selectedId]="selectedId()"
+          (stationSelected)="selectStation($event)"
+        />
+
+        @if (loading()) {
+          <div class="status" role="status">
+            <span class="spinner"></span>
+            <p>Đang tìm trạm gần vị trí của bạn…</p>
+          </div>
+        }
+
+        @if (error()) {
+          <div class="error" role="alert">
+            <p>{{ error() }}</p>
+            <button type="button" class="retry-btn" (click)="loadMore()">Thử lại</button>
+          </div>
+        }
+
+        @if (!loading() && !error() && displayedStations().length === 0) {
+          <div class="empty">
+            <span class="empty-icon" aria-hidden="true">⌖</span>
+            <h3>Chưa có địa điểm</h3>
+            <p>Thử mở rộng bán kính tìm kiếm (ví dụ 25km, 50km) hoặc chọn chế độ Toàn quốc.</p>
+          </div>
+        }
+
+        @if (hasMore() && !error() && !loading() && !searchQuery()) {
+          <button type="button" class="load-more" (click)="loadMore()">
+            Tải thêm địa điểm ↓
+          </button>
+        }
+      </div>
+    </aside>
+
+    <!-- Google Maps Floating Station Detail Modal -->
+    @if (selectedId()) {
+      <section class="detail" aria-labelledby="detail-heading" aria-live="polite">
+        <div class="detail-header-card">
+          <div class="detail-badge-row">
+            <span class="detail-type-tag">● Trạm EVGo chính hãng</span>
+            <button
+              type="button"
+              class="close-detail-btn"
+              aria-label="Đóng chi tiết"
+              title="Đóng chi tiết"
+              (click)="closeDetail()"
+            >
+              ✕
+            </button>
+          </div>
+
+          @if (detailLoading()) {
+            <p class="detail-loading-text" role="status">Đang tải thông số trạm…</p>
+          }
+
+          @if (detailError() && !detailLoading()) {
+            <div class="detail-error-box" role="alert">
+              <p>{{ detailError() }}</p>
+              <button type="button" (click)="selectStation(selectedId()!)">Thử lại</button>
+            </div>
+          }
+
+          @if (detail(); as station) {
+            <h2 id="detail-heading">{{ station.name }}</h2>
+            <p class="detail-address">{{ station.address }}</p>
+
+            <div class="detail-quick-stats">
+              @if (station.distanceKm != null) {
+                <span class="stat-item highlight">📍 Cách bạn {{ formatDistance(station.distanceKm) }}</span>
+                <span class="stat-divider">•</span>
+              }
+              <span class="stat-item highlight">Mở cửa 24/7</span>
+              <span class="stat-divider">•</span>
+              <span class="stat-item">{{ serviceLabel(station) }}</span>
+            </div>
+
+            <div class="detail-capabilities">
+              @if (station.offersCarCharging) {
+                <div class="cap-card">
+                  <div class="cap-icon">⚡</div>
+                  <div class="cap-text">
+                    <strong>Trụ sạc DC Siêu nhanh</strong>
+                    <small>Công suất 150kW • Đầu cắm CCS2</small>
+                  </div>
+                </div>
+              }
+              @if (station.offersBatterySwap) {
+                <div class="cap-card">
+                  <div class="cap-icon">↔</div>
+                  <div class="cap-text">
+                    <strong>Tủ đổi pin thông minh</strong>
+                    <small>Đổi pin trong 3 phút • Pin 100% dung lượng</small>
+                  </div>
+                </div>
+              }
+            </div>
+
+            <div class="detail-actions">
+              <a
+                class="directions directions-primary-btn"
+                [href]="directionsUrl(station)"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                  <path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z" />
+                </svg>
+                Chỉ đường trên Google Maps ↗
+              </a>
+
+              <button
+                type="button"
+                class="copy-address-btn"
+                (click)="copyAddress(station.address)"
+              >
+                {{ copied() ? '✓ Đã sao chép' : 'Sao chép địa chỉ' }}
+              </button>
+            </div>
+          }
+        </div>
+      </section>
+    }
+  </div>
+</main>

@@ -1,4 +1,4 @@
-namespace EVChargeSwap.Features.Locations;
+namespace EVChargeSwap.Features.Locations.Entities;
 
 public sealed class Location
 {
@@ -17,6 +17,19 @@ public sealed class Location
     public Location(string name, string address, decimal latitude, decimal longitude,
         bool offersCarCharging, bool offersBatterySwap)
     {
+        SetDetails(name, address, latitude, longitude, offersCarCharging, offersBatterySwap);
+        Id = Guid.NewGuid();
+        IsActive = true;
+        CreatedAtUtc = DateTime.UtcNow;
+    }
+
+    public void Update(string name, string address, decimal latitude, decimal longitude,
+        bool offersCarCharging, bool offersBatterySwap) =>
+        SetDetails(name, address, latitude, longitude, offersCarCharging, offersBatterySwap);
+
+    private void SetDetails(string name, string address, decimal latitude, decimal longitude,
+        bool offersCarCharging, bool offersBatterySwap)
+    {
         if (string.IsNullOrWhiteSpace(name)) throw new ArgumentException("Name is required.", nameof(name));
         if (string.IsNullOrWhiteSpace(address)) throw new ArgumentException("Address is required.", nameof(address));
         if (name.Trim().Length > 160) throw new ArgumentException("Name cannot exceed 160 characters.", nameof(name));
@@ -26,16 +39,15 @@ public sealed class Location
         if (!offersCarCharging && !offersBatterySwap)
             throw new ArgumentException("A location must offer at least one service.");
 
-        Id = Guid.NewGuid();
         Name = name.Trim();
         Address = address.Trim();
         Latitude = latitude;
         Longitude = longitude;
         OffersCarCharging = offersCarCharging;
         OffersBatterySwap = offersBatterySwap;
-        IsActive = true;
-        CreatedAtUtc = DateTime.UtcNow;
     }
 
     public void Deactivate() => IsActive = false;
+    public void Activate() => IsActive = true;
+
 }

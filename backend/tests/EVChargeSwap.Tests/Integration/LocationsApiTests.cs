@@ -1,7 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using EVChargeSwap.Common.Pagination;
-using EVChargeSwap.Features.Locations;
+using EVChargeSwap.Features.Locations.Responses;
 using Microsoft.AspNetCore.Mvc;
 using Xunit;
 

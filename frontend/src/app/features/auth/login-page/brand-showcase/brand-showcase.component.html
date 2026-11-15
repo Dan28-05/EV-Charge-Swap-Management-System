@@ -1,0 +1,59 @@
+<section class="showcase" aria-labelledby="showcase-title">
+  <header class="brand-header">
+    <a class="brand" href="/" aria-label="EVGo — Trang chủ">
+      <span class="logo-frame"><img src="favicon.png" alt="Logo hươu EVGo" /></span>
+      <span class="brand-copy"><strong>EVGO</strong><small>Charge & Swap Network</small></span>
+    </a>
+    <span class="edition"><i></i>Năng lượng xanh</span>
+  </header>
+
+  <div class="hero-copy">
+    <div class="energy-field" aria-hidden="true">
+      <span class="ring ring-outer"><i></i></span>
+      <span class="ring ring-inner"></span>
+      <span class="energy-core"><b></b></span>
+    </div>
+    <p class="eyebrow"><span></span>Năng lượng cho đô thị chuyển động</p>
+    <h1 id="showcase-title">Đi xa hơn từ<br />một <em>điểm chạm.</em></h1>
+    <p class="intro">
+      Tìm trạm, giữ chỗ và quản lý hành trình năng lượng trong một trải nghiệm nhanh, rõ ràng và
+      liền mạch.
+    </p>
+
+    <div class="journey" aria-label="Quy trình sử dụng dịch vụ">
+      @for (step of journeySteps; track step; let index = $index) {
+        <div class="journey-step">
+          <span>{{ index + 1 }}</span>
+          <strong>{{ step }}</strong>
+        </div>
+        @if (!$last) {
+          <div class="journey-line" aria-hidden="true"><i></i></div>
+        }
+      }
+    </div>
+  </div>
+
+  <div class="metrics-block">
+    <div class="metrics-heading">
+      <span>Dữ liệu phát triển hiện tại</span>
+    </div>
+    <div class="metrics-grid">
+      @for (metric of metrics; track metric.label; let index = $index) {
+        <article class="metric" [style.--delay]="index * 120 + 'ms'">
+          <div class="metric-value">
+            {{ metric.value }}<small>{{ metric.unit }}</small>
+          </div>
+          <span>{{ metric.label }}</span>
+          <svg class="sparkline" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true">
+            <path class="sparkline-base" d="M2 28H98" />
+            <path class="sparkline-value" [attr.d]="metric.path" />
+          </svg>
+        </article>
+      }
+    </div>
+  </div>
+
+  <footer class="showcase-footer">
+    <span class="pulse"></span>Sẵn sàng cho hành trình năng lượng tiếp theo
+  </footer>
+</section>

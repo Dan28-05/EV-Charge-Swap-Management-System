@@ -5,3 +5,5 @@ dist
 .gitignore
 README.md
 *.log
+test-results
+playwright-report

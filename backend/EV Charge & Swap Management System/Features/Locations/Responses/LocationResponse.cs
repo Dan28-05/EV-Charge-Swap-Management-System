@@ -1,4 +1,4 @@
-namespace EVChargeSwap.Features.Locations;
+namespace EVChargeSwap.Features.Locations.Responses;
 
 public sealed record LocationResponse(
     Guid Id,

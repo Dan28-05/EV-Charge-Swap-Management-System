@@ -1,4 +1,4 @@
-using EVChargeSwap.Features.Locations;
+using EVChargeSwap.Features.Locations.Entities;
 using Xunit;
 
 namespace EVChargeSwap.Tests.Unit;

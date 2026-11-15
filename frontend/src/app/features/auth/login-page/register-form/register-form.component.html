@@ -1,0 +1,167 @@
+<section class="register-panel" aria-labelledby="register-title">
+  <div class="form-shell">
+    @if (registeredEmail(); as email) {
+      <div class="success-state" role="status">
+        <span class="success-icon">✓</span>
+        <span class="kicker">Tạo tài khoản thành công</span>
+        <h2 id="register-title">Kiểm tra hộp thư của bạn</h2>
+        <p>
+          Mã xác minh đã được gửi tới <strong>{{ email }}</strong>. Xác minh email hoặc số điện
+          thoại trước khi đăng nhập.
+        </p>
+        <a class="primary-link" routerLink="/login">Quay lại đăng nhập</a>
+      </div>
+    } @else {
+      <div class="form-heading">
+        <span class="kicker">Tạo tài khoản</span>
+        <h2 id="register-title">Bắt đầu cùng EVGo</h2>
+        <p>Chỉ mất một phút để sẵn sàng cho hành trình tiếp theo.</p>
+      </div>
+
+      <form [formGroup]="form" (ngSubmit)="submit()" novalidate>
+        <div class="field full">
+          <label for="fullName">Họ và tên</label>
+          <div class="line-control" [class.invalid]="isInvalid('fullName')">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="8" r="4" />
+              <path d="M4 21c.8-4.4 3.5-7 8-7s7.2 2.6 8 7" />
+            </svg>
+            <input
+              id="fullName"
+              type="text"
+              formControlName="fullName"
+              autocomplete="name"
+              placeholder="Nguyễn Minh Anh"
+            />
+          </div>
+          @if (isInvalid('fullName')) {
+            <small>Nhập họ tên từ 2 ký tự trở lên.</small>
+          }
+        </div>
+
+        <div class="form-grid">
+          <div class="field">
+            <label for="email">Email</label>
+            <div class="line-control" [class.invalid]="isInvalid('email')">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 6h16v12H4z" />
+                <path d="m4 7 8 6 8-6" />
+              </svg>
+              <input
+                id="email"
+                type="email"
+                formControlName="email"
+                autocomplete="email"
+                placeholder="name@example.com"
+              />
+            </div>
+            @if (isInvalid('email')) {
+              <small>Nhập một địa chỉ email hợp lệ.</small>
+            }
+          </div>
+
+          <div class="field">
+            <label for="phoneNumber">Số điện thoại</label>
+            <div class="line-control" [class.invalid]="isInvalid('phoneNumber')">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M7 3h3l1.5 5-2 1.5a15 15 0 0 0 5 5l1.5-2 5 1.5v3c0 2-1 4-4 4C9.3 21 3 14.7 3 7c0-3 2-4 4-4Z"
+                />
+              </svg>
+              <input
+                id="phoneNumber"
+                type="tel"
+                formControlName="phoneNumber"
+                autocomplete="tel"
+                placeholder="09... hoặc +849..."
+              />
+            </div>
+            @if (isInvalid('phoneNumber')) {
+              <small>Nhập số di động Việt Nam hợp lệ.</small>
+            }
+          </div>
+
+          <div class="field">
+            <label for="registerPassword">Mật khẩu</label>
+            <div class="line-control" [class.invalid]="isInvalid('password')">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="5" y="10" width="14" height="10" rx="2" />
+                <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+              </svg>
+              <input
+                id="registerPassword"
+                [type]="showPassword() ? 'text' : 'password'"
+                formControlName="password"
+                autocomplete="new-password"
+                placeholder="Tối thiểu 8 ký tự"
+              />
+              <button
+                type="button"
+                class="icon-action"
+                (click)="togglePassword()"
+                [attr.aria-label]="showPassword() ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M3 12s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6Z" />
+                  <circle cx="12" cy="12" r="2.5" />
+                </svg>
+              </button>
+            </div>
+            @if (isInvalid('password')) {
+              <small>Cần chữ hoa, chữ thường, số và ít nhất 8 ký tự.</small>
+            }
+          </div>
+
+          <div class="field">
+            <label for="passwordConfirmation">Nhập lại mật khẩu</label>
+            <div class="line-control" [class.invalid]="confirmationInvalid()">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6" /></svg>
+              <input
+                id="passwordConfirmation"
+                [type]="showPassword() ? 'text' : 'password'"
+                formControlName="passwordConfirmation"
+                autocomplete="new-password"
+                placeholder="Nhập lại mật khẩu"
+              />
+            </div>
+            @if (confirmationInvalid()) {
+              <small>Mật khẩu nhập lại chưa khớp.</small>
+            }
+          </div>
+        </div>
+
+        <label
+          class="terms"
+          [class.invalid]="
+            form.controls.acceptedTerms.invalid && form.controls.acceptedTerms.touched
+          "
+        >
+          <input type="checkbox" formControlName="acceptedTerms" />
+          <span class="check"
+            ><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3 8 3 3 7-7" /></svg
+          ></span>
+          <span>Tôi đồng ý với điều khoản sử dụng và chính sách quyền riêng tư.</span>
+        </label>
+
+        @if (errorMessage(); as error) {
+          <div class="notice" role="alert"><span>!</span>{{ error }}</div>
+        }
+
+        <button class="submit" type="submit" [disabled]="isSubmitting()">
+          @if (isSubmitting()) {
+            <span class="spinner" aria-hidden="true"></span>Tạo tài khoản...
+          } @else {
+            <span>Tạo tài khoản</span
+            ><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5" /></svg>
+          }
+        </button>
+      </form>
+
+      <p class="login-link">Đã có tài khoản? <a routerLink="/login">Đăng nhập</a></p>
+    }
+  </div>
+
+  <footer>
+    <span>© {{ currentYear }} EVGo</span><a routerLink="/login">Trở về đăng nhập</a>
+  </footer>
+</section>

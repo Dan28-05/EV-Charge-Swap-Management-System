@@ -12,6 +12,7 @@ services:
       ASPNETCORE_HTTP_PORTS: "8080"
       HttpsRedirection__Enabled: "false"
       ConnectionStrings__Default: "Host=postgres;Port=5432;Database=ev_charge_swap;Username=ev_user;Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}"
+      ConnectionStrings__Redis: "${REDIS_CONNECTION_STRING:-redis:6379}"
       Jwt__SigningKey: "${JWT_SIGNING_KEY:?Set JWT_SIGNING_KEY in .env}"
       BootstrapAdmin__Email: "${ADMIN_BOOTSTRAP_EMAIL:-}"
       BootstrapAdmin__FullName: "${ADMIN_BOOTSTRAP_FULL_NAME:-}"
@@ -20,6 +21,8 @@ services:
       - "127.0.0.1:8080:8080"
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
@@ -68,5 +71,20 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    container_name: ev-charge-swap-redis-dev
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
 volumes:
   postgres_data:
+  redis_data:

@@ -1,8 +1,8 @@
 using System.ComponentModel.DataAnnotations;
 
-namespace EVChargeSwap.Features.Auth.Requests;
+namespace EVChargeSwap.Features.Users.Requests;
 
-public sealed class RegisterRequest
+public sealed class CreateOperatorRequest
 {
     [Required, EmailAddress, StringLength(256)]
     public string Email { get; init; } = string.Empty;

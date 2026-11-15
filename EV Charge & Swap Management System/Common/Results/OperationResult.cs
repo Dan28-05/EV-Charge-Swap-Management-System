@@ -1,6 +1,6 @@
-namespace EVChargeSwap.Features.Auth;
+namespace EVChargeSwap.Common.Results;
 
-public enum AuthFailure
+public enum OperationFailure
 {
     None,
     Validation,
@@ -9,9 +9,9 @@ public enum AuthFailure
     NotFound
 }
 
-public sealed class AuthResult<T>
+public sealed class OperationResult<T>
 {
-    private AuthResult(T? value, AuthFailure failure, string? detail,
+    private OperationResult(T? value, OperationFailure failure, string? detail,
         IReadOnlyDictionary<string, string[]> errors)
     {
         Value = value;
@@ -21,15 +21,15 @@ public sealed class AuthResult<T>
     }
 
     public T? Value { get; }
-    public AuthFailure Failure { get; }
+    public OperationFailure Failure { get; }
     public string? Detail { get; }
     public IReadOnlyDictionary<string, string[]> Errors { get; }
-    public bool Succeeded => Failure == AuthFailure.None;
+    public bool Succeeded => Failure == OperationFailure.None;
 
-    public static AuthResult<T> Success(T value) =>
-        new(value, AuthFailure.None, null, new Dictionary<string, string[]>());
+    public static OperationResult<T> Success(T value) =>
+        new(value, OperationFailure.None, null, new Dictionary<string, string[]>());
 
-    public static AuthResult<T> Fail(AuthFailure failure, string detail,
+    public static OperationResult<T> Fail(OperationFailure failure, string detail,
         IReadOnlyDictionary<string, string[]>? errors = null) =>
         new(default, failure, detail, errors ?? new Dictionary<string, string[]>());
 }

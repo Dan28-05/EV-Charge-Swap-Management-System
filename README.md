@@ -4,6 +4,11 @@ Nền tảng quản lý địa điểm sạc ô tô điện và đổi pin xe m�
 
 Backend dùng **ASP.NET Core .NET 9 + EF Core + PostgreSQL**, tổ chức thành một ứng dụng monolith chia thư mục theo chức năng. Angular sẽ được phát triển thành ứng dụng riêng.
 
+Tài liệu nguồn của dự án:
+
+- [Product requirements](docs/requirements.md)
+- [Architecture and technology roadmap](docs/architecture-roadmap.md)
+
 ## 1. Trạng thái triển khai
 
 | Hạng mục | Hiện trạng |
@@ -68,6 +73,28 @@ Các phần nghiệp vụ bên dưới là mục tiêu phát triển, không ph�
 solution-root/
 ├── EV Charge & Swap Management System/        # Một project Web API
 │   ├── Features/
+│   │   ├── Authentication/
+│   │   │   ├── Entities/RefreshToken.cs
+│   │   │   ├── Persistence/RefreshTokenConfiguration.cs
+│   │   │   ├── Requests/
+│   │   │   ├── Responses/AuthenticationResponse.cs
+│   │   │   ├── Services/
+│   │   │   │   ├── AuthenticationService.cs
+│   │   │   │   └── JwtTokenService.cs
+│   │   │   ├── AuthenticationController.cs
+│   │   │   └── JwtOptions.cs
+│   │   ├── Users/
+│   │   │   ├── Entities/ApplicationUser.cs
+│   │   │   ├── Persistence/ApplicationUserConfiguration.cs
+│   │   │   ├── Requests/CreateOperatorRequest.cs
+│   │   │   ├── Responses/UserResponse.cs
+│   │   │   ├── Services/
+│   │   │   │   ├── AdminBootstrapper.cs
+│   │   │   │   └── UserService.cs
+│   │   │   └── UsersController.cs
+│   │   ├── Authorization/
+│   │   │   ├── Persistence/
+│   │   │   └── AppRoles.cs
 │   │   └── Locations/
 │   │       ├── Location.cs
 │   │       ├── LocationConfiguration.cs
@@ -76,6 +103,7 @@ solution-root/
 │   │       └── LocationsController.cs
 │   ├── Common/
 │   │   ├── Errors/GlobalExceptionHandler.cs
+│   │   ├── Results/OperationResult.cs
 │   │   └── Pagination/
 │   │       ├── PaginationRequest.cs
 │   │       └── PagedResponse.cs
@@ -108,6 +136,9 @@ solution-root/
 | File | Trách nhiệm |
 | --- | --- |
 | Entity, ví dụ `Location.cs` | Dữ liệu nghiệp vụ và các điều kiện tạo đối tượng hợp lệ |
+| `Entities/*` | Entity được EF Core map với database; có thể chứa hành vi chỉ thay đổi trạng thái của chính entity |
+| `Persistence/*` | Fluent mapping giữa entity và bảng/cột/index/foreign key; không xử lý HTTP hoặc use case |
+| `Services/*` | Xử lý use case; Auth và User được tách để tránh gom nhiều trách nhiệm vào một service |
 | Request DTO, ví dụ `PaginationRequest.cs` | Dữ liệu nhận từ HTTP; validation tham số đầu vào |
 | Response DTO, ví dụ `LocationResponse.cs` | Dữ liệu chọn lọc trả cho Angular, không trả nguyên entity |
 | `LocationService.cs` | Thực hiện truy vấn/use case; hiện đọc không tracking và phân trang ổn định |
@@ -117,6 +148,7 @@ solution-root/
 | `AppDbContextFactory.cs` | Hỗ trợ công cụ EF; đọc user-secrets hoặc biến môi trường khi cập nhật database |
 | `Data/Migrations/*` | Lịch sử schema do EF sinh; review trước khi áp dụng |
 | `Common/Errors/*` | Trả Problem Details cho lỗi bất ngờ, không đưa stack trace hoặc secret vào response |
+| `Common/Results/*` | Kết quả use case dùng chung, giúp service không phụ thuộc ngược vào một feature khác |
 | `Health/*` | Phân biệt process đang sống với database có thể kết nối |
 | `Middleware/*` | Hành vi HTTP dùng chung; không đặt nghiệp vụ đặt chỗ/sạc ở đây |
 | `Program.cs` | Đăng ký dependency injection và sắp thứ tự middleware/endpoints |

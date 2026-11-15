@@ -1,6 +1,8 @@
+using EVChargeSwap.Features.Authorization;
+using EVChargeSwap.Features.Users.Entities;
 using Microsoft.AspNetCore.Identity;
 
-namespace EVChargeSwap.Features.Auth;
+namespace EVChargeSwap.Features.Users.Services;
 
 public sealed class AdminBootstrapper(
     UserManager<ApplicationUser> userManager,

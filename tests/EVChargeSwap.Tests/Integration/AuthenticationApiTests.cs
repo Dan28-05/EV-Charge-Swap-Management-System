@@ -1,19 +1,21 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using EVChargeSwap.Features.Auth.Requests;
-using EVChargeSwap.Features.Auth.Responses;
+using EVChargeSwap.Features.Authentication.Requests;
+using EVChargeSwap.Features.Authentication.Responses;
+using EVChargeSwap.Features.Users.Requests;
+using EVChargeSwap.Features.Users.Responses;
 using Xunit;
 
 namespace EVChargeSwap.Tests.Integration;
 
-public sealed class AuthApiTests : IClassFixture<ApiFactory>
+public sealed class AuthenticationApiTests : IClassFixture<ApiFactory>
 {
     private const string ValidPassword = "StrongPass123";
     private readonly ApiFactory factory;
     private readonly HttpClient client;
 
-    public AuthApiTests(ApiFactory factory)
+    public AuthenticationApiTests(ApiFactory factory)
     {
         this.factory = factory;
         client = factory.CreateClient(new() { BaseAddress = new Uri("https://localhost") });
@@ -67,7 +69,7 @@ public sealed class AuthApiTests : IClassFixture<ApiFactory>
         var firstRefresh = await client.PostAsJsonAsync("/api/auth/refresh",
             new RefreshTokenRequest { RefreshToken = original.RefreshToken });
         firstRefresh.EnsureSuccessStatusCode();
-        var rotated = await firstRefresh.Content.ReadFromJsonAsync<AuthResponse>();
+        var rotated = await firstRefresh.Content.ReadFromJsonAsync<AuthenticationResponse>();
         Assert.NotNull(rotated);
         Assert.NotEqual(original.RefreshToken, rotated.RefreshToken);
 
@@ -104,7 +106,7 @@ public sealed class AuthApiTests : IClassFixture<ApiFactory>
         var login = await client.PostAsJsonAsync("/api/auth/login",
             new LoginRequest { Email = adminEmail, Password = ValidPassword });
         login.EnsureSuccessStatusCode();
-        var admin = await login.Content.ReadFromJsonAsync<AuthResponse>();
+        var admin = await login.Content.ReadFromJsonAsync<AuthenticationResponse>();
         Assert.NotNull(admin);
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", admin.AccessToken);
 
@@ -115,7 +117,7 @@ public sealed class AuthApiTests : IClassFixture<ApiFactory>
         Assert.Contains("Operator", operatorUser.Roles);
     }
 
-    private async Task<AuthResponse> RegisterAsync(string? email = null)
+    private async Task<AuthenticationResponse> RegisterAsync(string? email = null)
     {
         var response = await client.PostAsJsonAsync("/api/auth/register", new RegisterRequest
         {
@@ -125,7 +127,7 @@ public sealed class AuthApiTests : IClassFixture<ApiFactory>
             Password = ValidPassword
         });
         response.EnsureSuccessStatusCode();
-        return (await response.Content.ReadFromJsonAsync<AuthResponse>())!;
+        return (await response.Content.ReadFromJsonAsync<AuthenticationResponse>())!;
     }
 
     private static CreateOperatorRequest NewOperator() => new()

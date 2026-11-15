@@ -1,4 +1,4 @@
-namespace EVChargeSwap.Features.Auth;
+namespace EVChargeSwap.Features.Authorization;
 
 public static class AppRoles
 {

@@ -1,17 +1,19 @@
-using EVChargeSwap.Features.Auth.Requests;
-using EVChargeSwap.Features.Auth.Responses;
+using EVChargeSwap.Common.Results;
+using EVChargeSwap.Features.Authentication.Requests;
+using EVChargeSwap.Features.Authentication.Responses;
+using EVChargeSwap.Features.Authentication.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
-namespace EVChargeSwap.Features.Auth;
+namespace EVChargeSwap.Features.Authentication;
 
 [ApiController]
 [Route("api/auth")]
-public sealed class AuthController(AuthService service) : ControllerBase
+public sealed class AuthenticationController(AuthenticationService service) : ControllerBase
 {
     [AllowAnonymous]
     [HttpPost("register")]
-    public async Task<ActionResult<AuthResponse>> Register(RegisterRequest request, CancellationToken cancellationToken)
+    public async Task<ActionResult<AuthenticationResponse>> Register(RegisterRequest request, CancellationToken cancellationToken)
     {
         var result = await service.RegisterAsync(request, cancellationToken);
         return result.Succeeded ? Created("/api/users/me", result.Value) : Failure(result);
@@ -19,7 +21,7 @@ public sealed class AuthController(AuthService service) : ControllerBase
 
     [AllowAnonymous]
     [HttpPost("login")]
-    public async Task<ActionResult<AuthResponse>> Login(LoginRequest request, CancellationToken cancellationToken)
+    public async Task<ActionResult<AuthenticationResponse>> Login(LoginRequest request, CancellationToken cancellationToken)
     {
         var result = await service.LoginAsync(request, cancellationToken);
         return result.Succeeded ? Ok(result.Value) : Failure(result);
@@ -27,7 +29,7 @@ public sealed class AuthController(AuthService service) : ControllerBase
 
     [AllowAnonymous]
     [HttpPost("refresh")]
-    public async Task<ActionResult<AuthResponse>> Refresh(RefreshTokenRequest request, CancellationToken cancellationToken)
+    public async Task<ActionResult<AuthenticationResponse>> Refresh(RefreshTokenRequest request, CancellationToken cancellationToken)
     {
         var result = await service.RefreshAsync(request.RefreshToken, cancellationToken);
         return result.Succeeded ? Ok(result.Value) : Failure(result);
@@ -41,14 +43,14 @@ public sealed class AuthController(AuthService service) : ControllerBase
         return NoContent();
     }
 
-    private ObjectResult Failure<T>(AuthResult<T> result)
+    private ObjectResult Failure<T>(OperationResult<T> result)
     {
         var status = result.Failure switch
         {
-            AuthFailure.Validation => StatusCodes.Status400BadRequest,
-            AuthFailure.Conflict => StatusCodes.Status409Conflict,
-            AuthFailure.Unauthorized => StatusCodes.Status401Unauthorized,
-            AuthFailure.NotFound => StatusCodes.Status404NotFound,
+            OperationFailure.Validation => StatusCodes.Status400BadRequest,
+            OperationFailure.Conflict => StatusCodes.Status409Conflict,
+            OperationFailure.Unauthorized => StatusCodes.Status401Unauthorized,
+            OperationFailure.NotFound => StatusCodes.Status404NotFound,
             _ => StatusCodes.Status500InternalServerError
         };
         var problem = new ProblemDetails

@@ -1,6 +1,8 @@
-namespace EVChargeSwap.Features.Auth.Responses;
+using EVChargeSwap.Features.Users.Responses;
 
-public sealed record AuthResponse(
+namespace EVChargeSwap.Features.Authentication.Responses;
+
+public sealed record AuthenticationResponse(
     string TokenType,
     string AccessToken,
     DateTime AccessTokenExpiresAtUtc,

@@ -1,22 +1,25 @@
 using System.IdentityModel.Tokens.Jwt;
-using EVChargeSwap.Features.Auth.Requests;
-using EVChargeSwap.Features.Auth.Responses;
+using EVChargeSwap.Common.Results;
+using EVChargeSwap.Features.Authorization;
+using EVChargeSwap.Features.Users.Requests;
+using EVChargeSwap.Features.Users.Responses;
+using EVChargeSwap.Features.Users.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
-namespace EVChargeSwap.Features.Auth;
+namespace EVChargeSwap.Features.Users;
 
 [ApiController]
 [Route("api/users")]
 [Authorize]
-public sealed class UsersController(AuthService service) : ControllerBase
+public sealed class UsersController(UserService service) : ControllerBase
 {
     [HttpGet("me")]
     public async Task<ActionResult<UserResponse>> Me()
     {
         var subject = User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
         if (!Guid.TryParse(subject, out var userId)) return Unauthorized();
-        var result = await service.GetUserAsync(userId);
+        var result = await service.GetAsync(userId);
         return result.Succeeded ? Ok(result.Value) : NotFound();
     }
 
@@ -29,7 +32,7 @@ public sealed class UsersController(AuthService service) : ControllerBase
         if (result.Succeeded)
             return StatusCode(StatusCodes.Status201Created, result.Value);
 
-        var status = result.Failure == AuthFailure.Conflict
+        var status = result.Failure == OperationFailure.Conflict
             ? StatusCodes.Status409Conflict
             : StatusCodes.Status400BadRequest;
         var problem = new ProblemDetails

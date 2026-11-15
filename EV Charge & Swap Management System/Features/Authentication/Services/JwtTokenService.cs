@@ -2,12 +2,14 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
+using EVChargeSwap.Features.Authentication.Entities;
+using EVChargeSwap.Features.Users.Entities;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 
-namespace EVChargeSwap.Features.Auth;
+namespace EVChargeSwap.Features.Authentication.Services;
 
-public sealed class TokenService(IOptions<JwtOptions> jwtOptions, TimeProvider timeProvider)
+public sealed class JwtTokenService(IOptions<JwtOptions> jwtOptions, TimeProvider timeProvider)
 {
     private readonly JwtOptions options = jwtOptions.Value;
 

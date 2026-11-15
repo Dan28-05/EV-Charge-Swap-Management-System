@@ -1,4 +1,4 @@
-namespace EVChargeSwap.Features.Auth.Responses;
+namespace EVChargeSwap.Features.Users.Responses;
 
 public sealed record UserResponse(
     Guid Id,

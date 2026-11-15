@@ -1,4 +1,6 @@
-namespace EVChargeSwap.Features.Auth;
+using EVChargeSwap.Features.Users.Entities;
+
+namespace EVChargeSwap.Features.Authentication.Entities;
 
 public sealed class RefreshToken
 {

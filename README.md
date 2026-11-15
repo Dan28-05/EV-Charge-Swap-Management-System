@@ -17,7 +17,7 @@ Backend dùng **ASP.NET Core .NET 9 + EF Core + PostgreSQL**, tổ chức thành
 | Health | Liveness của API và readiness kiểm tra kết nối database |
 | Tests | Unit test và HTTP integration test; integration dùng SQLite trong bộ nhớ |
 | GitHub Actions | Chỉ có thư mục giữ chỗ; chưa có workflow CI/CD |
-| Users/JWT/RBAC | Chưa triển khai |
+| Users/JWT/RBAC | Đã có Identity, đăng ký Customer, JWT, refresh rotation/reuse detection, logout, hồ sơ hiện tại, bootstrap Admin và Admin tạo Operator |
 | ChargingBays, Batteries, Reservations | Chưa triển khai |
 | ChargingSessions, BatterySwaps, Invoice, Payment | Chưa triển khai |
 | Angular, bản đồ và thông báo nghiệp vụ | Chưa triển khai |
@@ -141,7 +141,9 @@ Các lệnh bên dưới chạy trong **thư mục chứa file solution**.
 if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 ```
 
-**Docker Compose tự đọc .env; ASP.NET Core không tự đọc file này.** API nhận connection string từ user-secrets hoặc biến môi trường. Để dùng cùng mật khẩu với Docker local:
+**Docker Compose tự đọc .env; ASP.NET Core không tự đọc file này.** Đặt `POSTGRES_PASSWORD`, một `JWT_SIGNING_KEY` ngẫu nhiên dài ít nhất 32 ký tự và, nếu cần, thông tin `ADMIN_BOOTSTRAP_*` tùy chọn theo `.env.example`.
+
+API chạy trên host nhận connection string và khóa JWT từ user-secrets hoặc biến môi trường. Để dùng cùng mật khẩu với Docker local và tạo khóa JWT riêng:
 
 ```powershell
 $apiProject = '.\EV Charge & Swap Management System\EV Charge & Swap Management System.csproj'
@@ -149,7 +151,19 @@ $passwordLine = Get-Content .env | Where-Object { $_ -match '^POSTGRES_PASSWORD=
 if (-not $passwordLine) { throw 'Missing POSTGRES_PASSWORD in .env' }
 $localPassword = ($passwordLine -split '=', 2)[1]
 dotnet user-secrets set 'ConnectionStrings:Default' "Host=localhost;Port=5432;Database=ev_charge_swap;Username=ev_user;Password=$localPassword" --project $apiProject
+$jwtSigningKey = [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(48))
+dotnet user-secrets set 'Jwt:SigningKey' $jwtSigningKey --project $apiProject
 ```
+
+Tùy chọn tạo Admin đầu tiên sau khi migration đã được áp dụng:
+
+```powershell
+dotnet user-secrets set 'BootstrapAdmin:Email' 'admin@example.local' --project $apiProject
+dotnet user-secrets set 'BootstrapAdmin:FullName' 'Local Administrator' --project $apiProject
+dotnet user-secrets set 'BootstrapAdmin:Password' 'ChangeThisPassword123' --project $apiProject
+```
+
+Sau lần khởi động đầu tiên, có thể xóa ba secret bootstrap; tài khoản Admin đã nằm trong database. Không dùng mật khẩu ví dụ ở môi trường thật.
 
 Ở môi trường triển khai, cung cấp `ConnectionStrings__Default` qua hệ thống secret của môi trường. Không commit mật khẩu, khóa ký JWT hoặc khóa thanh toán.
 
@@ -220,10 +234,18 @@ Migration không tự chạy khi API khởi động. Container dùng volume `pos
 | `https://localhost:7195/openapi/v1.json` | Tài liệu OpenAPI JSON |
 | `GET /api/locations?page=1&pageSize=20` | Danh sách địa điểm đang hoạt động |
 | `GET /api/locations/{id}` | Chi tiết địa điểm, 404 khi không có/đã ẩn |
+| `POST /api/auth/register` | Đăng ký Customer và nhận access/refresh token |
+| `POST /api/auth/login` | Đăng nhập; khóa 15 phút sau 5 lần sai |
+| `POST /api/auth/refresh` | Rotate refresh token và cấp access token mới |
+| `POST /api/auth/logout` | Thu hồi refresh token; gọi lặp lại vẫn trả 204 |
+| `GET /api/users/me` | Hồ sơ tài khoản hiện tại; yêu cầu Bearer token |
+| `POST /api/users/operators` | Admin tạo tài khoản Operator |
 | `GET /health/live` | Process API đang phản hồi; không kiểm tra database |
 | `GET /health/ready` | Kiểm tra kết nối database; 503 nếu không sẵn sàng |
 
 Scalar và OpenAPI chỉ được expose trong **Development**. Health endpoints là sức khỏe hệ thống backend, không phải trạng thái đầu sạc hoặc pin.
+
+Logout thu hồi refresh token của phiên hiện tại. Access token đã phát hành tiếp tục hợp lệ tối đa 15 phút; mọi request có token vẫn kiểm tra tài khoản còn active và `SecurityStamp` chưa thay đổi.
 
 `Page >= 1`, `1 <= PageSize <= 100`. Request tạo offset vượt giới hạn số nguyên bị từ chối bằng HTTP 400. Kết quả phân trang có `items`, `page`, `pageSize`, `totalCount`.
 
@@ -237,7 +259,7 @@ Sau khi áp dụng migration, có thể thêm hai địa điểm giả lập loc
 Get-Content -Raw '.\EV Charge & Swap Management System\Data\Seed\dev-locations.sql' | docker compose exec -T postgres psql -U ev_user -d ev_charge_swap
 ```
 
-Seed có thể chạy lại mà không tạo trùng hai địa điểm. Không chạy seed trên database thật. Chưa có endpoint tạo/sửa địa điểm vì chưa triển khai phân quyền Admin.
+Seed có thể chạy lại mà không tạo trùng hai địa điểm. Không chạy seed trên database thật. Chưa có endpoint tạo/sửa địa điểm; RBAC Admin đã có nhưng Location CRUD là chức năng kế tiếp.
 
 ## 9. Chạy test
 
@@ -248,6 +270,7 @@ dotnet test '.\EV Charge & Swap Management System.sln' -m:1
 - Unit test kiểm tra quy tắc Location, giới hạn tọa độ/độ dài, bắt buộc có dịch vụ và validation/overflow của phân trang.
 - HTTP integration test dùng `WebApplicationFactory` để chạy API trong test server và SQLite trong bộ nhớ để kiểm tra truy vấn, phân trang, lọc địa điểm đã ẩn và 404.
 - Test nền tảng kiểm tra liveness/readiness, tình huống dependency thất bại, Scalar/OpenAPI chỉ xuất hiện trong Development, lỗi không lộ thông tin và request ID khớp.
+- Test auth kiểm tra đăng ký/đăng nhập, không dò email qua lỗi đăng nhập, profile, refresh rotation và reuse detection, logout idempotent cùng quyền Admin tạo Operator.
 - Không cần Docker để chạy bộ test này. SQLite không chứng minh PostgreSQL migration hay constraint hoạt động giống hoàn toàn; kiểm thử PostgreSQL thật là bước riêng khi có Docker/database test.
 - Test project không được dùng làm nơi chứa code production. SQLite `EnsureCreated` chỉ dùng để tạo database test tạm thời; database ứng dụng dùng migrations.
 
@@ -271,14 +294,13 @@ Khi tự viết CI, có thể đặt workflow build/test trong thư mục này; 
 
 ## 12. ERD và lộ trình tiếp theo
 
-Chín entity lõi dự kiến: `User`, `Location`, `ChargingBay`, `Battery`, `Reservation`, `ChargingSession`, `BatterySwap`, `Invoice`, `Payment`. Hiện mới triển khai `Location`.
+Chín entity lõi dự kiến: `User`, `Location`, `ChargingBay`, `Battery`, `Reservation`, `ChargingSession`, `BatterySwap`, `Invoice`, `Payment`. Hiện đã triển khai `User`, `Location` và entity hạ tầng `RefreshToken`.
 
-1. Chốt cách xác thực, thêm Users và RBAC.
-2. Thêm chỗ sạc, pin, phân công nhân viên và giờ phục vụ.
-3. Thêm đặt chỗ 15 phút, chống đặt trùng và job hết hạn.
-4. Thêm phiên sạc, giao nhận pin và lịch sử sự cố.
-5. Thêm bảng giá, hóa đơn, payment webhook và test đồng thời/idempotency.
-6. Thêm Angular, bản đồ/chỉ đường, thông báo và báo cáo.
+1. Thêm Location CRUD cho Admin, chỗ sạc, pin, phân công nhân viên và giờ phục vụ.
+2. Thêm đặt chỗ 15 phút, chống đặt trùng và job hết hạn.
+3. Thêm phiên sạc, giao nhận pin và lịch sử sự cố.
+4. Thêm bảng giá, hóa đơn, payment webhook và test đồng thời/idempotency.
+5. Thêm Angular, bản đồ/chỉ đường, thông báo và báo cáo.
 
 Bảng mở rộng như Tariff, OperatorAssignment, ServiceHours, IncidentReport và AuditLog được thêm theo chức năng thực tế. Chưa triển khai đặt lịch tương lai, nhiều hệ pin, tính phí đỗ quá giờ hoặc kết nối phần cứng.
 

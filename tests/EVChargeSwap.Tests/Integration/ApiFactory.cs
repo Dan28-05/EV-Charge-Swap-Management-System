@@ -1,5 +1,7 @@
 using EVChargeSwap.Data;
 using EVChargeSwap.Features.Locations;
+using EVChargeSwap.Features.Auth;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.Sqlite;
@@ -20,6 +22,11 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
     {
         builder.UseEnvironment("Development");
         builder.UseSetting("ConnectionStrings:Default", "Host=localhost;Database=unused_by_tests;Username=test");
+        builder.UseSetting("Jwt:Issuer", "EVChargeSwap.Tests");
+        builder.UseSetting("Jwt:Audience", "EVChargeSwap.Tests.Client");
+        builder.UseSetting("Jwt:SigningKey", "integration-test-signing-key-with-at-least-32-characters");
+        builder.UseSetting("Jwt:AccessTokenMinutes", "15");
+        builder.UseSetting("Jwt:RefreshTokenDays", "7");
         builder.ConfigureServices(services =>
         {
             services.RemoveAll<DbContextOptions<AppDbContext>>();
@@ -51,5 +58,18 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         ActiveLocationId = first.Id;
         InactiveLocationId = inactive.Id;
         return host;
+    }
+
+    public async Task CreateAdminAsync(string email, string password)
+    {
+        using var scope = Services.CreateScope();
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var user = new ApplicationUser(email, "Test Admin", DateTime.UtcNow);
+        var createResult = await userManager.CreateAsync(user, password);
+        if (!createResult.Succeeded)
+            throw new InvalidOperationException(string.Join("; ", createResult.Errors.Select(x => x.Description)));
+        var roleResult = await userManager.AddToRoleAsync(user, AppRoles.Admin);
+        if (!roleResult.Succeeded)
+            throw new InvalidOperationException(string.Join("; ", roleResult.Errors.Select(x => x.Description)));
     }
 }

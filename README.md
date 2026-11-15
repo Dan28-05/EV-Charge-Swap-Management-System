@@ -71,64 +71,74 @@ Các phần nghiệp vụ bên dưới là mục tiêu phát triển, không ph�
 
 ```text
 solution-root/
-├── EV Charge & Swap Management System/        # Một project Web API
-│   ├── Features/
-│   │   ├── Authentication/
-│   │   │   ├── Entities/RefreshToken.cs
-│   │   │   ├── Persistence/RefreshTokenConfiguration.cs
-│   │   │   ├── Requests/
-│   │   │   ├── Responses/AuthenticationResponse.cs
-│   │   │   ├── Services/
-│   │   │   │   ├── AuthenticationService.cs
-│   │   │   │   └── JwtTokenService.cs
-│   │   │   ├── AuthenticationController.cs
-│   │   │   └── JwtOptions.cs
-│   │   ├── Users/
-│   │   │   ├── Entities/ApplicationUser.cs
-│   │   │   ├── Persistence/ApplicationUserConfiguration.cs
-│   │   │   ├── Requests/CreateOperatorRequest.cs
-│   │   │   ├── Responses/UserResponse.cs
-│   │   │   ├── Services/
-│   │   │   │   ├── AdminBootstrapper.cs
-│   │   │   │   └── UserService.cs
-│   │   │   └── UsersController.cs
-│   │   ├── Authorization/
-│   │   │   ├── Persistence/
-│   │   │   └── AppRoles.cs
-│   │   └── Locations/
-│   │       ├── Location.cs
-│   │       ├── LocationConfiguration.cs
-│   │       ├── LocationResponse.cs
-│   │       ├── LocationService.cs
-│   │       └── LocationsController.cs
-│   ├── Common/
-│   │   ├── Errors/GlobalExceptionHandler.cs
-│   │   ├── Results/OperationResult.cs
-│   │   └── Pagination/
-│   │       ├── PaginationRequest.cs
-│   │       └── PagedResponse.cs
-│   ├── Data/
-│   │   ├── AppDbContext.cs
-│   │   ├── AppDbContextFactory.cs
-│   │   ├── Migrations/
-│   │   └── Seed/dev-locations.sql
-│   ├── Health/
-│   │   ├── DatabaseHealthCheck.cs
-│   │   └── HealthResponseWriter.cs
-│   ├── Middleware/RequestLoggingMiddleware.cs
-│   ├── Properties/launchSettings.json
-│   ├── Program.cs
-│   └── appsettings*.json
-├── tests/EVChargeSwap.Tests/                   # Project kiểm thử, không phải service
-│   ├── Unit/
-│   └── Integration/
-├── .github/workflows/.gitkeep                 # Chưa có workflow
-├── .env.example                              # Mẫu được đưa vào Git
-├── .env                                      # Chỉ ở máy local, bị Git bỏ qua
-├── compose.yaml
-├── Dockerfile                                # Build API và image migration local
-├── .dockerignore                             # Loại secret/build output khỏi build context
-└── README.md                                 # README duy nhất của repository
+├── backend/                                   # Toàn bộ mã nguồn Backend .NET 9
+│   ├── EV Charge & Swap Management System/    # Project Web API ASP.NET Core
+│   │   ├── Features/
+│   │   │   ├── Authentication/
+│   │   │   │   ├── Entities/RefreshToken.cs
+│   │   │   │   ├── Persistence/RefreshTokenConfiguration.cs
+│   │   │   │   ├── Requests/
+│   │   │   │   ├── Responses/AuthenticationResponse.cs
+│   │   │   │   ├── Services/
+│   │   │   │   │   ├── AuthenticationService.cs
+│   │   │   │   │   └── JwtTokenService.cs
+│   │   │   │   ├── AuthenticationController.cs
+│   │   │   │   └── JwtOptions.cs
+│   │   │   ├── Users/
+│   │   │   │   ├── Entities/ApplicationUser.cs
+│   │   │   │   ├── Persistence/ApplicationUserConfiguration.cs
+│   │   │   │   ├── Requests/CreateOperatorRequest.cs
+│   │   │   │   ├── Responses/UserResponse.cs
+│   │   │   │   ├── Services/
+│   │   │   │   │   ├── AdminBootstrapper.cs
+│   │   │   │   │   └── UserService.cs
+│   │   │   │   └── UsersController.cs
+│   │   │   ├── Authorization/
+│   │   │   │   ├── Persistence/
+│   │   │   │   └── AppRoles.cs
+│   │   │   └── Locations/
+│   │   │       ├── Location.cs
+│   │   │       ├── LocationConfiguration.cs
+│   │   │       ├── LocationResponse.cs
+│   │   │       ├── LocationService.cs
+│   │   │       └── LocationsController.cs
+│   │   ├── Common/
+│   │   │   ├── Errors/GlobalExceptionHandler.cs
+│   │   │   ├── Results/OperationResult.cs
+│   │   │   └── Pagination/
+│   │   │       ├── PaginationRequest.cs
+│   │   │       └── PagedResponse.cs
+│   │   ├── Data/
+│   │   │   ├── AppDbContext.cs
+│   │   │   ├── AppDbContextFactory.cs
+│   │   │   ├── Migrations/
+│   │   │   └── Seed/dev-locations.sql
+│   │   ├── Health/
+│   │   │   ├── DatabaseHealthCheck.cs
+│   │   │   └── HealthResponseWriter.cs
+│   │   ├── Middleware/RequestLoggingMiddleware.cs
+│   │   ├── Properties/launchSettings.json
+│   │   ├── Program.cs
+│   │   └── appsettings*.json
+│   ├── tests/EVChargeSwap.Tests/              # Project kiểm thử Backend
+│   │   ├── Unit/
+│   │   └── Integration/
+│   ├── Dockerfile                             # Build API và image migration local
+│   ├── .dockerignore                          # Loại secret/build output khỏi build context
+│   └── EV Charge & Swap Management System.sln # File solution Backend
+├── frontend/                                  # Ứng dụng web Frontend (Angular SPA)
+│   ├── Dockerfile                             # Build Angular và chạy trên Nginx Alpine
+│   ├── nginx.conf                             # Cấu hình Nginx hỗ trợ SPA client-side routing
+│   ├── .dockerignore                          # Bỏ qua node_modules và build cache
+│   └── README.md                              # Hướng dẫn khởi tạo và phát triển Angular
+├── docs/                                      # Tài liệu yêu cầu và kiến trúc
+├── .github/workflows/.gitkeep                 # Thư mục CI/CD workflows
+├── .env.example                               # Mẫu biến môi trường
+├── .env                                       # Biến môi trường local (Git bỏ qua)
+├── compose.yaml                               # Điều phối Postgres, Backend API và Frontend
+├── .editorconfig
+├── .gitignore
+└── README.md
 ```
 
 ### Trách nhiệm từng loại file
@@ -178,7 +188,7 @@ if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 API chạy trên host nhận connection string và khóa JWT từ user-secrets hoặc biến môi trường. Để dùng cùng mật khẩu với Docker local và tạo khóa JWT riêng:
 
 ```powershell
-$apiProject = '.\EV Charge & Swap Management System\EV Charge & Swap Management System.csproj'
+$apiProject = '.\backend\EV Charge & Swap Management System\EV Charge & Swap Management System.csproj'
 $passwordLine = Get-Content .env | Where-Object { $_ -match '^POSTGRES_PASSWORD=' } | Select-Object -First 1
 if (-not $passwordLine) { throw 'Missing POSTGRES_PASSWORD in .env' }
 $localPassword = ($passwordLine -split '=', 2)[1]
@@ -218,9 +228,11 @@ Container local dùng tên theo quy ước `project-service-environment`:
 | api | `ev-charge-swap-api-dev` |
 | postgres | `ev-charge-swap-postgres-dev` |
 | migrate | `ev-charge-swap-migrate-dev` |
+| frontend | `ev-charge-swap-frontend-dev` |
 
-Các lệnh `docker compose logs/exec` vẫn dùng tên service `api`, `postgres`, `migrate`.
+Các lệnh `docker compose logs/exec` vẫn dùng tên service `api`, `postgres`, `migrate`, `frontend`.
 
+- Frontend: `http://localhost:4200`
 - Swagger UI: `http://localhost:8080/swagger`
 - API: `http://localhost:8080/api/locations`
 - Readiness: `http://localhost:8080/health/ready`
@@ -247,9 +259,9 @@ Dừng stack bằng `docker compose down`; lệnh này giữ dữ liệu trong v
 Cách này vẫn dùng PostgreSQL trong Docker nhưng API chạy ở máy host. Thực hiện bước user-secrets ở mục 5 trước.
 
 ```powershell
-$apiProject = '.\EV Charge & Swap Management System\EV Charge & Swap Management System.csproj'
+$apiProject = '.\backend\EV Charge & Swap Management System\EV Charge & Swap Management System.csproj'
 docker compose up -d postgres
-dotnet restore '.\EV Charge & Swap Management System.sln'
+dotnet restore '.\backend\EV Charge & Swap Management System.sln'
 dotnet ef database update --project $apiProject --startup-project $apiProject
 dotnet run --project $apiProject --launch-profile https
 ```
@@ -266,8 +278,11 @@ Migration không tự chạy khi API khởi động. Container dùng volume `pos
 | `https://localhost:7195/openapi/v1.json` | Tài liệu OpenAPI JSON |
 | `GET /api/locations?page=1&pageSize=20` | Danh sách địa điểm đang hoạt động |
 | `GET /api/locations/{id}` | Chi tiết địa điểm, 404 khi không có/đã ẩn |
-| `POST /api/auth/register` | Đăng ký Customer và nhận access/refresh token |
-| `POST /api/auth/login` | Đăng nhập; khóa 15 phút sau 5 lần sai |
+| `POST /api/auth/register` | Đăng ký Customer với họ tên, email, số điện thoại và mật khẩu; trả 202, chưa cấp token |
+| `POST /api/auth/verification/confirm` | Xác minh email hoặc số điện thoại bằng mã 6 chữ số |
+| `POST /api/auth/verification/resend` | Gửi lại mã sau 60 giây; trả 202 kể cả khi email không tồn tại |
+| `GET /api/auth/development/code?channel=email&destination=...` | Chỉ trong Development trên loopback; xem mã thử nghiệm khi chưa có nhà cung cấp gửi thật |
+| `POST /api/auth/login` | Đăng nhập bằng email hoặc số điện thoại đã xác minh và mật khẩu; khóa 15 phút sau 5 lần sai |
 | `POST /api/auth/refresh` | Rotate refresh token và cấp access token mới |
 | `POST /api/auth/logout` | Thu hồi refresh token; gọi lặp lại vẫn trả 204 |
 | `GET /api/users/me` | Hồ sơ tài khoản hiện tại; yêu cầu Bearer token |
@@ -275,11 +290,11 @@ Migration không tự chạy khi API khởi động. Container dùng volume `pos
 | `GET /health/live` | Process API đang phản hồi; không kiểm tra database |
 | `GET /health/ready` | Kiểm tra kết nối database; 503 nếu không sẵn sàng |
 
-Swagger UI và OpenAPI chỉ được mở trong **Development**. Để thử login, mở `POST /api/auth/login`, chọn **Try it out**, nhập email và mật khẩu thử nghiệm rồi bấm **Execute**. Để gọi endpoint cần đăng nhập, chọn **Authorize** và dán `accessToken` (Swagger tự thêm tiền tố `Bearer`).
+Swagger UI và OpenAPI chỉ được mở trong **Development**. Khi đăng ký, nhập số di động Việt Nam (`09...` hoặc `+849...`). Lấy mã từ endpoint Development trên loopback, xác minh kênh `email` hoặc `phone`, rồi gọi `POST /api/auth/login` với `identifier` (email hoặc số điện thoại) và `password`. Để gọi endpoint cần đăng nhập, chọn **Authorize** và dán `accessToken` (Swagger tự thêm tiền tố `Bearer`). Không dùng endpoint lấy mã Development trong môi trường thật.
 
 Health endpoints kiểm tra sức khỏe hệ thống backend.
 
-Logout thu hồi refresh token của phiên hiện tại. Access token đã phát hành tiếp tục hợp lệ tối đa 15 phút; mọi request có token vẫn kiểm tra tài khoản còn active và `SecurityStamp` chưa thay đổi.
+Logout thu hồi refresh token của phiên hiện tại. Access token đã phát hành tiếp tục hợp lệ tối đa 15 phút; mọi request có token vẫn kiểm tra tài khoản còn active và `SecurityStamp` chưa thay đổi. Refresh token có hạn tối đa 30 ngày từ lúc đăng nhập; việc xoay token không gia hạn mốc này. Chưa cấu hình nhà cung cấp email/SMS Production nên đăng ký thật sẽ báo lỗi cấu hình thay vì giả vờ đã gửi mã.
 
 `Page >= 1`, `1 <= PageSize <= 100`. Request tạo offset vượt giới hạn số nguyên bị từ chối bằng HTTP 400. Kết quả phân trang có `items`, `page`, `pageSize`, `totalCount`.
 
@@ -290,7 +305,7 @@ Các response lỗi dùng Problem Details. Middleware thêm header `X-Request-ID
 Sau khi áp dụng migration, có thể thêm hai địa điểm giả lập local:
 
 ```powershell
-Get-Content -Raw '.\EV Charge & Swap Management System\Data\Seed\dev-locations.sql' | docker compose exec -T postgres psql -U ev_user -d ev_charge_swap
+Get-Content -Raw '.\backend\EV Charge & Swap Management System\Data\Seed\dev-locations.sql' | docker compose exec -T postgres psql -U ev_user -d ev_charge_swap
 ```
 
 Seed có thể chạy lại mà không tạo trùng hai địa điểm. Không chạy seed trên database thật. Chưa có endpoint tạo/sửa địa điểm; RBAC Admin đã có nhưng Location CRUD là chức năng kế tiếp.
@@ -298,20 +313,20 @@ Seed có thể chạy lại mà không tạo trùng hai địa điểm. Không c
 ## 9. Chạy test
 
 ```powershell
-dotnet test '.\EV Charge & Swap Management System.sln' -m:1
+dotnet test '.\backend\EV Charge & Swap Management System.sln' -m:1
 ```
 
 - Unit test kiểm tra quy tắc Location, giới hạn tọa độ/độ dài, bắt buộc có dịch vụ và validation/overflow của phân trang.
 - HTTP integration test dùng `WebApplicationFactory` để chạy API trong test server và SQLite trong bộ nhớ để kiểm tra truy vấn, phân trang, lọc địa điểm đã ẩn và 404.
 - Test nền tảng kiểm tra liveness/readiness, tình huống dependency thất bại, Swagger UI/OpenAPI chỉ xuất hiện trong Development, lỗi không lộ thông tin và request ID khớp.
-- Test auth kiểm tra đăng ký/đăng nhập, không dò email qua lỗi đăng nhập, profile, refresh rotation và reuse detection, logout idempotent cùng quyền Admin tạo Operator.
+- Test auth kiểm tra xác minh từng kênh, mã dùng một lần/khóa sau 5 lần sai, đăng nhập qua email hoặc số điện thoại, hạn phiên 30 ngày, refresh rotation và reuse detection, logout idempotent cùng quyền Admin tạo Operator.
 - Không cần Docker để chạy bộ test này. SQLite không chứng minh PostgreSQL migration hay constraint hoạt động giống hoàn toàn; kiểm thử PostgreSQL thật là bước riêng khi có Docker/database test.
 - Test project không được dùng làm nơi chứa code production. SQLite `EnsureCreated` chỉ dùng để tạo database test tạm thời; database ứng dụng dùng migrations.
 
 ## 10. Thay đổi schema và quy ước code
 
 ```powershell
-$apiProject = '.\EV Charge & Swap Management System\EV Charge & Swap Management System.csproj'
+$apiProject = '.\backend\EV Charge & Swap Management System\EV Charge & Swap Management System.csproj'
 dotnet ef migrations add TenMigration --project $apiProject --startup-project $apiProject --output-dir Data/Migrations
 dotnet ef migrations script --idempotent --project $apiProject --startup-project $apiProject
 ```

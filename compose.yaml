@@ -3,7 +3,7 @@ services:
     container_name: ev-charge-swap-api-dev
     image: ev-charge-swap-api:local
     build:
-      context: .
+      context: ./backend
       dockerfile: Dockerfile
       target: runtime
     restart: unless-stopped
@@ -28,7 +28,7 @@ services:
     container_name: ev-charge-swap-migrate-dev
     image: ev-charge-swap-migration:local
     build:
-      context: .
+      context: ./backend
       dockerfile: Dockerfile
       target: migration
     restart: "no"
@@ -37,6 +37,18 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+  frontend:
+    container_name: ev-charge-swap-frontend-dev
+    image: ev-charge-swap-frontend:local
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:4200:80"
+    depends_on:
+      - api
 
   postgres:
     container_name: ev-charge-swap-postgres-dev

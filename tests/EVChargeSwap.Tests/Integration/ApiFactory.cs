@@ -1,6 +1,7 @@
 using EVChargeSwap.Data;
 using EVChargeSwap.Features.Locations;
-using EVChargeSwap.Features.Auth;
+using EVChargeSwap.Features.Authorization;
+using EVChargeSwap.Features.Users.Entities;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;

@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Identity;
 
-namespace EVChargeSwap.Features.Auth;
+namespace EVChargeSwap.Features.Users.Entities;
 
 public sealed class ApplicationUser : IdentityUser<Guid>
 {

@@ -3,6 +3,8 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using EVChargeSwap.Features.Auth.Requests;
 using EVChargeSwap.Features.Auth.Responses;
+using EVChargeSwap.Features.Users.Requests;
+using EVChargeSwap.Features.Users.Responses;
 using Xunit;
 
 namespace EVChargeSwap.Tests.Integration;

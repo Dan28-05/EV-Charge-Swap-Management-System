@@ -1,3 +1,5 @@
+using EVChargeSwap.Features.Users.Responses;
+
 namespace EVChargeSwap.Features.Auth.Responses;
 
 public sealed record AuthResponse(

@@ -1,6 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 
-namespace EVChargeSwap.Features.Auth.Requests;
+namespace EVChargeSwap.Features.Users.Requests;
 
 public sealed class CreateOperatorRequest
 {

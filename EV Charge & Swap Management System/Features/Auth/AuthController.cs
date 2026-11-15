@@ -1,5 +1,7 @@
+using EVChargeSwap.Common.Results;
 using EVChargeSwap.Features.Auth.Requests;
 using EVChargeSwap.Features.Auth.Responses;
+using EVChargeSwap.Features.Auth.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -41,14 +43,14 @@ public sealed class AuthController(AuthService service) : ControllerBase
         return NoContent();
     }
 
-    private ObjectResult Failure<T>(AuthResult<T> result)
+    private ObjectResult Failure<T>(OperationResult<T> result)
     {
         var status = result.Failure switch
         {
-            AuthFailure.Validation => StatusCodes.Status400BadRequest,
-            AuthFailure.Conflict => StatusCodes.Status409Conflict,
-            AuthFailure.Unauthorized => StatusCodes.Status401Unauthorized,
-            AuthFailure.NotFound => StatusCodes.Status404NotFound,
+            OperationFailure.Validation => StatusCodes.Status400BadRequest,
+            OperationFailure.Conflict => StatusCodes.Status409Conflict,
+            OperationFailure.Unauthorized => StatusCodes.Status401Unauthorized,
+            OperationFailure.NotFound => StatusCodes.Status404NotFound,
             _ => StatusCodes.Status500InternalServerError
         };
         var problem = new ProblemDetails

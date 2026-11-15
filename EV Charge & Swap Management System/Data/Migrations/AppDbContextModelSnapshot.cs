@@ -22,7 +22,7 @@ namespace EVChargeSwap.Data.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-            modelBuilder.Entity("EVChargeSwap.Features.Auth.ApplicationUser", b =>
+            modelBuilder.Entity("EVChargeSwap.Features.Users.Entities.ApplicationUser", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -122,7 +122,7 @@ namespace EVChargeSwap.Data.Migrations
                     b.ToTable("users", (string)null);
                 });
 
-            modelBuilder.Entity("EVChargeSwap.Features.Auth.RefreshToken", b =>
+            modelBuilder.Entity("EVChargeSwap.Features.Auth.Entities.RefreshToken", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -418,9 +418,9 @@ namespace EVChargeSwap.Data.Migrations
                     b.ToTable("user_tokens", (string)null);
                 });
 
-            modelBuilder.Entity("EVChargeSwap.Features.Auth.RefreshToken", b =>
+            modelBuilder.Entity("EVChargeSwap.Features.Auth.Entities.RefreshToken", b =>
                 {
-                    b.HasOne("EVChargeSwap.Features.Auth.ApplicationUser", "User")
+                    b.HasOne("EVChargeSwap.Features.Users.Entities.ApplicationUser", "User")
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -440,7 +440,7 @@ namespace EVChargeSwap.Data.Migrations
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserClaim<System.Guid>", b =>
                 {
-                    b.HasOne("EVChargeSwap.Features.Auth.ApplicationUser", null)
+                    b.HasOne("EVChargeSwap.Features.Users.Entities.ApplicationUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -449,7 +449,7 @@ namespace EVChargeSwap.Data.Migrations
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserLogin<System.Guid>", b =>
                 {
-                    b.HasOne("EVChargeSwap.Features.Auth.ApplicationUser", null)
+                    b.HasOne("EVChargeSwap.Features.Users.Entities.ApplicationUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -464,7 +464,7 @@ namespace EVChargeSwap.Data.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("EVChargeSwap.Features.Auth.ApplicationUser", null)
+                    b.HasOne("EVChargeSwap.Features.Users.Entities.ApplicationUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -473,7 +473,7 @@ namespace EVChargeSwap.Data.Migrations
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserToken<System.Guid>", b =>
                 {
-                    b.HasOne("EVChargeSwap.Features.Auth.ApplicationUser", null)
+                    b.HasOne("EVChargeSwap.Features.Users.Entities.ApplicationUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)

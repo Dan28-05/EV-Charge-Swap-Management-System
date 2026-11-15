@@ -1,6 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 
-namespace EVChargeSwap.Features.Auth;
+namespace EVChargeSwap.Features.Authentication;
 
 public sealed class JwtOptions
 {

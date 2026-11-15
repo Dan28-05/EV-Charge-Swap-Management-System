@@ -2,28 +2,28 @@ using System.Data;
 using EVChargeSwap.Common.Results;
 using EVChargeSwap.Data;
 using EVChargeSwap.Features.Authorization;
-using EVChargeSwap.Features.Auth.Requests;
-using EVChargeSwap.Features.Auth.Responses;
+using EVChargeSwap.Features.Authentication.Requests;
+using EVChargeSwap.Features.Authentication.Responses;
 using EVChargeSwap.Features.Users.Entities;
 using EVChargeSwap.Features.Users.Responses;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
-namespace EVChargeSwap.Features.Auth.Services;
+namespace EVChargeSwap.Features.Authentication.Services;
 
-public sealed class AuthService(
+public sealed class AuthenticationService(
     UserManager<ApplicationUser> userManager,
     SignInManager<ApplicationUser> signInManager,
     AppDbContext db,
     JwtTokenService tokenService,
     TimeProvider timeProvider)
 {
-    public async Task<OperationResult<AuthResponse>> RegisterAsync(RegisterRequest request,
+    public async Task<OperationResult<AuthenticationResponse>> RegisterAsync(RegisterRequest request,
         CancellationToken cancellationToken)
     {
         var email = request.Email.Trim();
         if (await userManager.FindByEmailAsync(email) is not null)
-            return OperationResult<AuthResponse>.Fail(OperationFailure.Conflict, "An account with this email already exists.");
+            return OperationResult<AuthenticationResponse>.Fail(OperationFailure.Conflict, "An account with this email already exists.");
 
         await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
         var user = new ApplicationUser(email, request.FullName,
@@ -34,18 +34,18 @@ public sealed class AuthService(
 
         var createResult = await userManager.CreateAsync(user, request.Password);
         if (!createResult.Succeeded)
-            return OperationResult<AuthResponse>.Fail(OperationFailure.Validation, "Registration failed.", ToErrors(createResult));
+            return OperationResult<AuthenticationResponse>.Fail(OperationFailure.Validation, "Registration failed.", ToErrors(createResult));
 
         var roleResult = await userManager.AddToRoleAsync(user, AppRoles.Customer);
         if (!roleResult.Succeeded)
-            return OperationResult<AuthResponse>.Fail(OperationFailure.Validation, "Could not assign the customer role.", ToErrors(roleResult));
+            return OperationResult<AuthenticationResponse>.Fail(OperationFailure.Validation, "Could not assign the customer role.", ToErrors(roleResult));
 
         var response = await IssueTokensAsync(user, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
-        return OperationResult<AuthResponse>.Success(response);
+        return OperationResult<AuthenticationResponse>.Success(response);
     }
 
-    public async Task<OperationResult<AuthResponse>> LoginAsync(LoginRequest request,
+    public async Task<OperationResult<AuthenticationResponse>> LoginAsync(LoginRequest request,
         CancellationToken cancellationToken)
     {
         var user = await userManager.FindByEmailAsync(request.Email.Trim());
@@ -56,10 +56,10 @@ public sealed class AuthService(
         if (!signInResult.Succeeded)
             return InvalidCredentials();
 
-        return OperationResult<AuthResponse>.Success(await IssueTokensAsync(user, cancellationToken));
+        return OperationResult<AuthenticationResponse>.Success(await IssueTokensAsync(user, cancellationToken));
     }
 
-    public async Task<OperationResult<AuthResponse>> RefreshAsync(string rawRefreshToken,
+    public async Task<OperationResult<AuthenticationResponse>> RefreshAsync(string rawRefreshToken,
         CancellationToken cancellationToken)
     {
         var tokenHash = JwtTokenService.HashRefreshToken(rawRefreshToken);
@@ -106,7 +106,7 @@ public sealed class AuthService(
             return InvalidRefreshToken();
         }
 
-        return OperationResult<AuthResponse>.Success(ToAuthResponse(
+        return OperationResult<AuthenticationResponse>.Success(ToAuthenticationResponse(
             storedToken.User, roles, accessToken, replacement));
     }
 
@@ -132,17 +132,17 @@ public sealed class AuthService(
         }
     }
 
-    private async Task<AuthResponse> IssueTokensAsync(ApplicationUser user, CancellationToken cancellationToken)
+    private async Task<AuthenticationResponse> IssueTokensAsync(ApplicationUser user, CancellationToken cancellationToken)
     {
         var roles = await userManager.GetRolesAsync(user);
         var accessToken = tokenService.CreateAccessToken(user, roles);
         var refreshToken = tokenService.CreateRefreshToken(user.Id);
         db.RefreshTokens.Add(refreshToken.Entity);
         await db.SaveChangesAsync(cancellationToken);
-        return ToAuthResponse(user, roles, accessToken, refreshToken);
+        return ToAuthenticationResponse(user, roles, accessToken, refreshToken);
     }
 
-    private static AuthResponse ToAuthResponse(ApplicationUser user, IEnumerable<string> roles,
+    private static AuthenticationResponse ToAuthenticationResponse(ApplicationUser user, IEnumerable<string> roles,
         IssuedAccessToken accessToken, IssuedRefreshToken refreshToken) =>
         new("Bearer", accessToken.Value, accessToken.ExpiresAtUtc, refreshToken.Value,
             refreshToken.Entity.ExpiresAtUtc, ToUserResponse(user, roles));
@@ -153,9 +153,9 @@ public sealed class AuthService(
     private static IReadOnlyDictionary<string, string[]> ToErrors(IdentityResult result) =>
         result.Errors.GroupBy(x => x.Code).ToDictionary(x => x.Key, x => x.Select(e => e.Description).ToArray());
 
-    private static OperationResult<AuthResponse> InvalidCredentials() =>
-        OperationResult<AuthResponse>.Fail(OperationFailure.Unauthorized, "Invalid email or password.");
+    private static OperationResult<AuthenticationResponse> InvalidCredentials() =>
+        OperationResult<AuthenticationResponse>.Fail(OperationFailure.Unauthorized, "Invalid email or password.");
 
-    private static OperationResult<AuthResponse> InvalidRefreshToken() =>
-        OperationResult<AuthResponse>.Fail(OperationFailure.Unauthorized, "The refresh token is invalid or expired.");
+    private static OperationResult<AuthenticationResponse> InvalidRefreshToken() =>
+        OperationResult<AuthenticationResponse>.Fail(OperationFailure.Unauthorized, "The refresh token is invalid or expired.");
 }

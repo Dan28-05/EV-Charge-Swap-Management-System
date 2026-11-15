@@ -1,8 +1,8 @@
-using EVChargeSwap.Features.Auth.Entities;
+using EVChargeSwap.Features.Authentication.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
-namespace EVChargeSwap.Features.Auth.Persistence;
+namespace EVChargeSwap.Features.Authentication.Persistence;
 
 public sealed class RefreshTokenConfiguration : IEntityTypeConfiguration<RefreshToken>
 {

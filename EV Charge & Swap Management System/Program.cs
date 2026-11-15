@@ -1,6 +1,6 @@
 using EVChargeSwap.Data;
-using EVChargeSwap.Features.Auth;
-using EVChargeSwap.Features.Auth.Services;
+using EVChargeSwap.Features.Authentication;
+using EVChargeSwap.Features.Authentication.Services;
 using EVChargeSwap.Features.Locations;
 using EVChargeSwap.Features.Users.Entities;
 using EVChargeSwap.Features.Users.Services;
@@ -97,7 +97,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 builder.Services.AddAuthorization();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<JwtTokenService>();
-builder.Services.AddScoped<AuthService>();
+builder.Services.AddScoped<AuthenticationService>();
 builder.Services.AddScoped<UserService>();
 builder.Services.AddScoped<AdminBootstrapper>();
 builder.Services.AddHealthChecks().AddCheck<DatabaseHealthCheck>(

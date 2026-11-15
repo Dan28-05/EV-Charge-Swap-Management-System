@@ -1,4 +1,4 @@
-using EVChargeSwap.Features.Auth.Entities;
+using EVChargeSwap.Features.Authentication.Entities;
 using EVChargeSwap.Features.Locations;
 using EVChargeSwap.Features.Users.Entities;
 using Microsoft.AspNetCore.Identity;

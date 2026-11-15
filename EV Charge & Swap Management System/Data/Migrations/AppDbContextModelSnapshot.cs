@@ -122,7 +122,7 @@ namespace EVChargeSwap.Data.Migrations
                     b.ToTable("users", (string)null);
                 });
 
-            modelBuilder.Entity("EVChargeSwap.Features.Auth.Entities.RefreshToken", b =>
+            modelBuilder.Entity("EVChargeSwap.Features.Authentication.Entities.RefreshToken", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -418,7 +418,7 @@ namespace EVChargeSwap.Data.Migrations
                     b.ToTable("user_tokens", (string)null);
                 });
 
-            modelBuilder.Entity("EVChargeSwap.Features.Auth.Entities.RefreshToken", b =>
+            modelBuilder.Entity("EVChargeSwap.Features.Authentication.Entities.RefreshToken", b =>
                 {
                     b.HasOne("EVChargeSwap.Features.Users.Entities.ApplicationUser", "User")
                         .WithMany()

@@ -68,15 +68,15 @@ Các phần nghiệp vụ bên dưới là mục tiêu phát triển, không ph�
 solution-root/
 ├── EV Charge & Swap Management System/        # Một project Web API
 │   ├── Features/
-│   │   ├── Auth/
+│   │   ├── Authentication/
 │   │   │   ├── Entities/RefreshToken.cs
 │   │   │   ├── Persistence/RefreshTokenConfiguration.cs
 │   │   │   ├── Requests/
-│   │   │   ├── Responses/AuthResponse.cs
+│   │   │   ├── Responses/AuthenticationResponse.cs
 │   │   │   ├── Services/
-│   │   │   │   ├── AuthService.cs
+│   │   │   │   ├── AuthenticationService.cs
 │   │   │   │   └── JwtTokenService.cs
-│   │   │   ├── AuthController.cs
+│   │   │   ├── AuthenticationController.cs
 │   │   │   └── JwtOptions.cs
 │   │   ├── Users/
 │   │   │   ├── Entities/ApplicationUser.cs

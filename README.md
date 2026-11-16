@@ -13,7 +13,7 @@ Tài liệu nguồn của dự án:
 
 | Hạng mục | Hiện trạng |
 | --- | --- |
-| Locations | Đã có entity, mapping EF Core, service, response DTO và API đọc/phân trang |
+| Locations | Đã có entity, mapping EF Core, service, response DTO, API đọc/phân trang và trạng thái vận hành do Admin cập nhật |
 | PostgreSQL | Đã có cấu hình provider, migration đầu tiên, Docker Compose và seed local tùy chọn |
 | Redis | Container Redis 7 Alpine, cache thông tin trạm với explicit invalidation và fallback tự động |
 | API trong Docker | Có Dockerfile multi-stage, runtime non-root và job migration riêng cho local |
@@ -23,7 +23,7 @@ Tài liệu nguồn của dự án:
 | Health | Liveness của API và readiness kiểm tra kết nối database |
 | Tests | Unit test và HTTP integration test; integration dùng SQLite trong bộ nhớ |
 | GitHub Actions | Chỉ có thư mục giữ chỗ; chưa có workflow CI/CD |
-| Users/JWT/RBAC | Đã có Identity, đăng ký Customer, JWT, refresh rotation/reuse detection, logout, hồ sơ hiện tại, bootstrap Admin và Admin tạo Operator |
+| Users/JWT/RBAC | Đã có Identity, đăng ký Customer, JWT, refresh rotation/reuse detection, logout, xem/sửa họ tên hồ sơ, xác thực riêng email/số điện thoại, đổi và khôi phục mật khẩu, bootstrap Admin và Admin tạo Operator |
 | ChargingBays, Batteries, Reservations | Chưa triển khai |
 | ChargingSessions, BatterySwaps, Invoice, Payment | Chưa triển khai |
 | Angular / Station Finder | Trang công khai `/`: danh sách phân trang, bản đồ, chi tiết và chỉ đường; có giao diện desktop/mobile |
@@ -291,7 +291,11 @@ Mở **http://localhost:4200/**. Không cần đăng nhập để xem trạm. N�
 - Khi chạy Docker Compose, Nginx chuyển `/api/` sang `api:8080`; đường dẫn SPA vẫn trả về `index.html`. Build frontend dùng `npm ci` và output Angular `dist/*/browser`.
 - Nạp seed demo theo mục 8: 10 trạm trọng điểm mẫu hoặc 100 trạm sạc & đổi pin thực tế trải khắp các đô thị toàn quốc (TP.HCM, Hà Nội, Đà Nẵng, Quy Nhơn, Hải Phòng, Bình Dương, Cần Thơ, Nha Trang, Vũng Tàu...). Sau đó tải lại dashboard; nút **Tải thêm địa điểm** lấy 20 trạm mỗi lần. Danh sách và marker luôn dùng chung tập dữ liệu, loại trùng theo ID.
 - Feature nằm trong `features/station-finder/`: page điều phối trạng thái, `station-list/` hiển thị danh sách, `station-map/` quản lý Leaflet, `services/` gọi API và `models/` định nghĩa DTO. Chọn thẻ hoặc marker mở chi tiết từ API; Chỉ đường mở Google Maps bằng tọa độ đích.
-- Mốc này chỉ duyệt danh sách, chọn trạm, xem chi tiết và chỉ đường. Chưa có tìm tên/bán kính, vị trí hiện tại, giá, tồn kho, đặt chỗ hoặc lịch sử. Bản đồ cần Internet để tải tile OpenStreetMap và luôn hiển thị attribution.
+- Header dùng logo con hươu trong `frontend/public/favicon.png`. Danh sách có thể đóng/mở; khi chọn trạm, bản đồ giữ marker trong phần nhìn thấy, kể cả khi bảng chi tiết đang mở trên mobile. Mục Đặt chỗ/Lịch sử được ghi “Sắp có” vì API đặt chỗ và lịch sử chưa triển khai; nút Đặt chỗ trong chi tiết bị vô hiệu hóa để không tạo lượt đặt giả.
+- Trạng thái trạm do Admin cập nhật qua trường `operatingStatus` khi `POST/PUT /api/locations`: `Unknown`, `Open`, `Closed`, `Maintenance`. Trạm cũ mặc định `Unknown` (giao diện ghi “Chưa có thông tin”). `isActive=false` ẩn trạm khỏi API công khai, còn `Closed`/`Maintenance` vẫn hiển thị với nhãn tương ứng. Trạng thái này không tự thay đổi theo giờ; giờ phục vụ và tình trạng thiết bị là dữ liệu riêng ở mốc sau.
+- Dữ liệu demo có lịch phục vụ 24/7 (`isOpen24Hours=true`), công suất sạc `chargingPowerKw` thuộc 30/60/150/250 kW nếu có sạc ô tô, và `batteryCapacityKwh=1.5` cho dịch vụ đổi pin LFP. Seed phân bổ thông số và trạng thái giả lập ổn định theo ID; đây không phải trạng thái thiết bị hay số pin còn thực tế. `Closed`/`Maintenance` là ngoại lệ tạm thời của lịch 24/7.
+- Thanh tìm kiếm tra tên hoặc địa chỉ trạm trên toàn bộ database, đồng thời cho phép tìm địa danh. Giao diện không còn nút chọn bán kính. Khi duyệt bản đồ, dữ liệu được tải trong phạm vi 50 km quanh tâm vùng đang xem bằng API nearby. Có lọc dịch vụ và hai bộ lọc khả dụng: **Đang mở** hoặc **Còn chỗ**. Chưa có giá, đặt chỗ hoặc lịch sử.
+- Khi bấm Enter hoặc nút **Tìm**, thanh tìm kiếm còn gửi một truy vấn địa danh rõ ràng (ví dụ `Bình Sơn`) tới Nominatim/OpenStreetMap và cho người dùng chọn kết quả đầy đủ tỉnh/thành trước khi tải trạm quanh điểm đó. Không gọi theo từng ký tự. Nominatim công khai chỉ phù hợp cho demo có lưu lượng nhỏ; production cần nhà cung cấp geocoding có SLA hoặc một dịch vụ tự quản lý.
 
 Kiểm tra frontend (tại `frontend/`):
 
@@ -315,7 +319,7 @@ Browser test dùng Microsoft Edge đã cài, tự mở Angular cổng 4300, ch�
 | `https://localhost:7195/openapi/v1.json` | Tài liệu OpenAPI JSON |
 | `GET /api/locations?page=1&pageSize=20` | Danh sách địa điểm đang hoạt động |
 | `GET /api/locations/{id}` | Chi tiết địa điểm, 404 khi không có/đã ẩn |
-| `GET /api/locations/nearby?latitude=13.766667&longitude=109.233333&radiusKm=10&service=charging` | Tìm trạm trong bán kính, lọc dịch vụ/tên/địa chỉ, phân trang theo khoảng cách |
+| `GET /api/locations/nearby?latitude=13.766667&longitude=109.233333&radiusKm=10&service=charging&availability=available` | Tìm trạm trong bán kính, lọc dịch vụ/tên/địa chỉ; `availability` nhận `all`, `open`, hoặc `available` (đang mở và còn tài nguyên cho dịch vụ đã chọn). Mặc định ưu tiên trạm còn chỗ, rồi trạm đang mở, sau đó mới theo khoảng cách. |
 | `GET /api/locations/admin` | Admin xem cả trạm đang ẩn |
 | `POST /api/locations` | Admin tạo trạm |
 | `PUT /api/locations/{id}` | Admin sửa tên, địa chỉ, tọa độ và dịch vụ |
@@ -323,11 +327,17 @@ Browser test dùng Microsoft Edge đã cài, tự mở Angular cổng 4300, ch�
 | `POST /api/auth/register` | Đăng ký Customer với họ tên, email, số điện thoại và mật khẩu; trả 202, chưa cấp token |
 | `POST /api/auth/verification/confirm` | Xác minh email hoặc số điện thoại bằng mã 6 chữ số |
 | `POST /api/auth/verification/resend` | Gửi lại mã sau 60 giây; trả 202 kể cả khi email không tồn tại |
+| `POST /api/auth/verification/me/send` | Người đang đăng nhập gửi mã xác thực cho email hoặc số điện thoại của chính mình |
+| `POST /api/auth/verification/me/confirm` | Người đang đăng nhập xác nhận một kênh bằng mã 6 số |
 | `GET /api/auth/development/code?channel=email&destination=...` | Chỉ trong Development trên loopback; xem mã thử nghiệm khi chưa có nhà cung cấp gửi thật |
 | `POST /api/auth/login` | Đăng nhập bằng email hoặc số điện thoại đã xác minh và mật khẩu; khóa 15 phút sau 5 lần sai |
 | `POST /api/auth/refresh` | Rotate refresh token và cấp access token mới |
 | `POST /api/auth/logout` | Thu hồi refresh token; gọi lặp lại vẫn trả 204 |
 | `GET /api/users/me` | Hồ sơ tài khoản hiện tại; yêu cầu Bearer token |
+| `PUT /api/users/me` | Đổi họ tên của tài khoản hiện tại; yêu cầu Bearer token |
+| `POST /api/users/me/change-password` | Đổi mật khẩu bằng mật khẩu cũ; vô hiệu hóa mọi phiên cũ |
+| `POST /api/auth/password/forgot` | Yêu cầu mã khôi phục qua email/số điện thoại đã xác minh; luôn trả 202 với request hợp lệ |
+| `POST /api/auth/password/reset` | Đặt mật khẩu mới bằng mã 6 số; vô hiệu hóa mọi phiên cũ |
 | `POST /api/users/operators` | Admin tạo tài khoản Operator |
 | `GET /health/live` | Process API đang phản hồi; không kiểm tra database |
 | `GET /health/ready` | Kiểm tra kết nối database; 503 nếu không sẵn sàng |
@@ -337,6 +347,22 @@ Swagger UI và OpenAPI chỉ được mở trong **Development**. Khi đăng ký
 Health endpoints kiểm tra sức khỏe hệ thống backend.
 
 Logout thu hồi refresh token của phiên hiện tại. Access token đã phát hành tiếp tục hợp lệ tối đa 15 phút; mọi request có token vẫn kiểm tra tài khoản còn active và `SecurityStamp` chưa thay đổi. Refresh token có hạn tối đa 30 ngày từ lúc đăng nhập; việc xoay token không gia hạn mốc này. Chưa cấu hình nhà cung cấp email/SMS Production nên đăng ký thật sẽ báo lỗi cấu hình thay vì giả vờ đã gửi mã.
+
+Hồ sơ khách hàng tại `http://localhost:4200/profile`: xem email, số điện thoại, trạng thái xác thực từng kênh, gửi/nhập mã và sửa họ tên. Hai kênh đăng nhập chỉ đọc; thay đổi địa chỉ email hoặc số điện thoại sẽ cần một luồng xác minh thay đổi riêng. Màn hình `http://localhost:4200/forgot-password` nhận email hoặc số điện thoại đã xác minh, gửi mã 6 số có hạn 5 phút (tối đa 5 lần nhập sai), rồi đặt mật khẩu mới. Có thể yêu cầu gửi lại sau 60 giây. Trong Development local, lấy mã bằng `GET /api/auth/development/code?channel=email&destination=<email>` hoặc `channel=phone`; Production dùng Resend và Twilio như cấu hình bên dưới. Đổi hoặc đặt lại mật khẩu yêu cầu đăng nhập lại trên mọi thiết bị. Chức năng này dùng bảng `verification_challenges` hiện có, không cần migration mới.
+
+### Gửi mã xác thực trong Production
+
+Không ghi key vào `appsettings.json` hoặc Git. Cấp các biến môi trường sau cho API:
+
+```text
+VerificationDelivery__ResendApiKey=<Resend API key>
+VerificationDelivery__EmailFrom=EVGo <verify@ten-mien-da-xac-minh.vn>
+VerificationDelivery__TwilioAccountSid=<Twilio Account SID>
+VerificationDelivery__TwilioAuthToken=<Twilio Auth Token>
+VerificationDelivery__TwilioSenderId=EVGo
+```
+
+Resend yêu cầu xác minh domain gửi email. SMS đến số Việt Nam yêu cầu đăng ký trước Alphanumeric Sender ID và mẫu OTP với nhà mạng; giá trị `TwilioSenderId` phải khớp chính xác Sender ID đã được duyệt. Khi provider từ chối request, API trả 503 và xóa mã vừa tạo để khách có thể thử gửi lại. Log không ghi mã OTP, địa chỉ email, số điện thoại hoặc provider credential.
 
 `Page >= 1`, `1 <= PageSize <= 100`. Request tạo offset vượt giới hạn số nguyên bị từ chối bằng HTTP 400. Kết quả phân trang có `items`, `page`, `pageSize`, `totalCount`.
 
@@ -350,7 +376,9 @@ Sau khi áp dụng migration, có thể thêm 10 trạm trọng điểm minh h�
 Get-Content -Raw '.\backend\EV Charge & Swap Management System\Data\Seed\dev-locations.sql' | docker exec -i ev-charge-swap-postgres-dev psql -v ON_ERROR_STOP=1 -U ev_user -d ev_charge_swap
 ```
 
-Để thử bản đồ và tìm trạm theo bán kính trên tập dữ liệu hoàn chỉnh, có thêm seed **100 trạm sạc & đổi pin thực tế** trải dài khắp các tỉnh thành trên toàn quốc (TP.HCM, Hà Nội, Đà Nẵng, Quy Nhơn, Hải Phòng, Quảng Ninh, Bình Dương, Đồng Nai, Cần Thơ, Nha Trang, Vũng Tàu, Đà Lạt...). Tọa độ được đối chiếu chính xác theo các địa danh thực tế (TTTM Vincom, AEON Mall, Lotte Mart, Bến xe, Sân bay, Trạm dừng cao tốc, Cây xăng Petrolimex) hoàn toàn trên đất liền, không rơi ra biển hoặc núi. Phân bổ thực tế gồm 3 loại: vừa sạc vừa đổi pin, chỉ sạc ô tô điện, và chỉ đổi pin xe máy điện:
+Seed nhỏ gán ba trạng thái mẫu `Open`, `Closed`, `Maintenance` cho ba bản ghi đầu để thử giao diện. Đây là dữ liệu minh họa, không xác nhận tình trạng vận hành của địa điểm ngoài đời. Chạy migration `AddLocationOperatingStatus` trước khi nạp seed này.
+
+Để thử bản đồ và tìm trạm theo bán kính trên tập dữ liệu lớn hơn, có thêm seed **100 địa điểm sạc & đổi pin giả lập** trải dài nhiều đô thị (TP.HCM, Hà Nội, Đà Nẵng, Quy Nhơn, Hải Phòng, Quảng Ninh, Bình Dương, Đồng Nai, Cần Thơ, Nha Trang, Vũng Tàu, Đà Lạt...). Tọa độ đặt gần các địa danh làm mốc thử bản đồ; tên trạm và tình trạng vận hành không xác nhận có cơ sở EVGo thật tại đó. Dữ liệu gồm ba loại: vừa sạc vừa đổi pin, chỉ sạc ô tô điện, và chỉ đổi pin xe máy điện:
 
 ```powershell
 Get-Content -Raw '.\backend\EV Charge & Swap Management System\Data\Seed\dev-national-charging-locations.sql' | docker exec -i ev-charge-swap-postgres-dev psql -v ON_ERROR_STOP=1 -U ev_user -d ev_charge_swap

@@ -15,6 +15,19 @@ public sealed class LocationService(AppDbContext db, ILocationCache? cache = nul
     public Task<PagedResponse<LocationResponse>> ListAsync(PaginationRequest pagination, CancellationToken cancellationToken) =>
         ListAsync(pagination, includeInactive: false, cancellationToken);
 
+    public async Task<PagedResponse<LocationResponse>> SearchAsync(string search, PaginationRequest pagination,
+        CancellationToken cancellationToken)
+    {
+        var term = search.Trim().ToLower();
+        var query = db.Locations.AsNoTracking().Where(x => x.IsActive &&
+            (x.Name.ToLower().Contains(term) || x.Address.ToLower().Contains(term)));
+        var count = await query.CountAsync(cancellationToken);
+        var locations = await query.OrderBy(x => x.Name).ThenBy(x => x.Id)
+            .Skip(pagination.GetOffset()).Take(pagination.PageSize).ToListAsync(cancellationToken);
+        return new PagedResponse<LocationResponse>(locations.Select(ToResponse).ToList(),
+            pagination.Page, pagination.PageSize, count);
+    }
+
     public async Task<PagedResponse<AdminLocationResponse>> ListAdminAsync(PaginationRequest pagination,
         CancellationToken cancellationToken)
     {
@@ -42,12 +55,17 @@ public sealed class LocationService(AppDbContext db, ILocationCache? cache = nul
         var query = db.Locations.AsNoTracking().Where(x => includeInactive || x.IsActive);
         var totalCount = await query.CountAsync(cancellationToken);
         var items = await query
-            .OrderBy(x => x.Name)
+            .OrderByDescending(x => x.OperatingStatus == LocationOperatingStatus.Open &&
+                ((x.OffersCarCharging && x.AvailableChargingBays > 0) ||
+                 (x.OffersBatterySwap && x.AvailableBatteries > 0)))
+            .ThenByDescending(x => x.OperatingStatus == LocationOperatingStatus.Open)
+            .ThenBy(x => x.Name)
             .ThenBy(x => x.Id)
             .Skip(pagination.GetOffset())
             .Take(pagination.PageSize)
             .Select(x => new LocationResponse(x.Id, x.Name, x.Address, x.Latitude,
-                x.Longitude, x.OffersCarCharging, x.OffersBatterySwap))
+                x.Longitude, x.OffersCarCharging, x.OffersBatterySwap, x.OperatingStatus,
+                x.IsOpen24Hours, x.ChargingPowerKw, x.BatteryCapacityKwh, x.AvailableBatteries, x.AvailableChargingBays))
             .ToListAsync(cancellationToken);
 
         var result = new PagedResponse<LocationResponse>(items, pagination.Page, pagination.PageSize, totalCount);
@@ -69,7 +87,8 @@ public sealed class LocationService(AppDbContext db, ILocationCache? cache = nul
         var location = await db.Locations.AsNoTracking()
             .Where(x => x.Id == id && x.IsActive)
             .Select(x => new LocationResponse(x.Id, x.Name, x.Address, x.Latitude,
-                x.Longitude, x.OffersCarCharging, x.OffersBatterySwap))
+                x.Longitude, x.OffersCarCharging, x.OffersBatterySwap, x.OperatingStatus,
+                x.IsOpen24Hours, x.ChargingPowerKw, x.BatteryCapacityKwh, x.AvailableBatteries, x.AvailableChargingBays))
             .SingleOrDefaultAsync(cancellationToken);
 
         if (location is not null)
@@ -97,6 +116,21 @@ public sealed class LocationService(AppDbContext db, ILocationCache? cache = nul
                 x.Longitude <= (decimal)(longitude + longitudeDelta));
         if (request.Service == "charging") query = query.Where(x => x.OffersCarCharging);
         if (request.Service == "swap") query = query.Where(x => x.OffersBatterySwap);
+        if (request.Availability == "open")
+            query = query.Where(x => x.OperatingStatus == LocationOperatingStatus.Open);
+        if (request.Availability == "available")
+        {
+            query = request.Service switch
+            {
+                "charging" => query.Where(x => x.OperatingStatus == LocationOperatingStatus.Open &&
+                    x.AvailableChargingBays > 0),
+                "swap" => query.Where(x => x.OperatingStatus == LocationOperatingStatus.Open &&
+                    x.AvailableBatteries > 0),
+                _ => query.Where(x => x.OperatingStatus == LocationOperatingStatus.Open &&
+                    ((x.OffersCarCharging && x.AvailableChargingBays > 0) ||
+                     (x.OffersBatterySwap && x.AvailableBatteries > 0)))
+            };
+        }
         if (!string.IsNullOrWhiteSpace(request.Search))
         {
             var term = request.Search.Trim().ToLower();
@@ -104,12 +138,15 @@ public sealed class LocationService(AppDbContext db, ILocationCache? cache = nul
         }
 
         var candidates = await query.Select(x => new LocationResponse(x.Id, x.Name, x.Address,
-            x.Latitude, x.Longitude, x.OffersCarCharging, x.OffersBatterySwap)).ToListAsync(cancellationToken);
+            x.Latitude, x.Longitude, x.OffersCarCharging, x.OffersBatterySwap, x.OperatingStatus,
+            x.IsOpen24Hours, x.ChargingPowerKw, x.BatteryCapacityKwh, x.AvailableBatteries, x.AvailableChargingBays)).ToListAsync(cancellationToken);
         var matches = candidates
             .Select(x => new NearbyLocationResponse(x, DistanceKm(latitude, longitude,
                 (double)x.Latitude, (double)x.Longitude)))
             .Where(x => x.DistanceKm <= request.RadiusKm)
-            .OrderBy(x => x.DistanceKm).ThenBy(x => x.Location.Name).ThenBy(x => x.Location.Id)
+            .OrderByDescending(x => IsOpenAndAvailable(x.Location, request.Service))
+            .ThenByDescending(x => x.Location.OperatingStatus == LocationOperatingStatus.Open)
+            .ThenBy(x => x.DistanceKm).ThenBy(x => x.Location.Name).ThenBy(x => x.Location.Id)
             .ToList();
         return new PagedResponse<NearbyLocationResponse>(matches.Skip(request.GetOffset())
             .Take(request.PageSize).ToList(), request.Page, request.PageSize, matches.Count);
@@ -119,6 +156,8 @@ public sealed class LocationService(AppDbContext db, ILocationCache? cache = nul
     {
         var location = new Location(request.Name, request.Address, request.Latitude!.Value, request.Longitude!.Value,
             request.OffersCarCharging, request.OffersBatterySwap);
+        if (request.OperatingStatus is { } status) location.SetOperatingStatus(status);
+        location.SetServiceDetails(request.IsOpen24Hours, request.ChargingPowerKw, request.BatteryCapacityKwh, request.AvailableBatteries, request.AvailableChargingBays);
         db.Locations.Add(location);
         await db.SaveChangesAsync(cancellationToken);
 
@@ -135,6 +174,8 @@ public sealed class LocationService(AppDbContext db, ILocationCache? cache = nul
         if (location is null) return null;
         location.Update(request.Name, request.Address, request.Latitude!.Value, request.Longitude!.Value,
             request.OffersCarCharging, request.OffersBatterySwap);
+        if (request.OperatingStatus is { } status) location.SetOperatingStatus(status);
+        location.SetServiceDetails(request.IsOpen24Hours, request.ChargingPowerKw, request.BatteryCapacityKwh, request.AvailableBatteries, request.AvailableChargingBays);
         await db.SaveChangesAsync(cancellationToken);
 
         var response = ToResponse(location);
@@ -159,7 +200,17 @@ public sealed class LocationService(AppDbContext db, ILocationCache? cache = nul
 
     private static LocationResponse ToResponse(Location x) =>
         new(x.Id, x.Name, x.Address, x.Latitude, x.Longitude,
-            x.OffersCarCharging, x.OffersBatterySwap);
+            x.OffersCarCharging, x.OffersBatterySwap, x.OperatingStatus,
+            x.IsOpen24Hours, x.ChargingPowerKw, x.BatteryCapacityKwh, x.AvailableBatteries, x.AvailableChargingBays);
+
+    private static bool IsOpenAndAvailable(LocationResponse location, string service) =>
+        location.OperatingStatus == LocationOperatingStatus.Open && service switch
+        {
+            "charging" => location.OffersCarCharging && location.AvailableChargingBays > 0,
+            "swap" => location.OffersBatterySwap && location.AvailableBatteries > 0,
+            _ => (location.OffersCarCharging && location.AvailableChargingBays > 0) ||
+                 (location.OffersBatterySwap && location.AvailableBatteries > 0)
+        };
 
     private static double DistanceKm(double lat1, double lon1, double lat2, double lon2)
     {

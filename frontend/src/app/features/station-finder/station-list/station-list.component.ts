@@ -1,60 +1,126 @@
 import { Component, input, output } from '@angular/core';
-import { directionsUrl, formatDistance, serviceLabel, Station } from '../models/station.model';
+import {
+  directionsUrl,
+  formatDistance,
+  operatingStatusLabel,
+  serviceLabel,
+  Station,
+} from '../models/station.model';
 
 @Component({
   selector: 'app-station-list',
   template: `
     <ul class="stations" aria-label="Danh sách trạm">
       @for (station of stations(); track station.id) {
-        <li class="station-card" [class.selected]="selectedId() === station.id">
+        <li class="station-card" [class.selected]="selectedId() === station.id" [class.is-inactive]="station.operatingStatus !== 'Open'">
           <button
             type="button"
             class="choose"
             [attr.aria-pressed]="selectedId() === station.id"
             (click)="stationSelected.emit(station.id)"
           >
-            <div class="card-icon" [class.charging]="station.offersCarCharging" [class.swap]="station.offersBatterySwap">
-              <span aria-hidden="true">{{
-                station.offersCarCharging ? (station.offersBatterySwap ? '⚡↔' : '⚡') : '↔'
-              }}</span>
+            <!-- Service Icon -->
+            <div
+              class="card-icon"
+              [class.inactive]="station.operatingStatus !== 'Open'"
+              [title]="serviceLabel(station)"
+            >
+              @if (station.offersCarCharging && station.offersBatterySwap) {
+                <div class="dual-icon-badge" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" class="icon-bolt" width="12" height="12" fill="currentColor">
+                    <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+                  </svg>
+                  <svg viewBox="0 0 24 24" class="icon-battery" width="12" height="12" fill="currentColor">
+                    <path d="M16 4h-1V2.5a.5.5 0 0 0-.5-.5h-5a.5.5 0 0 0-.5.5V4H8C6.34 4 5 5.34 5 7v12c0 1.66 1.34 3 3 3h8c1.66 0 3-1.34 3-3V7c0-1.66-1.34-3-3-3zm-1 12H9v-2h6v2zm0-4H9v-2h6v2zm0-4H9V6h6v2z" />
+                  </svg>
+                </div>
+              } @else if (station.offersCarCharging) {
+                <svg viewBox="0 0 24 24" class="icon-bolt" width="18" height="18" fill="currentColor" aria-hidden="true">
+                  <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+                </svg>
+              } @else {
+                <svg viewBox="0 0 24 24" class="icon-battery" width="18" height="18" fill="currentColor" aria-hidden="true">
+                  <path d="M16 4h-1V2.5a.5.5 0 0 0-.5-.5h-5a.5.5 0 0 0-.5.5V4H8C6.34 4 5 5.34 5 7v12c0 1.66 1.34 3 3 3h8c1.66 0 3-1.34 3-3V7c0-1.66-1.34-3-3-3zm-1 12H9v-2h6v2zm0-4H9v-2h6v2zm0-4H9V6h6v2z" />
+                </svg>
+              }
             </div>
 
+            <!-- Card Main Content -->
             <div class="card-content">
+              <!-- Row 1: Station Name (up to 2 lines allowed) + Status (only for Open) -->
               <div class="card-title-row">
-                <strong class="card-name">{{ station.name }}</strong>
-                <span class="status-tag">● Mở cửa</span>
+                <strong class="card-name" [title]="station.name">{{ station.name }}</strong>
+                @if (station.operatingStatus === 'Open') {
+                  <span class="status-tag open">
+                    <span class="status-dot"></span>
+                    {{ operatingStatusLabel(station) }}
+                  </span>
+                }
               </div>
 
-              <span class="address">{{ station.address }}</span>
-
-              <div class="service-badges">
+              <!-- Row 2: Distance & Address (Regular text, NO pastel yellow pill) -->
+              <div class="card-location">
                 @if (station.distanceKm != null) {
-                  <span class="badge distance-badge">📍 Cách {{ formatDistance(station.distanceKm) }}</span>
+                  <span class="distance-text">{{ formatDistance(station.distanceKm) }}</span>
+                  <span class="location-dot">•</span>
                 }
-                @if (station.offersCarCharging) {
-                  <span class="badge charge-badge">⚡ Sạc nhanh DC</span>
-                }
-                @if (station.offersBatterySwap) {
-                  <span class="badge swap-badge">↔ Đổi pin 3p</span>
+                <span class="address" [title]="station.address">{{ station.address }}</span>
+              </div>
+
+              <!-- Row 3: HERO CAPACITY METRIC or SINGLE INACTIVE WARNING -->
+              <div class="card-capacity-row">
+                @if (station.operatingStatus === 'Open') {
+                  <div class="capacity-stats">
+                    @if (station.offersCarCharging) {
+                      <span class="stat-unit">
+                        <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor">
+                          <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+                        </svg>
+                        <span>Sạc: <strong>{{ station.availableChargingBays ?? 0 }}/10</strong> bãi</span>
+                      </span>
+                    }
+                    @if (station.offersCarCharging && station.offersBatterySwap) {
+                      <span class="stat-sep">•</span>
+                    }
+                    @if (station.offersBatterySwap) {
+                      <span class="stat-unit">
+                        <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor">
+                          <path d="M16 4h-1V2.5a.5.5 0 0 0-.5-.5h-5a.5.5 0 0 0-.5.5V4H8C6.34 4 5 5.34 5 7v12c0 1.66 1.34 3 3 3h8c1.66 0 3-1.34 3-3V7c0-1.66-1.34-3-3-3zm-1 12H9v-2h6v2zm0-4H9v-2h6v2zm0-4H9V6h6v2z" />
+                        </svg>
+                        <span>Pin: <strong>{{ station.availableBatteries ?? 0 }}/20</strong> bình</span>
+                      </span>
+                    }
+                  </div>
+                } @else if (station.operatingStatus === 'Maintenance') {
+                  <span class="status-tag inactive-line maintenance">
+                    <span class="status-dot"></span>
+                    Đang bảo trì
+                  </span>
+                } @else {
+                  <span class="status-tag inactive-line closed">
+                    <span class="status-dot"></span>
+                    Đóng cửa
+                  </span>
                 }
               </div>
             </div>
-          </button>
 
-          <div class="card-actions">
+            <!-- Direction link: Subtle icon button on the right -->
             <a
-              class="directions-link"
+              class="directions directions-link"
               [href]="directionsUrl(station)"
               target="_blank"
               rel="noopener noreferrer"
+              (click)="$event.stopPropagation()"
               [attr.aria-label]="'Chỉ đường đến ' + station.name + ' (mở tab mới)'"
+              title="Chỉ đường trên Google Maps"
             >
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
-                <path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z" />
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="7" y1="17" x2="17" y2="7"></line>
+                <polyline points="7 7 17 7 17 17"></polyline>
               </svg>
-              <span>Chỉ đường</span>
             </a>
-          </div>
+          </button>
         </li>
       }
     </ul>
@@ -66,56 +132,71 @@ import { directionsUrl, formatDistance, serviceLabel, Station } from '../models/
       margin: 0;
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 8px;
     }
     .station-card {
-      border: 1px solid #e5e7eb;
-      border-radius: 14px;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
       background: #ffffff;
-      padding: 14px 16px;
-      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+      padding: 11px 12px;
+      transition: all 0.18s ease;
       position: relative;
     }
+    .station-card.is-inactive {
+      opacity: 0.52;
+      background: #fbfcfd;
+    }
+    .station-card.is-inactive:hover {
+      opacity: 0.85;
+    }
     .station-card:hover {
-      border-color: #cbd5e1;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-      transform: translateY(-1px);
+      border-color: #94a3b8;
+      box-shadow: 0 3px 10px rgba(0, 0, 0, 0.05);
+    }
+    .station-card:hover .directions-link {
+      opacity: 1;
+      color: #17634f;
+      background: #eaf5ed;
     }
     .selected {
-      border-color: #10b981 !important;
-      background: #f0fdf4 !important;
-      box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.25), 0 4px 14px rgba(0, 0, 0, 0.08) !important;
+      border-color: #17634f !important;
+      background: #f4f8f6 !important;
+      box-shadow: 0 0 0 1px #17634f !important;
     }
     .choose {
       display: flex;
-      gap: 14px;
+      align-items: flex-start;
+      gap: 11px;
       width: 100%;
       padding: 0;
       text-align: left;
       border: 0;
       background: none;
-      color: #1f2937;
+      color: #173e34;
       cursor: pointer;
       font: inherit;
     }
     .card-icon {
       flex: none;
-      width: 40px;
-      height: 40px;
-      border-radius: 12px;
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
       display: grid;
       place-items: center;
-      background: #ecfdf5;
-      color: #059669;
-      font-size: 18px;
-      font-weight: 800;
-      border: 1px solid rgba(5, 150, 105, 0.2);
+      background: #eaf5ed;
+      color: #17634f;
+      border: 1px solid rgba(23, 99, 79, 0.15);
+      margin-top: 1px;
     }
-    .card-icon.swap {
-      background: #eff6ff;
-      color: #2563eb;
-      border-color: rgba(37, 99, 235, 0.2);
+    .card-icon.inactive {
+      background: #f1f5f9 !important;
+      color: #94a3b8 !important;
+      border-color: #e2e8f0 !important;
+    }
+    .dual-icon-badge {
+      display: flex;
+      align-items: center;
+      gap: 2px;
     }
     .card-content {
       flex: 1;
@@ -123,79 +204,144 @@ import { directionsUrl, formatDistance, serviceLabel, Station } from '../models/
     }
     .card-title-row {
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       justify-content: space-between;
-      gap: 8px;
+      gap: 6px;
+      margin-bottom: 3px;
     }
     .card-name {
-      font-size: 15px;
+      font-size: 13.5px;
       font-weight: 700;
-      color: #111827;
+      color: #173e34;
       line-height: 1.35;
-      white-space: nowrap;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
       overflow: hidden;
       text-overflow: ellipsis;
+      word-break: break-word;
+      flex: 1;
     }
     .status-tag {
       font-size: 11px;
       font-weight: 600;
-      color: #059669;
+      color: #64748b;
       white-space: nowrap;
-    }
-    .address {
-      display: block;
-      color: #6b7280;
-      font-size: 13px;
-      margin: 4px 0 8px;
-      line-height: 1.45;
-    }
-    .service-badges {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-    }
-    .badge {
-      font-size: 11px;
-      font-weight: 600;
-      padding: 3px 8px;
-      border-radius: 6px;
-    }
-    .distance-badge {
-      background: #fef3c7;
-      color: #92400e;
-      border: 1px solid rgba(245, 158, 11, 0.25);
-    }
-    .charge-badge {
-      background: #d1fae5;
-      color: #065f46;
-    }
-    .swap-badge {
-      background: #dbeafe;
-      color: #1e40af;
-    }
-    .card-actions {
-      display: flex;
-      justify-content: flex-end;
-      margin-top: 8px;
-      padding-top: 8px;
-      border-top: 1px dashed #f3f4f6;
-    }
-    .directions-link {
       display: inline-flex;
       align-items: center;
-      gap: 6px;
+      gap: 4px;
+      padding: 1px 6px;
+      border-radius: 4px;
+      background: #f1f5f9;
+      flex: none;
+      margin-top: 1px;
+    }
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+    .status-tag.open {
+      color: #17634f;
+      background: #eaf5ed;
+    }
+    .status-tag.closed {
+      color: #64748b;
+      background: #f1f5f9;
+    }
+    .status-tag.maintenance {
+      color: #b91c1c;
+      background: #fee2e2;
+    }
+    .card-location {
+      display: flex;
+      align-items: center;
+      gap: 5px;
       font-size: 12px;
+      color: #64748b;
+      margin-bottom: 6px;
+      line-height: 1.3;
+    }
+    .distance-text {
+      font-weight: 600;
+      color: #173e34;
+      white-space: nowrap;
+    }
+    .location-dot {
+      color: #cbd5e1;
+    }
+    .address {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      flex: 1;
+      min-width: 0;
+    }
+    .card-capacity-row {
+      display: flex;
+      align-items: center;
+      font-size: 12px;
+    }
+    .capacity-stats {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: #17634f;
+      font-weight: 500;
+    }
+    .stat-unit {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .stat-unit strong {
       font-weight: 700;
-      color: #2563eb;
-      text-decoration: none;
-      padding: 4px 10px;
+      color: #104f3e;
+    }
+    .stat-sep {
+      color: #cbd5e1;
+    }
+    .inactive-line {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11.5px;
+      font-weight: 600;
+      padding: 0;
+      background: transparent !important;
+      border: none !important;
+    }
+    .inactive-line.maintenance {
+      color: #b91c1c;
+    }
+    .inactive-line.closed {
+      color: #b91c1c;
+    }
+    .inactive-line .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+    .directions-link {
+      flex: none;
+      width: 28px;
+      height: 28px;
       border-radius: 6px;
-      background: #eff6ff;
+      display: grid;
+      place-items: center;
+      color: #94a3b8;
+      background: transparent;
+      text-decoration: none;
       transition: all 0.15s ease;
+      opacity: 0.4;
+      align-self: center;
     }
     .directions-link:hover {
-      background: #dbeafe;
-      color: #1d4ed8;
+      opacity: 1 !important;
+      background: #eaf5ed !important;
+      color: #17634f !important;
     }
   `,
 })
@@ -206,4 +352,5 @@ export class StationListComponent {
   readonly directionsUrl = directionsUrl;
   readonly serviceLabel = serviceLabel;
   readonly formatDistance = formatDistance;
+  readonly operatingStatusLabel = operatingStatusLabel;
 }

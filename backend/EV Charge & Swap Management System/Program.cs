@@ -116,7 +116,8 @@ builder.Services.AddIdentityCore<ApplicationUser>(options =>
     })
     .AddRoles<IdentityRole<Guid>>()
     .AddSignInManager()
-    .AddEntityFrameworkStores<AppDbContext>();
+    .AddEntityFrameworkStores<AppDbContext>()
+    .AddDefaultTokenProviders();
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -173,12 +174,19 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<JwtTokenService>();
 builder.Services.AddScoped<AuthenticationService>();
 builder.Services.AddScoped<VerificationService>();
+builder.Services.AddScoped<PasswordResetService>();
+builder.Services.Configure<VerificationDeliveryOptions>(
+    builder.Configuration.GetSection(VerificationDeliveryOptions.SectionName));
 if (builder.Environment.IsDevelopment())
 {
     builder.Services.AddSingleton<DevelopmentCodeInbox>();
     builder.Services.AddSingleton<IVerificationCodeSender>(sp => sp.GetRequiredService<DevelopmentCodeInbox>());
 }
-else builder.Services.AddSingleton<IVerificationCodeSender, UnconfiguredVerificationSender>();
+else
+{
+    builder.Services.AddHttpClient<IVerificationCodeSender, ProductionVerificationCodeSender>()
+        .ConfigureHttpClient(client => client.Timeout = TimeSpan.FromSeconds(10));
+}
 builder.Services.AddScoped<UserService>();
 builder.Services.AddScoped<AdminBootstrapper>();
 builder.Services.AddHealthChecks().AddCheck<DatabaseHealthCheck>(

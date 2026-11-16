@@ -29,6 +29,8 @@ Customer registration collects full name, email, Vietnamese mobile number, and p
 
 Unauthenticated users may view public information. The backend must enforce both role and location assignment on every relevant API. Hiding an Angular button is not authorization.
 
+Customers can read their own profile and update their full name. Email and phone remain login identifiers and cannot be changed through the basic profile form; changing either requires a separate verification workflow. An authenticated customer can change a password by entering the current password. A customer who forgot the password can request a six-digit, five-minute, single-use reset code through a previously verified email or phone number, then set a new password. The request response does not disclose whether the account exists. Changing or resetting a password invalidates existing access and refresh tokens; the customer signs in again.
+
 ## 3. Functional requirements
 
 ### 3.1. Locations, maps, and search
@@ -36,8 +38,11 @@ Unauthenticated users may view public information. The backend must enforce both
 - Admin can create, edit, and hide a location with its name, address, coordinates, offered services, and service hours for each service.
 - Angular displays locations on a map. A location offering both services still has one marker.
 - Customers can search by name/address and radius; filter by service, price, available charging bays, or ready batteries.
+- The station finder searches station names and addresses across the entire network; the customer interface does not expose a radius selector.
 - Location details show available resource counts, pricing, and when operators last updated the physical data.
 - A **Directions** action opens Google Maps for the location coordinates.
+- Public location responses include a manually maintained operating status: `Unknown`, `Open`, `Closed`, or `Maintenance`. `Unknown` is used for existing locations until an Admin confirms their state. This status is independent of public visibility (`isActive`), service hours, and individual equipment availability. The UI must not infer 24/7 opening, charger power/connector, or swap duration from the offered-service flags.
+- The current demo locations have a 24/7 service schedule. `Closed` and `Maintenance` are temporary operational exceptions to that schedule. A location may report a supported charging power of 30, 60, 150 or 250 kW when car charging is offered, and a 1.5 kWh LFP battery specification when battery swap is offered. When battery swap is offered, locations also report available battery pack counts (`available_batteries`, between 0 and 20 packs) reflecting ready batteries available for swap. When car charging is offered, locations report available charging bay counts (`available_charging_bays`, between 0 and 10 bays) reflecting currently vacant/ready charging bays.
 - A service can only be reserved during its configured service hours.
 
 ### 3.2. Car charging bays

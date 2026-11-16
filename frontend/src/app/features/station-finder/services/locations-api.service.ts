@@ -17,11 +17,16 @@ export class LocationsApiService {
     return this.http.get<Station>(`${this.url}/${encodeURIComponent(id)}`);
   }
 
+  search(query: string, page = 1, pageSize = 20): Observable<StationPage> {
+    return this.http.get<StationPage>(`${this.url}/search`, { params: { query, page, pageSize } });
+  }
+
   nearby(
     latitude: number,
     longitude: number,
     radiusKm = 10,
     service = 'all',
+    availability = 'all',
     search = '',
     page = 1,
     pageSize = 20,
@@ -34,6 +39,7 @@ export class LocationsApiService {
       page,
       pageSize,
     };
+    if (availability !== 'all') params['availability'] = availability;
     if (search.trim()) params['search'] = search.trim();
 
     return this.http

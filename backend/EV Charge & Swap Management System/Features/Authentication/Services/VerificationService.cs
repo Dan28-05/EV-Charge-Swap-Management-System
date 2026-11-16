@@ -14,13 +14,21 @@ public sealed class VerificationService(
     IVerificationCodeSender sender, IOptions<JwtOptions> jwt,
     TimeProvider clock)
 {
-    public bool DeliveryAvailable => sender is not UnconfiguredVerificationSender;
+    public bool DeliveryAvailable => sender.CanSend("email") && sender.CanSend("phone");
+    public bool CanDeliver(string channel) => sender.CanSend(channel);
     public static bool ValidChannel(string channel) => channel is "email" or "phone";
 
     public async Task SendAsync(ApplicationUser user, string channel, CancellationToken ct)
     {
         if (!ValidChannel(channel)) throw new ArgumentException("Invalid channel.", nameof(channel));
-        var destination = channel == "email" ? user.Email! : user.PhoneNumber!;
+        await SendCodeAsync(user, channel, channel == "email" ? user.Email! : user.PhoneNumber!, ct);
+    }
+
+    public Task SendPasswordResetAsync(ApplicationUser user, string destination, CancellationToken ct) =>
+        SendCodeAsync(user, "reset", destination, ct);
+
+    private async Task SendCodeAsync(ApplicationUser user, string channel, string destination, CancellationToken ct)
+    {
         var now = clock.GetUtcNow().UtcDateTime;
         var pending = await db.VerificationChallenges
             .Where(x => x.UserId == user.Id && x.Channel == channel && x.ConsumedAtUtc == null)
@@ -33,15 +41,34 @@ public sealed class VerificationService(
             Hash(user.Id, channel, code), now);
         db.VerificationChallenges.Add(challenge);
         await db.SaveChangesAsync(ct);
-        await sender.SendAsync(channel, destination, code, ct);
+        try
+        {
+            await sender.SendAsync(channel == "reset" && destination.Contains('@') ? "email" :
+                channel == "reset" ? "phone" : channel, destination, code, ct);
+        }
+        catch
+        {
+            db.VerificationChallenges.Remove(challenge);
+            await db.SaveChangesAsync(ct);
+            throw;
+        }
     }
 
     public async Task<bool> VerifyAsync(ApplicationUser user, string channel, string code, CancellationToken ct)
     {
         if (!ValidChannel(channel)) return false;
+        return await VerifyCodeAsync(user, channel, channel == "email" ? user.Email! : user.PhoneNumber!, code, true, ct);
+    }
+
+    public Task<bool> VerifyPasswordResetAsync(ApplicationUser user, string destination, string code, CancellationToken ct) =>
+        VerifyCodeAsync(user, "reset", destination, code, false, ct);
+
+    private async Task<bool> VerifyCodeAsync(ApplicationUser user, string channel, string destination,
+        string code, bool confirmContact, CancellationToken ct)
+    {
         var now = clock.GetUtcNow().UtcDateTime;
         var challenge = await db.VerificationChallenges
-            .Where(x => x.UserId == user.Id && x.Channel == channel)
+            .Where(x => x.UserId == user.Id && x.Channel == channel && x.Destination == destination)
             .OrderByDescending(x => x.CreatedAtUtc).FirstOrDefaultAsync(ct);
         if (challenge is null || !challenge.IsAvailable(now)) return false;
 
@@ -55,12 +82,15 @@ public sealed class VerificationService(
         }
 
         challenge.Consume(now);
-        if (channel == "email") user.EmailConfirmed = true;
-        else user.PhoneNumberConfirmed = true;
         try
         {
-            var updated = await users.UpdateAsync(user);
-            if (!updated.Succeeded) return false;
+            if (confirmContact)
+            {
+                if (channel == "email") user.EmailConfirmed = true;
+                else user.PhoneNumberConfirmed = true;
+                var updated = await users.UpdateAsync(user);
+                if (!updated.Succeeded) return false;
+            }
             await db.SaveChangesAsync(ct);
             return true;
         }

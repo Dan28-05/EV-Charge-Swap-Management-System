@@ -13,6 +13,7 @@ public sealed class LocationTests
         Assert.Equal("Address A", location.Address);
         Assert.NotEqual(Guid.Empty, location.Id);
         Assert.True(location.IsActive);
+        Assert.Equal(LocationOperatingStatus.Unknown, location.OperatingStatus);
         Assert.Equal(DateTimeKind.Utc, location.CreatedAtUtc.Kind);
     }
 
@@ -59,5 +60,42 @@ public sealed class LocationTests
         var location = new Location("Station", "Address", 0, 0, true, false);
         location.Deactivate();
         Assert.False(location.IsActive);
+    }
+
+    [Fact]
+    public void Operating_status_is_manually_set_and_visibility_is_independent()
+    {
+        var location = new Location("Station", "Address", 0, 0, true, false);
+        location.SetOperatingStatus(LocationOperatingStatus.Maintenance);
+        location.Deactivate();
+        Assert.Equal(LocationOperatingStatus.Maintenance, location.OperatingStatus);
+        location.Activate();
+        location.SetOperatingStatus(LocationOperatingStatus.Closed);
+        Assert.Equal(LocationOperatingStatus.Closed, location.OperatingStatus);
+        Assert.Throws<ArgumentOutOfRangeException>(() => location.SetOperatingStatus((LocationOperatingStatus)99));
+    }
+
+    [Fact]
+    public void Service_details_follow_offered_services_and_supported_values()
+    {
+        var location = new Location("Station", "Address", 0, 0, true, true);
+        location.SetServiceDetails(true, 250, 1.5m, 15, 8);
+        Assert.True(location.IsOpen24Hours);
+        Assert.Equal(250, location.ChargingPowerKw);
+        Assert.Equal(1.5m, location.BatteryCapacityKwh);
+        Assert.Equal(15, location.AvailableBatteries);
+        Assert.Equal(8, location.AvailableChargingBays);
+        Assert.Throws<ArgumentException>(() => location.SetServiceDetails(true, 100, 1.5m, 10, 5));
+        Assert.Throws<ArgumentException>(() => location.SetServiceDetails(true, 30, 2m, 10, 5));
+        Assert.Throws<ArgumentException>(() => location.SetServiceDetails(true, 30, 1.5m, 21, 5));
+        Assert.Throws<ArgumentException>(() => location.SetServiceDetails(true, 30, 1.5m, -1, 5));
+        Assert.Throws<ArgumentException>(() => location.SetServiceDetails(true, 30, 1.5m, 10, 11));
+        Assert.Throws<ArgumentException>(() => location.SetServiceDetails(true, 30, 1.5m, 10, -1));
+
+        var chargingOnly = new Location("Charging Station", "Address", 0, 0, true, false);
+        Assert.Throws<ArgumentException>(() => chargingOnly.SetServiceDetails(false, 60, null, 10, 5));
+
+        var swapOnly = new Location("Swap Station", "Address", 0, 0, false, true);
+        Assert.Throws<ArgumentException>(() => swapOnly.SetServiceDetails(false, null, 1.5m, 10, 5));
     }
 }

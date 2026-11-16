@@ -34,4 +34,12 @@ public sealed class ApplicationUser : IdentityUser<Guid>
 
     public void Activate() => IsActive = true;
     public void Deactivate() => IsActive = false;
+
+    public void UpdateFullName(string fullName)
+    {
+        fullName = fullName.Trim();
+        if (fullName.Length is < 2 or > 160)
+            throw new ArgumentException("Full name must contain 2 to 160 characters.", nameof(fullName));
+        FullName = fullName;
+    }
 }

@@ -28,7 +28,7 @@ public sealed class LocationCacheTests
         Assert.Null(pagedResult);
 
         // Setting or invalidating when null must not throw
-        await cache.SetAsync(new LocationResponse(id, "Test", "Address", 10, 106, true, false), CancellationToken.None);
+        await cache.SetAsync(new LocationResponse(id, "Test", "Address", 10, 106, true, false, LocationOperatingStatus.Unknown), CancellationToken.None);
         await cache.InvalidateLocationAsync(id, CancellationToken.None);
         await cache.InvalidateAllAsync(CancellationToken.None);
     }
@@ -43,7 +43,7 @@ public sealed class LocationCacheTests
         await db.Database.EnsureCreatedAsync();
 
         var stationId = Guid.NewGuid();
-        var cachedStation = new LocationResponse(stationId, "Cached Station", "Cached Address", 10.5m, 106.5m, true, true);
+        var cachedStation = new LocationResponse(stationId, "Cached Station", "Cached Address", 10.5m, 106.5m, true, true, LocationOperatingStatus.Unknown);
 
         var mockCache = new TestInMemoryLocationCache();
         await mockCache.SetAsync(cachedStation, CancellationToken.None);

@@ -16,6 +16,10 @@ public sealed class NearbyLocationsRequest : IValidatableObject
     [RegularExpression("^(all|charging|swap)$")]
     public string Service { get; init; } = "all";
 
+    // "available" deliberately means both open and able to serve at least one offered service.
+    [RegularExpression("^(all|open|available)$")]
+    public string Availability { get; init; } = "all";
+
     [StringLength(100)]
     public string? Search { get; init; }
 

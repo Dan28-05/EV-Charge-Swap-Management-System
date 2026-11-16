@@ -5,5 +5,7 @@ public sealed record UserResponse(
     string Email,
     string FullName,
     string? PhoneNumber,
+    bool EmailConfirmed,
+    bool PhoneNumberConfirmed,
     bool IsActive,
     IReadOnlyCollection<string> Roles);

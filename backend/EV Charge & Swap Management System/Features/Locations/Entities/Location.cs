@@ -10,6 +10,12 @@ public sealed class Location
     public bool OffersCarCharging { get; private set; }
     public bool OffersBatterySwap { get; private set; }
     public bool IsActive { get; private set; }
+    public LocationOperatingStatus OperatingStatus { get; private set; } = LocationOperatingStatus.Unknown;
+    public bool IsOpen24Hours { get; private set; }
+    public int? ChargingPowerKw { get; private set; }
+    public decimal? BatteryCapacityKwh { get; private set; }
+    public int? AvailableBatteries { get; private set; }
+    public int? AvailableChargingBays { get; private set; }
     public DateTime CreatedAtUtc { get; private set; }
 
     private Location() { } // EF Core
@@ -49,5 +55,28 @@ public sealed class Location
 
     public void Deactivate() => IsActive = false;
     public void Activate() => IsActive = true;
+
+    public void SetOperatingStatus(LocationOperatingStatus status)
+    {
+        if (!Enum.IsDefined(status)) throw new ArgumentOutOfRangeException(nameof(status));
+        OperatingStatus = status;
+    }
+
+    public void SetServiceDetails(bool isOpen24Hours, int? chargingPowerKw, decimal? batteryCapacityKwh, int? availableBatteries = null, int? availableChargingBays = null)
+    {
+        if (chargingPowerKw is not null && (!OffersCarCharging || chargingPowerKw is not (30 or 60 or 150 or 250)))
+            throw new ArgumentException("Invalid charging power for this location.", nameof(chargingPowerKw));
+        if (batteryCapacityKwh is not null && (!OffersBatterySwap || batteryCapacityKwh != 1.5m))
+            throw new ArgumentException("Invalid battery capacity for this location.", nameof(batteryCapacityKwh));
+        if (availableBatteries is not null && (!OffersBatterySwap || availableBatteries is < 0 or > 20))
+            throw new ArgumentException("Invalid available batteries for this location.", nameof(availableBatteries));
+        if (availableChargingBays is not null && (!OffersCarCharging || availableChargingBays is < 0 or > 10))
+            throw new ArgumentException("Invalid available charging bays for this location.", nameof(availableChargingBays));
+        IsOpen24Hours = isOpen24Hours;
+        ChargingPowerKw = chargingPowerKw;
+        BatteryCapacityKwh = batteryCapacityKwh;
+        AvailableBatteries = availableBatteries;
+        AvailableChargingBays = availableChargingBays;
+    }
 
 }

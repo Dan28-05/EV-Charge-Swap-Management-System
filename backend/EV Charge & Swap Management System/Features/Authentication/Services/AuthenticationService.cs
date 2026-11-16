@@ -17,7 +17,8 @@ public sealed class AuthenticationService(
     AppDbContext db,
     JwtTokenService tokenService,
     VerificationService verification,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    ILogger<AuthenticationService> logger)
 {
     public async Task<OperationResult<bool>> RegisterAsync(RegisterRequest request,
         CancellationToken cancellationToken)
@@ -49,8 +50,8 @@ public sealed class AuthenticationService(
             return OperationResult<bool>.Fail(OperationFailure.Validation, "Could not assign the customer role.", ToErrors(roleResult));
 
         await transaction.CommitAsync(cancellationToken);
-        await verification.SendAsync(user, "email", cancellationToken);
-        await verification.SendAsync(user, "phone", cancellationToken);
+        await TrySendVerificationAsync(user, "email", cancellationToken);
+        await TrySendVerificationAsync(user, "phone", cancellationToken);
         return OperationResult<bool>.Success(true);
     }
 
@@ -169,7 +170,8 @@ public sealed class AuthenticationService(
             refreshToken.Entity.ExpiresAtUtc, ToUserResponse(user, roles));
 
     private static UserResponse ToUserResponse(ApplicationUser user, IEnumerable<string> roles) =>
-        new(user.Id, user.Email ?? string.Empty, user.FullName, user.PhoneNumber, user.IsActive, roles.ToArray());
+        new(user.Id, user.Email ?? string.Empty, user.FullName, user.PhoneNumber,
+            user.EmailConfirmed, user.PhoneNumberConfirmed, user.IsActive, roles.ToArray());
 
     private static IReadOnlyDictionary<string, string[]> ToErrors(IdentityResult result) =>
         result.Errors.GroupBy(x => x.Code).ToDictionary(x => x.Key, x => x.Select(e => e.Description).ToArray());
@@ -179,4 +181,19 @@ public sealed class AuthenticationService(
 
     private static OperationResult<AuthenticationResponse> InvalidRefreshToken() =>
         OperationResult<AuthenticationResponse>.Fail(OperationFailure.Unauthorized, "The refresh token is invalid or expired.");
+
+    private async Task TrySendVerificationAsync(ApplicationUser user, string channel,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await verification.SendAsync(user, channel, cancellationToken);
+        }
+        catch (HttpRequestException exception)
+        {
+            logger.LogWarning(exception,
+                "The account was created, but the {Channel} verification code could not be delivered for user {UserId}.",
+                channel, user.Id);
+        }
+    }
 }

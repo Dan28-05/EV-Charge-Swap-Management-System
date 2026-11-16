@@ -6,6 +6,12 @@ export interface Station {
   longitude: number;
   offersCarCharging: boolean;
   offersBatterySwap: boolean;
+  operatingStatus?: 'Unknown' | 'Open' | 'Closed' | 'Maintenance';
+  isOpen24Hours?: boolean;
+  chargingPowerKw?: number | null;
+  batteryCapacityKwh?: number | null;
+  availableBatteries?: number | null;
+  availableChargingBays?: number | null;
   distanceKm?: number;
 }
 
@@ -39,6 +45,19 @@ export function serviceLabel(station: Station): string {
   ]
     .filter(Boolean)
     .join(' · ');
+}
+
+export function operatingStatusLabel(station: Station): string {
+  switch (station.operatingStatus) {
+    case 'Open':
+      return 'Đang hoạt động';
+    case 'Closed':
+      return 'Đóng cửa';
+    case 'Maintenance':
+      return 'Đang bảo trì';
+    default:
+      return 'Chưa có thông tin';
+  }
 }
 
 export function formatDistance(distanceKm?: number): string {

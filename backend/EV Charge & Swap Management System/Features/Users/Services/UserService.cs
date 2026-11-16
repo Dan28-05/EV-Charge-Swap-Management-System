@@ -25,6 +25,56 @@ public sealed class UserService(
         return OperationResult<UserResponse>.Success(ToResponse(user, roles));
     }
 
+    public async Task<OperationResult<UserResponse>> UpdateProfileAsync(
+        Guid userId, UpdateProfileRequest request)
+    {
+        if (request.FullName.Trim().Length is < 2 or > 160)
+            return OperationResult<UserResponse>.Fail(OperationFailure.Validation,
+                "Full name must contain 2 to 160 characters.");
+        var user = await userManager.FindByIdAsync(userId.ToString());
+        if (user is null || !user.IsActive)
+            return OperationResult<UserResponse>.Fail(OperationFailure.NotFound, "User was not found.");
+
+        user.UpdateFullName(request.FullName);
+        var updated = await userManager.UpdateAsync(user);
+        if (!updated.Succeeded)
+            return OperationResult<UserResponse>.Fail(
+                OperationFailure.Validation, "Could not update the profile.", ToErrors(updated));
+
+        var roles = await userManager.GetRolesAsync(user);
+        return OperationResult<UserResponse>.Success(ToResponse(user, roles));
+    }
+
+    public async Task<OperationResult<bool>> ChangePasswordAsync(
+        Guid userId, ChangePasswordRequest request, CancellationToken cancellationToken)
+    {
+        var user = await userManager.FindByIdAsync(userId.ToString());
+        if (user is null || !user.IsActive)
+            return OperationResult<bool>.Fail(OperationFailure.NotFound, "User was not found.");
+        if (request.CurrentPassword == request.NewPassword)
+            return OperationResult<bool>.Fail(OperationFailure.Validation, "The new password must be different.");
+
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var changed = await userManager.ChangePasswordAsync(user, request.CurrentPassword, request.NewPassword);
+        if (!changed.Succeeded)
+            return OperationResult<bool>.Fail(OperationFailure.Validation,
+                "Current password is incorrect or the new password does not meet the requirements.", ToErrors(changed));
+
+        await RevokeSessionsAsync(userId, "password_changed", cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return OperationResult<bool>.Success(true);
+    }
+
+    public async Task RevokeSessionsAsync(Guid userId, string reason, CancellationToken cancellationToken)
+    {
+        var now = timeProvider.GetUtcNow().UtcDateTime;
+        var tokens = await db.RefreshTokens
+            .Where(x => x.UserId == userId && x.RevokedAtUtc == null && x.ExpiresAtUtc > now)
+            .ToListAsync(cancellationToken);
+        foreach (var token in tokens) token.Revoke(now, reason);
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
     public async Task<OperationResult<UserResponse>> CreateOperatorAsync(
         CreateOperatorRequest request, CancellationToken cancellationToken)
     {
@@ -59,7 +109,8 @@ public sealed class UserService(
 
     private static UserResponse ToResponse(ApplicationUser user, IEnumerable<string> roles) =>
         new(user.Id, user.Email ?? string.Empty, user.FullName,
-            user.PhoneNumber, user.IsActive, roles.ToArray());
+            user.PhoneNumber, user.EmailConfirmed, user.PhoneNumberConfirmed,
+            user.IsActive, roles.ToArray());
 
     private static IReadOnlyDictionary<string, string[]> ToErrors(IdentityResult result) =>
         result.Errors.GroupBy(x => x.Code)

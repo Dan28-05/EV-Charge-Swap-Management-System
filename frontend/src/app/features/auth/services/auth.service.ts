@@ -1,4 +1,4 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Injectable, PLATFORM_ID, computed, inject, signal } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 import { Observable } from 'rxjs';
@@ -7,6 +7,8 @@ import {
   AuthenticationResponse,
   LoginCredentials,
   RegisterCustomerRequest,
+  ChangePasswordRequest,
+  ResetPasswordRequest,
 } from '../models/authentication.models';
 
 @Injectable({ providedIn: 'root' })
@@ -27,6 +29,52 @@ export class AuthService {
 
   register(request: RegisterCustomerRequest): Observable<void> {
     return this.http.post<void>('/api/auth/register', request);
+  }
+
+  profile(): Observable<AuthenticatedUser> {
+    return this.http.get<AuthenticatedUser>('/api/users/me', { headers: this.authHeaders() });
+  }
+
+  updateProfile(fullName: string): Observable<AuthenticatedUser> {
+    return this.http.put<AuthenticatedUser>('/api/users/me', { fullName }, { headers: this.authHeaders() });
+  }
+
+  changePassword(request: ChangePasswordRequest): Observable<void> {
+    return this.http.post<void>('/api/users/me/change-password', request, { headers: this.authHeaders() });
+  }
+
+  sendVerificationCode(channel: 'email' | 'phone'): Observable<void> {
+    return this.http.post<void>('/api/auth/verification/me/send', { channel }, {
+      headers: this.authHeaders(),
+    });
+  }
+
+  confirmVerificationCode(channel: 'email' | 'phone', code: string): Observable<void> {
+    return this.http.post<void>('/api/auth/verification/me/confirm', { channel, code }, {
+      headers: this.authHeaders(),
+    });
+  }
+
+  forgotPassword(identifier: string): Observable<void> {
+    return this.http.post<void>('/api/auth/password/forgot', { identifier });
+  }
+
+  resetPassword(request: ResetPasswordRequest): Observable<void> {
+    return this.http.post<void>('/api/auth/password/reset', request);
+  }
+
+  updateCachedUser(user: AuthenticatedUser): void {
+    const session = this.session();
+    if (!session) return;
+    const updated = { ...session, user };
+    this.session.set(updated);
+    if (!isPlatformBrowser(this.platformId)) return;
+    const storage = localStorage.getItem(this.authStorageKey) ? localStorage : sessionStorage;
+    storage.setItem(this.authStorageKey, JSON.stringify(updated));
+  }
+
+  private authHeaders(): HttpHeaders {
+    return new HttpHeaders({ Authorization: `Bearer ${this.session()?.accessToken ?? ''}` });
   }
 
   saveSession(response: AuthenticationResponse, remember: boolean, identifier: string): void {

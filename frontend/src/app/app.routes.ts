@@ -11,7 +11,9 @@ export const routes: Routes = [
     children: [
       { path: 'login', component: LoginFormComponent, title: 'Đăng nhập — EVGo' },
       { path: 'register', component: RegisterFormComponent, title: 'Đăng ký — EVGo' },
+      { path: 'forgot-password', loadComponent: () => import('./features/auth/forgot-password/forgot-password.component').then(m => m.ForgotPasswordComponent), title: 'Quên mật khẩu — EVGo' },
     ],
   },
+  { path: 'profile', loadComponent: () => import('./features/auth/profile/profile.component').then(m => m.ProfileComponent), title: 'Hồ sơ cá nhân — EVGo' },
   { path: '**', redirectTo: '' },
 ];

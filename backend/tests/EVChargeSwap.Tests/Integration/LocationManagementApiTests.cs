@@ -5,6 +5,7 @@ using EVChargeSwap.Common.Pagination;
 using EVChargeSwap.Features.Authentication.Requests;
 using EVChargeSwap.Features.Authentication.Responses;
 using EVChargeSwap.Features.Locations.Requests;
+using EVChargeSwap.Features.Locations.Entities;
 using EVChargeSwap.Features.Locations.Responses;
 using Xunit;
 
@@ -12,6 +13,20 @@ namespace EVChargeSwap.Tests.Integration;
 
 public sealed class LocationManagementApiTests
 {
+    [Fact]
+    public async Task Search_finds_stations_across_locations_and_excludes_hidden()
+    {
+        using var factory = new ApiFactory();
+        using var client = factory.CreateClient(new() { BaseAddress = new Uri("https://localhost") });
+        var result = await client.GetFromJsonAsync<PagedResponse<LocationResponse>>(
+            "/api/locations/search?query=B%20Station&page=1&pageSize=20");
+        Assert.NotNull(result);
+        Assert.Contains(result.Items, x => x.Name == "B Station");
+        var hidden = await client.GetFromJsonAsync<PagedResponse<LocationResponse>>(
+            "/api/locations/search?query=hidden&page=1&pageSize=20");
+        Assert.NotNull(hidden);
+        Assert.Empty(hidden.Items);
+    }
     [Fact]
     public async Task Nearby_filters_by_radius_service_and_excludes_hidden_locations()
     {
@@ -44,6 +59,7 @@ public sealed class LocationManagementApiTests
     [InlineData("longitude=106")]
     [InlineData("latitude=10&longitude=106&radiusKm=0")]
     [InlineData("latitude=10&longitude=106&service=invalid")]
+    [InlineData("latitude=10&longitude=106&availability=invalid")]
     [InlineData("latitude=10&longitude=106&page=2147483647&pageSize=100")]
     [InlineData("latitude=10&longitude=106&radiusKm=101")]
     public async Task Nearby_rejects_invalid_queries(string query)
@@ -62,7 +78,10 @@ public sealed class LocationManagementApiTests
         var input = new LocationUpsertRequest
         {
             Name = "New Station", Address = "Test address", Latitude = 13.766667m,
-            Longitude = 109.233333m, OffersCarCharging = true
+            Longitude = 109.233333m, OffersCarCharging = true,
+            OperatingStatus = LocationOperatingStatus.Maintenance,
+            IsOpen24Hours = true, ChargingPowerKw = 150,
+            AvailableChargingBays = 6
         };
         Assert.Equal(HttpStatusCode.Unauthorized,
             (await client.PostAsJsonAsync("/api/locations", input)).StatusCode);
@@ -78,15 +97,35 @@ public sealed class LocationManagementApiTests
 
         var created = await client.PostAsJsonAsync("/api/locations", input);
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        Assert.Contains("\"operatingStatus\":\"Maintenance\"", await created.Content.ReadAsStringAsync());
         var location = await created.Content.ReadFromJsonAsync<LocationResponse>();
         Assert.NotNull(location);
+        Assert.Equal(LocationOperatingStatus.Maintenance, location.OperatingStatus);
+        Assert.True(location.IsOpen24Hours);
+        Assert.Equal(150, location.ChargingPowerKw);
+        Assert.Equal(6, location.AvailableChargingBays);
+        var publicDetail = await client.GetFromJsonAsync<LocationResponse>($"/api/locations/{location.Id}");
+        Assert.Equal(LocationOperatingStatus.Maintenance, publicDetail?.OperatingStatus);
+        Assert.Equal(6, publicDetail?.AvailableChargingBays);
 
         var update = await client.PutAsJsonAsync($"/api/locations/{location.Id}", new LocationUpsertRequest
         {
             Name = "Updated Station", Address = "Updated address", Latitude = 13.77m,
-            Longitude = 109.22m, OffersBatterySwap = true
+            Longitude = 109.22m, OffersBatterySwap = true,
+            OperatingStatus = LocationOperatingStatus.Closed,
+            IsOpen24Hours = true, BatteryCapacityKwh = 1.5m,
+            AvailableBatteries = 12
         });
         Assert.Equal(HttpStatusCode.OK, update.StatusCode);
+        var updated = await update.Content.ReadFromJsonAsync<LocationResponse>();
+        Assert.Equal(LocationOperatingStatus.Closed, updated?.OperatingStatus);
+        Assert.Null(updated?.ChargingPowerKw);
+        Assert.Equal(1.5m, updated?.BatteryCapacityKwh);
+        Assert.Equal(12, updated?.AvailableBatteries);
+        var publicList = await client.GetFromJsonAsync<PagedResponse<LocationResponse>>(
+            "/api/locations?pageSize=100");
+        Assert.Contains(publicList!.Items, x => x.Id == location.Id &&
+            x.OperatingStatus == LocationOperatingStatus.Closed);
 
         var hidden = await client.PatchAsJsonAsync($"/api/locations/{location.Id}/visibility",
             new LocationVisibilityRequest { IsActive = false });
@@ -102,6 +141,24 @@ public sealed class LocationManagementApiTests
             (await client.PostAsJsonAsync("/api/locations", new
             {
                 name = "Missing coordinates", address = "Test", offersCarCharging = true
+            })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await client.PostAsJsonAsync("/api/locations", new
+            {
+                name = "Invalid status", address = "Test", latitude = 10,
+                longitude = 106, offersCarCharging = true, operatingStatus = "Faulted"
+            })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await client.PostAsJsonAsync("/api/locations", new
+            {
+                name = "Invalid battery count", address = "Test", latitude = 10,
+                longitude = 106, offersBatterySwap = true, availableBatteries = 25
+            })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await client.PostAsJsonAsync("/api/locations", new
+            {
+                name = "Invalid bay count", address = "Test", latitude = 10,
+                longitude = 106, offersCarCharging = true, availableChargingBays = 15
             })).StatusCode);
     }
 }

@@ -152,6 +152,23 @@ namespace EVChargeSwap.Data.Migrations
                         .HasColumnType("character varying(300)")
                         .HasColumnName("address");
 
+                    b.Property<int?>("AvailableBatteries")
+                        .HasColumnType("integer")
+                        .HasColumnName("available_batteries");
+
+                    b.Property<int?>("AvailableChargingBays")
+                        .HasColumnType("integer")
+                        .HasColumnName("available_charging_bays");
+
+                    b.Property<decimal?>("BatteryCapacityKwh")
+                        .HasPrecision(3, 1)
+                        .HasColumnType("numeric(3,1)")
+                        .HasColumnName("battery_capacity_kwh");
+
+                    b.Property<int?>("ChargingPowerKw")
+                        .HasColumnType("integer")
+                        .HasColumnName("charging_power_kw");
+
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at_utc");
@@ -159,6 +176,10 @@ namespace EVChargeSwap.Data.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean")
                         .HasColumnName("is_active");
+
+                    b.Property<bool>("IsOpen24Hours")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_open_24_hours");
 
                     b.Property<decimal>("Latitude")
                         .HasPrecision(9, 6)
@@ -184,15 +205,33 @@ namespace EVChargeSwap.Data.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("offers_car_charging");
 
+                    b.Property<string>("OperatingStatus")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("Unknown")
+                        .HasColumnName("operating_status");
+
                     b.HasKey("Id");
 
                     b.HasIndex("Name");
 
                     b.ToTable("locations", null, t =>
                         {
+                            t.HasCheckConstraint("ck_locations_available_batteries", "available_batteries IS NULL OR (offers_battery_swap AND available_batteries BETWEEN 0 AND 20)");
+
+                            t.HasCheckConstraint("ck_locations_available_charging_bays", "available_charging_bays IS NULL OR (offers_car_charging AND available_charging_bays BETWEEN 0 AND 10)");
+
+                            t.HasCheckConstraint("ck_locations_battery_capacity", "battery_capacity_kwh IS NULL OR (offers_battery_swap AND battery_capacity_kwh = 1.5)");
+
+                            t.HasCheckConstraint("ck_locations_charging_power", "charging_power_kw IS NULL OR (offers_car_charging AND charging_power_kw IN (30, 60, 150, 250))");
+
                             t.HasCheckConstraint("ck_locations_latitude", "latitude BETWEEN -90 AND 90");
 
                             t.HasCheckConstraint("ck_locations_longitude", "longitude BETWEEN -180 AND 180");
+
+                            t.HasCheckConstraint("ck_locations_operating_status", "operating_status IN ('Unknown', 'Open', 'Closed', 'Maintenance')");
 
                             t.HasCheckConstraint("ck_locations_service", "offers_car_charging OR offers_battery_swap");
                         });

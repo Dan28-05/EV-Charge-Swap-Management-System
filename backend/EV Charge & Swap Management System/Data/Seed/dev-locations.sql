@@ -1,5 +1,5 @@
--- Top iconic, realistic charging & battery swap locations across Vietnam.
--- Real landmark locations with accurate street addresses and verified GPS coordinates.
+-- Fictional charging and swap stations placed near recognizable landmarks for local demos.
+-- Addresses and coordinates do not verify that an EVGo station exists at these sites.
 -- Safe to re-run; ON CONFLICT DO UPDATE keeps records current and idempotent.
 
 INSERT INTO locations
@@ -23,3 +23,25 @@ ON CONFLICT (id) DO UPDATE SET
     offers_car_charging = EXCLUDED.offers_car_charging,
     offers_battery_swap = EXCLUDED.offers_battery_swap,
     is_active = EXCLUDED.is_active;
+
+-- Illustrative operating states only; these are not verified real-world conditions.
+UPDATE locations SET operating_status = 'Open'
+WHERE id = 'a0000000-0000-4000-8000-000000000001';
+UPDATE locations SET operating_status = 'Closed'
+WHERE id = 'a0000000-0000-4000-8000-000000000002';
+UPDATE locations SET operating_status = 'Maintenance'
+WHERE id = 'a0000000-0000-4000-8000-000000000003';
+
+UPDATE locations SET
+    is_open_24_hours = true,
+    charging_power_kw = CASE WHEN offers_car_charging THEN
+        (ARRAY[30, 60, 150, 250])[get_byte(decode(md5(id::text), 'hex'), 1) % 4 + 1]
+        ELSE NULL END,
+    battery_capacity_kwh = CASE WHEN offers_battery_swap THEN 1.5 ELSE NULL END,
+    available_batteries = CASE WHEN offers_battery_swap THEN
+        (get_byte(decode(md5(id::text), 'hex'), 2) % 19 + 2)
+        ELSE NULL END,
+    available_charging_bays = CASE WHEN offers_car_charging THEN
+        (get_byte(decode(md5(id::text), 'hex'), 3) % 10 + 1)
+        ELSE NULL END
+WHERE id::text LIKE 'a0000000-0000-4000-8000-%';

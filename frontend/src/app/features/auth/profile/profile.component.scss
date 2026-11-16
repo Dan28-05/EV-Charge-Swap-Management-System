@@ -1,0 +1,40 @@
+:host {
+  display: block;
+  height: 100dvh;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  background: #f4f7f4;
+  color: #173e34;
+  font: inherit;
+}
+.profile-header { display: flex; justify-content: space-between; align-items: center; padding: 14px clamp(18px, 5vw, 70px); background: white; border-bottom: 1px solid #e0e9e3; }
+.profile-header a { display: inline-flex; align-items: center; gap: 8px; color: #17634f; text-decoration: none; font-weight: 700; }
+.profile-header img { width: 30px; height: 30px; object-fit: contain; }
+.profile-content { width: min(720px, 100%); margin: auto; padding: 30px 18px 60px; }
+h1 { margin: 0 0 6px; font-size: 30px; } h2 { margin: 0 0 18px; font-size: 20px; }
+.profile-content > p, .panel > p, .hint { color: #65796d; }
+.panel { margin-top: 22px; padding: 26px; border: 1px solid #dce7df; border-radius: 16px; background: white; box-shadow: 0 6px 24px #163b2110; }
+form { display: grid; gap: 10px; } label { margin-top: 8px; font-weight: 650; }
+input { width: 100%; box-sizing: border-box; padding: 12px; border: 1px solid #b9c9bd; border-radius: 8px; font: inherit; }
+input[readonly] { background: #f4f7f4; color: #53655a; } input:focus { outline: 2px solid #148b68; outline-offset: 1px; }
+button { justify-self: start; margin-top: 12px; padding: 11px 18px; color: white; background: #17634f; border: 0; border-radius: 8px; font: inherit; font-weight: 700; cursor: pointer; }
+button:disabled { opacity: .6; cursor: wait; } small, .error { color: #b13333; }
+.contact-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; }
+.contact-heading label { margin-top: 0; }
+.contact-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; }
+.contact-row button { margin-top: 0; white-space: nowrap; }
+.verification-status { padding: 4px 8px; border-radius: 999px; background: #fff2d8; color: #8a5a00; font-size: 12px; font-weight: 700; }
+.verification-status.verified { background: #e7f5ed; color: #17634f; }
+button.secondary { border: 1px solid #17634f; background: white; color: #17634f; }
+button.text-button { padding-inline: 4px; background: transparent; color: #65796d; }
+.verification-box { margin-top: 10px; padding: 16px; border: 1px solid #b9d8ca; border-radius: 12px; background: #f3faf6; }
+.verification-box > p { margin: 6px 0 10px; color: #65796d; font-size: 14px; }
+.verification-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.verification-actions button { margin-top: 4px; }
+.notice, .error { padding: 12px; border-radius: 8px; } .notice { background: #e7f5ed; } .error { background: #fff0ee; }
+@media (max-width: 550px) {
+  .panel { padding: 18px; }
+  .contact-row { grid-template-columns: 1fr; }
+  .contact-row button { justify-self: stretch; }
+}

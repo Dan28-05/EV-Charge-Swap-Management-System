@@ -2,6 +2,7 @@ using EVChargeSwap.Common.Results;
 using EVChargeSwap.Features.Authentication.Requests;
 using EVChargeSwap.Features.Authentication.Responses;
 using EVChargeSwap.Features.Authentication.Services;
+using System.IdentityModel.Tokens.Jwt;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -12,7 +13,8 @@ namespace EVChargeSwap.Features.Authentication;
 [Route("api/auth")]
 [EnableRateLimiting("auth")]
 public sealed class AuthenticationController(AuthenticationService service,
-    VerificationService verification, Microsoft.AspNetCore.Identity.UserManager<EVChargeSwap.Features.Users.Entities.ApplicationUser> users,
+    VerificationService verification, PasswordResetService passwordReset,
+    Microsoft.AspNetCore.Identity.UserManager<EVChargeSwap.Features.Users.Entities.ApplicationUser> users,
     IWebHostEnvironment environment, IServiceProvider services) : ControllerBase
 {
     [AllowAnonymous]
@@ -28,10 +30,20 @@ public sealed class AuthenticationController(AuthenticationService service,
     public async Task<IActionResult> Resend(ResendVerificationRequest request, CancellationToken cancellationToken)
     {
         if (!VerificationService.ValidChannel(request.Channel)) return BadRequest();
-        if (!verification.DeliveryAvailable) return StatusCode(StatusCodes.Status503ServiceUnavailable);
+        if (!verification.CanDeliver(request.Channel)) return StatusCode(StatusCodes.Status503ServiceUnavailable);
         var user = await users.FindByEmailAsync(request.Email.Trim());
         if (user is not null && !(request.Channel == "email" ? user.EmailConfirmed : user.PhoneNumberConfirmed))
-            await verification.SendAsync(user, request.Channel, cancellationToken);
+        {
+            try
+            {
+                await verification.SendAsync(user, request.Channel, cancellationToken);
+            }
+            catch (HttpRequestException)
+            {
+                return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                    new ProblemDetails { Title = "Could not deliver the verification code. Please try again." });
+            }
+        }
         return Accepted();
     }
 
@@ -43,6 +55,52 @@ public sealed class AuthenticationController(AuthenticationService service,
         var user = await users.FindByEmailAsync(request.Email.Trim());
         if (user is null || !await verification.VerifyAsync(user, request.Channel, request.Code, cancellationToken))
             return BadRequest(new ProblemDetails { Title = "Invalid or expired verification code." });
+        return NoContent();
+    }
+
+    [Authorize]
+    [HttpPost("verification/me/send")]
+    public async Task<IActionResult> SendMyVerificationCode(
+        SendMyVerificationCodeRequest request, CancellationToken cancellationToken)
+    {
+        if (!VerificationService.ValidChannel(request.Channel))
+            return BadRequest(new ProblemDetails { Title = "Invalid verification channel." });
+        if (!verification.CanDeliver(request.Channel))
+            return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                new ProblemDetails { Title = "Verification delivery is not configured." });
+
+        var user = await GetCurrentUserAsync();
+        if (user is null) return Unauthorized();
+        if (request.Channel == "email" ? user.EmailConfirmed : user.PhoneNumberConfirmed)
+            return NoContent();
+
+        try
+        {
+            await verification.SendAsync(user, request.Channel, cancellationToken);
+            return Accepted();
+        }
+        catch (HttpRequestException)
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                new ProblemDetails { Title = "Could not deliver the verification code. Please try again." });
+        }
+    }
+
+    [Authorize]
+    [HttpPost("verification/me/confirm")]
+    public async Task<IActionResult> ConfirmMyVerificationCode(
+        ConfirmMyVerificationCodeRequest request, CancellationToken cancellationToken)
+    {
+        if (!VerificationService.ValidChannel(request.Channel))
+            return BadRequest(new ProblemDetails { Title = "Invalid verification channel." });
+
+        var user = await GetCurrentUserAsync();
+        if (user is null) return Unauthorized();
+        if (request.Channel == "email" ? user.EmailConfirmed : user.PhoneNumberConfirmed)
+            return NoContent();
+        if (!await verification.VerifyAsync(user, request.Channel, request.Code, cancellationToken))
+            return BadRequest(new ProblemDetails { Title = "Invalid or expired verification code." });
+
         return NoContent();
     }
 
@@ -64,6 +122,25 @@ public sealed class AuthenticationController(AuthenticationService service,
     {
         var result = await service.LoginAsync(request, cancellationToken);
         return result.Succeeded ? Ok(result.Value) : Failure(result);
+    }
+
+    [AllowAnonymous]
+    [HttpPost("password/forgot")]
+    public async Task<IActionResult> ForgotPassword(ForgotPasswordRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!passwordReset.CanDeliver(request.Identifier)) return StatusCode(StatusCodes.Status503ServiceUnavailable);
+        await passwordReset.RequestAsync(request, cancellationToken);
+        return Accepted();
+    }
+
+    [AllowAnonymous]
+    [HttpPost("password/reset")]
+    public async Task<IActionResult> ResetPassword(ResetPasswordRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await passwordReset.ResetAsync(request, cancellationToken);
+        return result.Succeeded ? NoContent() : Failure(result);
     }
 
     [AllowAnonymous]
@@ -102,5 +179,13 @@ public sealed class AuthenticationController(AuthenticationService service,
         };
         if (result.Errors.Count > 0) problem.Extensions["errors"] = result.Errors;
         return StatusCode(status, problem);
+    }
+
+    private async Task<EVChargeSwap.Features.Users.Entities.ApplicationUser?> GetCurrentUserAsync()
+    {
+        var subject = User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
+        return Guid.TryParse(subject, out var userId)
+            ? await users.FindByIdAsync(userId.ToString())
+            : null;
     }
 }

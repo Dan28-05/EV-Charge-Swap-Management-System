@@ -10,11 +10,24 @@ export interface RegisterCustomerRequest {
   password: string;
 }
 
+export interface ChangePasswordRequest {
+  currentPassword: string;
+  newPassword: string;
+}
+
+export interface ResetPasswordRequest {
+  identifier: string;
+  code: string;
+  newPassword: string;
+}
+
 export interface AuthenticatedUser {
   id: string;
   fullName: string;
   email: string;
-  phoneNumber: string;
+  phoneNumber: string | null;
+  emailConfirmed: boolean;
+  phoneNumberConfirmed: boolean;
   roles: string[];
 }
 

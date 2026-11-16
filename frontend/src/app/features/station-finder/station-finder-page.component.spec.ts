@@ -12,10 +12,13 @@ import { Station } from './models/station.model';
 class MapStub {
   @Input() stations: Station[] = [];
   @Input() selectedId: string | null = null;
+  @Input() sidebarCollapsed = false;
   @Input() userLocation: { lat: number; lng: number } | null = null;
+  @Input() searchCenter: { lat: number; lng: number } | null = null;
   @Input() radiusKm: number | null = null;
   @Output() stationSelected = new EventEmitter<string>();
   @Output() userLocated = new EventEmitter<{ lat: number; lng: number }>();
+  @Output() mapAreaChanged = new EventEmitter<{ lat: number; lng: number }>();
 }
 const station = (id: string): Station => ({
   id,
@@ -47,71 +50,60 @@ describe('Station finder', () => {
     fixture.detectChanges();
     return fixture;
   }
-  it('deduplicates pages and passes the identical collection to list and map', () => {
+  function expectNearby() {
+    return http.expectOne((request) => request.url === '/api/locations/nearby');
+  }
+
+  it('does not load a national list before the customer chooses a search area', () => {
     const f = setup();
-    http
-      .expectOne('/api/locations?page=1&pageSize=20')
-      .flush({ items: [station('a')], page: 1, pageSize: 1, totalCount: 3 });
+    http.expectNone('/api/locations');
+    expect(f.componentInstance.stations()).toEqual([]);
+    expect(f.nativeElement.querySelector('.empty').textContent).toContain('Kéo bản đồ');
+  });
+
+  it('loads and deduplicates stations around the area the customer moves to', () => {
+    const f = setup();
+    f.componentInstance.onMapAreaChanged({ lat: 13.77, lng: 109.22 });
+    expectNearby().flush({
+      items: [{ location: station('a'), distanceKm: 0.3 }], page: 1, pageSize: 20, totalCount: 21,
+    });
     f.componentInstance.loadMore();
-    http
-      .expectOne('/api/locations?page=2&pageSize=20')
-      .flush({ items: [station('a'), station('b')], page: 2, pageSize: 2, totalCount: 3 });
-    f.detectChanges();
-    expect(f.componentInstance.stations().map((s) => s.id)).toEqual(['a', 'b']);
-    expect(f.nativeElement.querySelectorAll('.station-card').length).toBe(2);
-    expect(f.debugElement.query(By.directive(MapStub)).componentInstance.stations).toEqual(
-      f.componentInstance.stations(),
-    );
-    expect(f.componentInstance.hasMore()).toBe(false);
+    expectNearby().flush({
+      items: [{ location: station('a'), distanceKm: 0.3 }, { location: station('b'), distanceKm: 0.9 }],
+      page: 2, pageSize: 20, totalCount: 21,
+    });
+    expect(f.componentInstance.stations().map((item) => item.id)).toEqual(['a', 'b']);
+    expect(f.componentInstance.total()).toBe(21);
   });
-  it('shares card/marker selection, cancels stale details, and builds destination coordinates', () => {
+
+  it('sends the selected availability filter to the nearby API', () => {
     const f = setup();
-    http
-      .expectOne('/api/locations?page=1&pageSize=20')
-      .flush({ items: [station('a'), station('b')], page: 1, pageSize: 20, totalCount: 2 });
-    f.detectChanges();
-    f.nativeElement.querySelector('.choose').click();
-    const first = http.expectOne('/api/locations/a');
-    f.debugElement.query(By.directive(MapStub)).componentInstance.stationSelected.emit('b');
-    expect(first.cancelled).toBe(true);
-    http.expectOne('/api/locations/b').flush(station('b'));
-    f.detectChanges();
-    expect(f.componentInstance.selectedId()).toBe('b');
-    expect(f.nativeElement.querySelector('.selected strong').textContent).toContain('Trạm b');
-    const link = f.nativeElement.querySelector('.directions') as HTMLAnchorElement;
-    expect(new URL(link.href).searchParams.get('destination')).toBe('13.766667,109.233333');
-    expect(link.target).toBe('_blank');
+    f.componentInstance.onMapAreaChanged({ lat: 13.77, lng: 109.22 });
+    expectNearby().flush({ items: [], page: 1, pageSize: 20, totalCount: 0 });
+    f.componentInstance.setAvailabilityFilter('available');
+    const request = expectNearby();
+    expect(request.request.params.get('availability')).toBe('available');
+    request.flush({
+      items: [{ location: { ...station('ready'), operatingStatus: 'Open', availableChargingBays: 1 }, distanceKm: 0.4 }],
+      page: 1, pageSize: 20, totalCount: 1,
+    });
+    expect(f.componentInstance.displayedStations().map((item) => item.id)).toEqual(['ready']);
   });
-  it('shows an API error, retries the same page, and handles an empty response', () => {
+
+  it('retries a failed station search even if the preceding area had no more pages', () => {
     const f = setup();
-    http
-      .expectOne('/api/locations?page=1&pageSize=20')
+    f.componentInstance.onMapAreaChanged({ lat: 13.77, lng: 109.22 });
+    expectNearby().flush({ items: [], page: 1, pageSize: 20, totalCount: 0 });
+    f.componentInstance.onSearchChange('Nha Trang');
+    f.componentInstance.submitSearch();
+    http.expectOne((request) => request.url === '/api/locations/search')
       .flush({}, { status: 503, statusText: 'Unavailable' });
-    f.detectChanges();
-    expect(f.nativeElement.querySelector('[role=alert]').textContent).toContain('Không thể tải');
-    f.nativeElement.querySelector('.error button').click();
-    http
-      .expectOne('/api/locations?page=1&pageSize=20')
-      .flush({ items: [], page: 1, pageSize: 20, totalCount: 0 });
-    f.detectChanges();
-    expect(f.nativeElement.querySelector('.empty').textContent).toContain('Chưa có địa điểm');
-  });
-  it('retains existing stations when a later page fails and retries details', () => {
-    const f = setup();
-    http
-      .expectOne('/api/locations?page=1&pageSize=20')
-      .flush({ items: [station('a')], page: 1, pageSize: 20, totalCount: 30 });
+    http.expectOne((request) => request.url.includes('nominatim.openstreetmap.org'))
+      .flush([]);
+    expect(f.componentInstance.error()).toContain('Không thể tìm trạm');
     f.componentInstance.loadMore();
-    http
-      .expectOne('/api/locations?page=2&pageSize=20')
-      .flush({}, { status: 500, statusText: 'Error' });
-    expect(f.componentInstance.stations().length).toBe(1);
-    f.componentInstance.selectStation('a');
-    http.expectOne('/api/locations/a').flush({}, { status: 404, statusText: 'Not Found' });
-    f.detectChanges();
-    expect(f.nativeElement.querySelector('.detail [role=alert]')).toBeTruthy();
-    f.componentInstance.selectStation('a');
-    http.expectOne('/api/locations/a').flush(station('a'));
-    expect(f.componentInstance.detail()?.id).toBe('a');
+    http.expectOne((request) => request.url === '/api/locations/search')
+      .flush({ items: [], page: 1, pageSize: 20, totalCount: 0 });
+    expect(f.componentInstance.error()).toBe('');
   });
 });

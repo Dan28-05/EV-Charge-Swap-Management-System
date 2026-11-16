@@ -4,6 +4,7 @@ export interface StationFinderConfig {
   apiUrl: string;
   tileUrl: string;
   subdomains: string[];
+  placeSearchUrl: string;
 }
 
 export const STATION_FINDER_CONFIG = new InjectionToken<StationFinderConfig>(
@@ -14,6 +15,7 @@ export const STATION_FINDER_CONFIG = new InjectionToken<StationFinderConfig>(
       apiUrl: '/api',
       tileUrl: 'https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
       subdomains: ['0', '1', '2', '3'],
+      placeSearchUrl: 'https://nominatim.openstreetmap.org/search',
     }),
   },
 );

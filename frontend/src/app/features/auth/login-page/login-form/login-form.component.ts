@@ -1,7 +1,7 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
-import { Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { finalize } from 'rxjs';
 import { ProblemDetails } from '../../models/authentication.models';
 import { AuthService } from '../../services/auth.service';
@@ -18,11 +18,16 @@ type Notice = { type: 'error' | 'success' | 'info'; text: string };
 export class LoginFormComponent {
   private readonly authService = inject(AuthService);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
 
   protected readonly currentYear = new Date().getFullYear();
   protected readonly showPassword = signal(false);
   protected readonly isSubmitting = signal(false);
-  protected readonly notice = signal<Notice | null>(null);
+  protected readonly notice = signal<Notice | null>(
+    this.route.snapshot.queryParamMap.has('passwordReset') || this.route.snapshot.queryParamMap.has('passwordChanged')
+      ? { type: 'success', text: 'Mật khẩu đã được cập nhật. Vui lòng đăng nhập lại.' }
+      : null,
+  );
 
   protected readonly form = new FormGroup({
     identifier: new FormControl(this.authService.getRememberedIdentifier(), {
@@ -76,7 +81,8 @@ export class LoginFormComponent {
             type: 'success',
             text: `Chào mừng ${response.user.fullName}. Đang chuyển hướng...`,
           });
-          this.router.navigateByUrl('/');
+          const returnUrl = this.route.snapshot.queryParamMap.get('returnUrl');
+          this.router.navigateByUrl(returnUrl?.startsWith('/') && !returnUrl.startsWith('//') ? returnUrl : '/');
         },
         error: (error: HttpErrorResponse) => {
           this.notice.set({ type: 'error', text: this.getErrorMessage(error) });

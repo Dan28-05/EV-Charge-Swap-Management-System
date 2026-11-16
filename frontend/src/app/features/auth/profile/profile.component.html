@@ -1,0 +1,94 @@
+<main class="profile-page">
+  <header class="profile-header">
+    <a routerLink="/" aria-label="Về bản đồ trạm"><img src="/favicon.png" alt="" /> EVGo</a>
+    <a routerLink="/">← Bản đồ trạm</a>
+  </header>
+
+  <div class="profile-content">
+    <h1>Hồ sơ cá nhân</h1>
+    <p>Thông tin tài khoản và bảo mật của bạn.</p>
+
+    @if (loading()) {
+      <p role="status">Đang tải hồ sơ…</p>
+    } @else if (!user()) {
+      <section class="panel" role="alert">
+        <p>Không thể tải hồ sơ.</p>
+        <button type="button" (click)="reload()">Thử lại</button>
+      </section>
+    } @else {
+      @if (notice()) { <p class="notice" role="status">{{ notice() }}</p> }
+      @if (error()) { <p class="error" role="alert">{{ error() }}</p> }
+
+      <section class="panel" aria-labelledby="profile-title">
+        <h2 id="profile-title">Thông tin cá nhân</h2>
+        <form [formGroup]="profileForm" (ngSubmit)="saveProfile()">
+          <label for="full-name">Họ và tên</label>
+          <input id="full-name" formControlName="fullName" autocomplete="name" maxlength="160" />
+          @if (profileForm.controls.fullName.invalid && profileForm.controls.fullName.touched) {
+            <small>Nhập họ tên từ 2 đến 160 ký tự.</small>
+          }
+          <div class="contact-heading">
+            <label for="email">Email đã đăng ký</label>
+            <span class="verification-status" [class.verified]="user()!.emailConfirmed">
+              {{ user()!.emailConfirmed ? '✓ Đã xác thực' : 'Chưa xác thực' }}
+            </span>
+          </div>
+          <div class="contact-row">
+            <input id="email" [value]="user()!.email" readonly />
+            @if (!user()!.emailConfirmed) {
+              <button type="button" class="secondary" [disabled]="verificationBusy()" (click)="sendVerificationCode('email')">Gửi mã</button>
+            }
+          </div>
+          <div class="contact-heading">
+            <label for="phone">Số điện thoại đã đăng ký</label>
+            <span class="verification-status" [class.verified]="user()!.phoneNumberConfirmed">
+              {{ user()!.phoneNumberConfirmed ? '✓ Đã xác thực' : 'Chưa xác thực' }}
+            </span>
+          </div>
+          <div class="contact-row">
+            <input id="phone" [value]="user()!.phoneNumber ?? ''" readonly />
+            @if (!user()!.phoneNumberConfirmed) {
+              <button type="button" class="secondary" [disabled]="verificationBusy()" (click)="sendVerificationCode('phone')">Gửi mã</button>
+            }
+          </div>
+
+          @if (verificationChannel(); as channel) {
+            <div class="verification-box">
+              <strong>Xác thực {{ channel === 'email' ? 'email' : 'số điện thoại' }}</strong>
+              <p>Nhập mã 6 số vừa được gửi. Bạn có thể yêu cầu gửi lại sau 60 giây.</p>
+              <div class="verification-form" [formGroup]="verificationForm">
+                <label for="verification-code">Mã xác minh</label>
+                <input id="verification-code" formControlName="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000" />
+                @if (verificationForm.controls.code.invalid && verificationForm.controls.code.touched) {
+                  <small>Mã xác minh phải gồm đúng 6 chữ số.</small>
+                }
+                <div class="verification-actions">
+                  <button type="button" [disabled]="verificationBusy()" (click)="confirmVerificationCode()">{{ verificationBusy() ? 'Đang xác thực…' : 'Xác thực' }}</button>
+                  <button type="button" class="secondary" [disabled]="verificationBusy()" (click)="sendVerificationCode(channel)">Gửi lại mã</button>
+                  <button type="button" class="text-button" (click)="cancelVerification()">Hủy</button>
+                </div>
+              </div>
+            </div>
+          }
+          <p class="hint">Email và số điện thoại là kênh đăng nhập; việc đổi kênh cần xác minh riêng.</p>
+          <button type="submit" [disabled]="saving()">{{ saving() ? 'Đang lưu…' : 'Lưu thay đổi' }}</button>
+        </form>
+      </section>
+
+      <section class="panel" aria-labelledby="password-title">
+        <h2 id="password-title">Đổi mật khẩu</h2>
+        <p>Sau khi đổi, tất cả phiên đăng nhập sẽ hết hiệu lực.</p>
+        <form [formGroup]="passwordForm" (ngSubmit)="changePassword()">
+          <label for="current-password">Mật khẩu hiện tại</label>
+          <input id="current-password" type="password" formControlName="currentPassword" autocomplete="current-password" />
+          <label for="new-password">Mật khẩu mới</label>
+          <input id="new-password" type="password" formControlName="newPassword" autocomplete="new-password" />
+          <label for="confirm-password">Nhập lại mật khẩu mới</label>
+          <input id="confirm-password" type="password" formControlName="confirmPassword" autocomplete="new-password" />
+          <p class="hint">Ít nhất 8 ký tự, gồm chữ hoa, chữ thường và chữ số.</p>
+          <button type="submit" [disabled]="changingPassword()">{{ changingPassword() ? 'Đang đổi…' : 'Đổi mật khẩu' }}</button>
+        </form>
+      </section>
+    }
+  </div>
+</main>

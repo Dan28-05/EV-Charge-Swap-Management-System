@@ -2,6 +2,7 @@ namespace EVChargeSwap.Features.Authentication.Services;
 
 public interface IVerificationCodeSender
 {
+    bool CanSend(string channel);
     Task SendAsync(string channel, string destination, string code, CancellationToken cancellationToken);
 }
 
@@ -9,6 +10,8 @@ public interface IVerificationCodeSender
 public sealed class DevelopmentCodeInbox : IVerificationCodeSender
 {
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> codes = new();
+
+    public bool CanSend(string channel) => channel is "email" or "phone";
 
     public Task SendAsync(string channel, string destination, string code, CancellationToken cancellationToken)
     {
@@ -22,6 +25,8 @@ public sealed class DevelopmentCodeInbox : IVerificationCodeSender
 
 public sealed class UnconfiguredVerificationSender : IVerificationCodeSender
 {
+    public bool CanSend(string channel) => false;
+
     public Task SendAsync(string channel, string destination, string code, CancellationToken cancellationToken) =>
         throw new InvalidOperationException("Configure an email and SMS provider before enabling registration in Production.");
 }

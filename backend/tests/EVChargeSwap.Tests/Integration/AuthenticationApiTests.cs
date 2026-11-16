@@ -40,6 +40,113 @@ public sealed class AuthenticationApiTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task Customer_can_update_own_name_without_changing_login_channels()
+    {
+        var auth = await RegisterAsync();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", auth.AccessToken);
+        var response = await client.PutAsJsonAsync("/api/users/me", new UpdateProfileRequest { FullName = "Nguyen Van A" });
+        response.EnsureSuccessStatusCode();
+        var profile = await response.Content.ReadFromJsonAsync<UserResponse>();
+        Assert.NotNull(profile);
+        Assert.Equal("Nguyen Van A", profile.FullName);
+        Assert.Equal(auth.User.Email, profile.Email);
+        Assert.Equal(auth.User.PhoneNumber, profile.PhoneNumber);
+    }
+
+    [Fact]
+    public async Task Changing_password_requires_current_password_and_revokes_old_session()
+    {
+        var auth = await RegisterAsync();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", auth.AccessToken);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync("/api/users/me/change-password",
+            new ChangePasswordRequest { CurrentPassword = "WrongPass123", NewPassword = "BetterPass123" })).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await client.PostAsJsonAsync("/api/users/me/change-password",
+            new ChangePasswordRequest { CurrentPassword = ValidPassword, NewPassword = "BetterPass123" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/users/me")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.PostAsJsonAsync("/api/auth/refresh",
+            new RefreshTokenRequest { RefreshToken = auth.RefreshToken })).StatusCode);
+        client.DefaultRequestHeaders.Authorization = null;
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.PostAsJsonAsync("/api/auth/login",
+            new LoginRequest { Identifier = auth.User.Email, Password = ValidPassword })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/api/auth/login",
+            new LoginRequest { Identifier = auth.User.Email, Password = "BetterPass123" })).StatusCode);
+    }
+
+    [Fact]
+    public async Task Password_reset_code_is_single_use_and_invalidates_old_session()
+    {
+        var auth = await RegisterAsync();
+        var unknown = await client.PostAsJsonAsync("/api/auth/password/forgot",
+            new ForgotPasswordRequest { Identifier = UniqueEmail("unknown") });
+        var sent = await client.PostAsJsonAsync("/api/auth/password/forgot",
+            new ForgotPasswordRequest { Identifier = auth.User.Email });
+        Assert.Equal(HttpStatusCode.Accepted, unknown.StatusCode);
+        Assert.Equal(HttpStatusCode.Accepted, sent.StatusCode);
+        var code = factory.Services.GetRequiredService<DevelopmentCodeInbox>().GetCode("email", auth.User.Email);
+        Assert.NotNull(code);
+        var reset = new ResetPasswordRequest
+        {
+            Identifier = auth.User.Email, Code = code, NewPassword = "BetterPass123"
+        };
+        Assert.Equal(HttpStatusCode.NoContent,
+            (await client.PostAsJsonAsync("/api/auth/password/reset", reset)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await client.PostAsJsonAsync("/api/auth/password/reset", reset)).StatusCode);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", auth.AccessToken);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/users/me")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.PostAsJsonAsync("/api/auth/refresh",
+            new RefreshTokenRequest { RefreshToken = auth.RefreshToken })).StatusCode);
+    }
+
+    [Fact]
+    public async Task Password_reset_accepts_a_verified_phone_number()
+    {
+        var auth = await RegisterAsync();
+        var phone = auth.User.PhoneNumber!;
+        var registrationCode = factory.Services.GetRequiredService<DevelopmentCodeInbox>().GetCode("phone", phone);
+        Assert.NotNull(registrationCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await client.PostAsJsonAsync("/api/auth/verification/confirm",
+            new VerifyContactRequest { Email = auth.User.Email, Channel = "phone", Code = registrationCode })).StatusCode);
+
+        var localPhone = "0" + phone[3..];
+        Assert.Equal(HttpStatusCode.Accepted, (await client.PostAsJsonAsync("/api/auth/password/forgot",
+            new ForgotPasswordRequest { Identifier = localPhone })).StatusCode);
+        var resetCode = factory.Services.GetRequiredService<DevelopmentCodeInbox>().GetCode("phone", phone);
+        Assert.NotNull(resetCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await client.PostAsJsonAsync("/api/auth/password/reset",
+            new ResetPasswordRequest { Identifier = localPhone, Code = resetCode, NewPassword = "BetterPass123" })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/api/auth/login",
+            new LoginRequest { Identifier = phone, Password = "BetterPass123" })).StatusCode);
+    }
+
+    [Fact]
+    public async Task Customer_can_verify_each_contact_from_their_profile()
+    {
+        var auth = await RegisterAsync();
+        Assert.True(auth.User.EmailConfirmed);
+        Assert.False(auth.User.PhoneNumberConfirmed);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", auth.AccessToken);
+
+        Assert.Equal(HttpStatusCode.Accepted, (await client.PostAsJsonAsync(
+            "/api/auth/verification/me/send", new { channel = "phone" })).StatusCode);
+        var code = factory.Services.GetRequiredService<DevelopmentCodeInbox>()
+            .GetCode("phone", auth.User.PhoneNumber!);
+        Assert.NotNull(code);
+        var wrongCode = code == "000000" ? "111111" : "000000";
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync(
+            "/api/auth/verification/me/confirm", new { channel = "phone", code = wrongCode })).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await client.PostAsJsonAsync(
+            "/api/auth/verification/me/confirm", new { channel = "phone", code })).StatusCode);
+
+        var profile = await client.GetFromJsonAsync<UserResponse>("/api/users/me");
+        Assert.NotNull(profile);
+        Assert.True(profile.EmailConfirmed);
+        Assert.True(profile.PhoneNumberConfirmed);
+        Assert.Equal(HttpStatusCode.NoContent, (await client.PostAsJsonAsync(
+            "/api/auth/verification/me/send", new { channel = "phone" })).StatusCode);
+    }
+
+    [Fact]
     public async Task Duplicate_registration_is_rejected()
     {
         var email = UniqueEmail("duplicate");

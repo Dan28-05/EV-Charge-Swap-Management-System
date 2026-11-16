@@ -43,7 +43,12 @@ test('pages, shared selection, directions and responsive layout', async ({
   );
   await page.getByRole('button', { name: 'Đóng chi tiết' }).click();
   if (isMobile) await page.getByRole('button', { name: 'Bản đồ', exact: true }).click();
-  await page.locator('.station-marker').nth(19).click();
+  if (isMobile) {
+    await page.locator('.station-marker').nth(19).focus();
+    await page.locator('.station-marker').nth(19).press('Enter');
+  } else {
+    await page.locator('.station-marker').nth(19).click();
+  }
   await expect(page.locator('.detail h2')).toHaveText('Trạm thử 19');
   await expect(page.locator('.station-card.selected strong')).toHaveText('Trạm thử 19');
   await page.getByRole('button', { name: 'Đóng chi tiết' }).click();
@@ -56,8 +61,8 @@ test('pages, shared selection, directions and responsive layout', async ({
   await page.screenshot({ path: info.outputPath('station-finder.png'), fullPage: true });
   if (isMobile) {
     await page.getByRole('button', { name: 'Đóng chi tiết' }).click();
-    await page.getByRole('button', { name: 'Danh sách', exact: true }).click();
-    await expect(page.locator('.sidebar')).toBeVisible();
+    await page.getByRole('button', { name: /Danh sách/ }).first().click();
+    await expect(page.locator('.floating-sidebar')).toBeVisible();
   }
 });
 

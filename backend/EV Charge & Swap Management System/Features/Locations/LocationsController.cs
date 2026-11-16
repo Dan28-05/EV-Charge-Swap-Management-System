@@ -5,6 +5,7 @@ using EVChargeSwap.Features.Locations.Requests;
 using EVChargeSwap.Features.Locations.Responses;
 using EVChargeSwap.Features.Locations.Services;
 using Microsoft.AspNetCore.Authorization;
+using System.ComponentModel.DataAnnotations;
 
 namespace EVChargeSwap.Features.Locations;
 
@@ -28,6 +29,12 @@ public sealed class LocationsController(LocationService service) : ControllerBas
     public async Task<ActionResult<PagedResponse<NearbyLocationResponse>>> Nearby(
         [FromQuery] NearbyLocationsRequest request, CancellationToken cancellationToken) =>
         Ok(await service.NearbyAsync(request, cancellationToken));
+
+    [HttpGet("search")]
+    public async Task<ActionResult<PagedResponse<LocationResponse>>> Search(
+        [FromQuery, Required, StringLength(100, MinimumLength = 1)] string query,
+        [FromQuery] PaginationRequest pagination, CancellationToken cancellationToken) =>
+        Ok(await service.SearchAsync(query, pagination, cancellationToken));
 
     [HttpGet("admin")]
     [Authorize(Roles = AppRoles.Admin)]

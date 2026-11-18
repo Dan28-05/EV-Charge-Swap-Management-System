@@ -1,19 +1,52 @@
 <section class="login-panel" aria-labelledby="login-title">
-  <div class="form-shell">
+  <div class="form-shell auth-card">
+    <!-- Brand Header for Mobile / Context -->
+    <div class="panel-brand-header">
+      <div class="logo-circle">
+        <img src="favicon.png" alt="EVGo Logo" width="28" height="28" />
+      </div>
+      <span class="logo-title">EVGO</span>
+    </div>
+
+    <!-- Segmented Auth Mode Switcher -->
+    <nav class="auth-tabs" aria-label="Chuyển chế độ xác thực">
+      <a routerLink="/login" class="tab-item active" aria-current="page">Đăng nhập</a>
+      <a routerLink="/register" class="tab-item">Đăng ký tài khoản</a>
+    </nav>
+
+    <!-- Welcome Heading -->
     <div class="form-heading">
-      <span class="kicker">Đăng nhập</span>
       <h2 id="login-title">Chào mừng trở lại</h2>
-      <p>Tiếp tục hành trình xanh của bạn cùng EVGo.</p>
+      <p>Tiếp tục hành trình xanh và quản lý phương tiện thông minh cùng EVGo.</p>
+    </div>
+
+    <!-- Google Quick Auth Button -->
+    <button type="button" class="google-btn" (click)="showUnavailable('Đăng nhập với Google')">
+      <svg class="google-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+        <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z"/>
+        <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.34 24 12 24z"/>
+        <path fill="#FBBC05" d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 10.03 0 12s.45 3.82 1.25 5.42l4.03-3.15z"/>
+        <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.34 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"/>
+      </svg>
+      <span>Tiếp tục với Google</span>
+    </button>
+
+    <!-- Refined Divider -->
+    <div class="auth-divider" role="separator">
+      <span>hoặc tiếp tục với tài khoản</span>
     </div>
 
     <form [formGroup]="form" (ngSubmit)="submit()" novalidate>
+      <!-- Identifier Field (Email / Phone) -->
       <div class="field">
         <label for="identifier">Email hoặc số điện thoại</label>
-        <div class="line-control" [class.invalid]="isInvalid('identifier')">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M4 6h16v12H4z" />
-            <path d="m4 7 8 6 8-6" />
-          </svg>
+        <div class="input-control" [class.invalid]="isInvalid('identifier')">
+          <span class="control-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="5" width="18" height="14" rx="3" />
+              <polyline points="3 7 12 13 21 7" />
+            </svg>
+          </span>
           <input
             id="identifier"
             type="text"
@@ -24,26 +57,29 @@
           />
         </div>
         @if (isInvalid('identifier')) {
-          <small id="identifier-error">Vui lòng nhập email hoặc số điện thoại.</small>
+          <small id="identifier-error" class="field-error">Vui lòng nhập email hoặc số điện thoại hợp lệ.</small>
         }
       </div>
 
+      <!-- Password Field -->
       <div class="field">
         <div class="label-row">
           <label for="password">Mật khẩu</label>
           <a class="text-action" routerLink="/forgot-password">Quên mật khẩu?</a>
         </div>
-        <div class="line-control" [class.invalid]="isInvalid('password')">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <rect x="5" y="10" width="14" height="10" rx="2" />
-            <path d="M8 10V7a4 4 0 0 1 8 0v3" />
-          </svg>
+        <div class="input-control" [class.invalid]="isInvalid('password')">
+          <span class="control-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="4" y="11" width="16" height="10" rx="3" />
+              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+            </svg>
+          </span>
           <input
             id="password"
             [type]="showPassword() ? 'text' : 'password'"
             formControlName="password"
             autocomplete="current-password"
-            placeholder="Nhập mật khẩu"
+            placeholder="Nhập mật khẩu của bạn"
             aria-describedby="password-error"
           />
           <button
@@ -53,66 +89,106 @@
             [attr.aria-label]="showPassword() ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'"
           >
             @if (showPassword()) {
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  d="M3 3l18 18M10.6 10.7a2 2 0 0 0 2.8 2.8M9.9 4.2A10.8 10.8 0 0 1 12 4c5.5 0 9 6 9 6a16 16 0 0 1-2.1 2.8M6.2 6.2C4.1 7.6 3 10 3 10s3.5 6 9 6c1.4 0 2.6-.4 3.8-.9"
-                />
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                <line x1="1" y1="1" x2="23" y2="23" />
               </svg>
             } @else {
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M3 12s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6Z" />
-                <circle cx="12" cy="12" r="2.5" />
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                <circle cx="12" cy="12" r="3" />
               </svg>
             }
           </button>
         </div>
         @if (isInvalid('password')) {
-          <small id="password-error">Vui lòng nhập mật khẩu.</small>
+          <small id="password-error" class="field-error">Vui lòng nhập mật khẩu.</small>
         }
       </div>
 
-      <label class="remember">
-        <input type="checkbox" formControlName="remember" />
-        <span class="check"
-          ><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3 8 3 3 7-7" /></svg
-        ></span>
-        Duy trì đăng nhập trên thiết bị này
-      </label>
+      <!-- Remember Me -->
+      <div class="options-row">
+        <label class="remember">
+          <input type="checkbox" formControlName="remember" />
+          <span class="check" aria-hidden="true">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.5">
+              <polyline points="3.5 8.5 6.5 11.5 12.5 4.5" />
+            </svg>
+          </span>
+          <span>Duy trì đăng nhập trên thiết bị này</span>
+        </label>
+      </div>
 
+      <!-- Notice / Error Banner -->
       @if (notice(); as currentNotice) {
         <div
           class="notice"
           [class.success]="currentNotice.type === 'success'"
           [class.info]="currentNotice.type === 'info'"
+          [class.error]="currentNotice.type === 'error'"
           role="status"
         >
-          <span>{{
-            currentNotice.type === 'success' ? '✓' : currentNotice.type === 'info' ? 'i' : '!'
-          }}</span>
-          {{ currentNotice.text }}
+          <span class="notice-badge">
+            {{ currentNotice.type === 'success' ? '✓' : currentNotice.type === 'info' ? 'i' : '!' }}
+          </span>
+          <span class="notice-text">{{ currentNotice.text }}</span>
         </div>
       }
 
+      <!-- Submit Button (Vibrant Emerald with White Bold Text) -->
       <button class="submit" type="submit" [disabled]="isSubmitting()">
         @if (isSubmitting()) {
-          <span class="spinner" aria-hidden="true"></span>Đang xác thực...
+          <span class="spinner" aria-hidden="true"></span>
+          <span>Đang xác thực...</span>
         } @else {
-          <span>Đăng nhập</span
-          ><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5" /></svg>
+          <span>Đăng nhập</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <line x1="5" y1="12" x2="19" y2="12" />
+            <polyline points="12 5 19 12 12 19" />
+          </svg>
         }
       </button>
     </form>
 
-    <p class="register">
+    <!-- Switch to Register Link -->
+    <p class="register-prompt">
       Bạn chưa có tài khoản?
-      <a routerLink="/register">Tạo tài khoản</a>
+      <a routerLink="/register">Tạo tài khoản mới</a>
     </p>
+
+    <!-- Trust Security Pill inside Card -->
+    <div class="card-trust">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+      </svg>
+      <span>Bảo mật chuẩn EV-SaaS · Dữ liệu mã hóa 256-bit</span>
+    </div>
   </div>
 
-  <footer>
-    <span>© {{ currentYear }} EVGo</span
-    ><button type="button" (click)="showUnavailable('Chính sách quyền riêng tư')">
-      Quyền riêng tư</button
-    ><button type="button" (click)="showUnavailable('Trung tâm trợ giúp')">Trợ giúp</button>
+  <!-- Ambient Benefit Sub-bar -->
+  <div class="panel-benefit-strip">
+    <span class="benefit-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+      </svg>
+      <span>Hotline kỹ thuật: 1900 8888</span>
+    </span>
+    <span class="benefit-dot">·</span>
+    <span class="benefit-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+      </svg>
+      <span>Đổi pin siêu tốc &lt; 3 phút</span>
+    </span>
+  </div>
+
+  <footer class="panel-footer">
+    <span>© {{ currentYear }} EVGo Network</span>
+    <div class="footer-links">
+      <button type="button" (click)="showUnavailable('Chính sách quyền riêng tư')">Quyền riêng tư</button>
+      <span class="dot">·</span>
+      <button type="button" (click)="showUnavailable('Trung tâm trợ giúp')">Trợ giúp</button>
+    </div>
   </footer>
 </section>

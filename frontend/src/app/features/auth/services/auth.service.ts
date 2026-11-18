@@ -22,6 +22,10 @@ export class AuthService {
   readonly session = signal<AuthenticationResponse | null>(this.loadInitialSession());
   readonly currentUser = computed<AuthenticatedUser | null>(() => this.session()?.user ?? null);
   readonly isAuthenticated = computed<boolean>(() => !!this.session());
+  readonly isOperator = computed<boolean>(() => {
+    const roles = this.currentUser()?.roles || [];
+    return roles.includes('Operator') || roles.includes('Admin');
+  });
 
   login(credentials: LoginCredentials): Observable<AuthenticationResponse> {
     return this.http.post<AuthenticationResponse>('/api/auth/login', credentials);

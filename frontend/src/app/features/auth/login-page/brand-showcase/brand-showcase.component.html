@@ -1,59 +1,198 @@
-<section class="showcase" aria-labelledby="showcase-title">
-  <header class="brand-header">
-    <a class="brand" href="/" aria-label="EVGo — Trang chủ">
-      <span class="logo-frame"><img src="favicon.png" alt="Logo hươu EVGo" /></span>
-      <span class="brand-copy"><strong>EVGO</strong><small>Charge & Swap Network</small></span>
+<aside class="showcase-container" aria-labelledby="showcase-title">
+  <!-- Subtle Background Grid & Energy Glow -->
+  <div class="ambient-glow glow-top" aria-hidden="true"></div>
+  <div class="ambient-glow glow-bottom" aria-hidden="true"></div>
+
+  <!-- Header: Brand Badge & Platform Tag -->
+  <header class="showcase-header">
+    <a href="/" class="brand-identity" aria-label="EVGo — Trang chủ">
+      <div class="logo-box">
+        <img src="favicon.png" alt="EVGo Logo" width="32" height="32" />
+      </div>
+      <div class="brand-text">
+        <span class="brand-title">EVGO</span>
+        <span class="brand-badge">Mobility & Charging Network</span>
+      </div>
     </a>
-    <span class="edition"><i></i>Năng lượng xanh</span>
+    <div class="network-badge">
+      <span class="pulse-indicator" aria-hidden="true"></span>
+      <span>Hệ thống trực tuyến</span>
+    </div>
   </header>
 
-  <div class="hero-copy">
-    <div class="energy-field" aria-hidden="true">
-      <span class="ring ring-outer"><i></i></span>
-      <span class="ring ring-inner"></span>
-      <span class="energy-core"><b></b></span>
-    </div>
-    <p class="eyebrow"><span></span>Năng lượng cho đô thị chuyển động</p>
-    <h1 id="showcase-title">Đi xa hơn từ<br />một <em>điểm chạm.</em></h1>
-    <p class="intro">
-      Tìm trạm, giữ chỗ và quản lý hành trình năng lượng trong một trải nghiệm nhanh, rõ ràng và
-      liền mạch.
-    </p>
+  <!-- Main Hero Content -->
+  <div class="showcase-body">
+    <div class="hero-text-block">
+      <div class="eyebrow-tag">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+        </svg>
+        <span>Nền tảng sạc thông minh thế hệ mới</span>
+      </div>
 
-    <div class="journey" aria-label="Quy trình sử dụng dịch vụ">
-      @for (step of journeySteps; track step; let index = $index) {
-        <div class="journey-step">
-          <span>{{ index + 1 }}</span>
-          <strong>{{ step }}</strong>
+      <h1 id="showcase-title">
+        Kết nối hành trình.<br />
+        <span class="gradient-headline">Sạc năng lượng tương lai.</span>
+        <span class="sr-only">Đi xa hơn từ một điểm chạm.</span>
+      </h1>
+
+      <p class="hero-description">
+        Khám phá trạm sạc gần bạn, quản lý thông minh và tìm đường thuận tiện trên mạng lưới sạc và đổi pin phủ sóng toàn quốc.
+      </p>
+    </div>
+
+    <!-- Visual Interactive HUD / EV Navigation Map Graphic -->
+    <div class="mobility-hud" aria-hidden="true">
+      <div class="hud-top-bar">
+        <div class="hud-live-tag">
+          <span class="live-dot"></span>
+          <span>BẢN ĐỒ ĐIỀU HÀNH THỜI GIAN THỰC</span>
         </div>
-        @if (!$last) {
-          <div class="journey-line" aria-hidden="true"><i></i></div>
-        }
-      }
-    </div>
-  </div>
+        <div class="hud-stat-pill">
+          <span>Công suất tải:</span>
+          <strong>4.8 MW</strong>
+        </div>
+      </div>
 
-  <div class="metrics-block">
-    <div class="metrics-heading">
-      <span>Dữ liệu phát triển hiện tại</span>
-    </div>
-    <div class="metrics-grid">
-      @for (metric of metrics; track metric.label; let index = $index) {
-        <article class="metric" [style.--delay]="index * 120 + 'ms'">
-          <div class="metric-value">
-            {{ metric.value }}<small>{{ metric.unit }}</small>
-          </div>
-          <span>{{ metric.label }}</span>
-          <svg class="sparkline" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true">
-            <path class="sparkline-base" d="M2 28H98" />
-            <path class="sparkline-value" [attr.d]="metric.path" />
+      <svg class="map-vector" viewBox="0 0 580 230" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <!-- Abstract City Road Grid (Light Theme) -->
+        <path d="M20 190 C140 190, 190 130, 300 115 S450 45, 550 35" stroke="#E2E8F0" stroke-width="7" stroke-linecap="round" />
+        <path d="M40 45 C160 55, 220 145, 340 155 S480 195, 550 195" stroke="#CBD5E1" stroke-width="4.5" stroke-linecap="round" />
+        <path d="M190 20 L225 215" stroke="#CBD5E1" stroke-width="2" stroke-dasharray="4 6" />
+        <path d="M390 20 L425 215" stroke="#CBD5E1" stroke-width="2" stroke-dasharray="4 6" />
+
+        <!-- Glowing Active EV Navigation Path -->
+        <path
+          class="nav-route-glow"
+          d="M35 180 C145 180, 195 105, 290 100 S435 45, 520 40"
+          stroke="#10B981"
+          stroke-width="5"
+          stroke-linecap="round"
+        />
+        <path
+          class="nav-route-pulse"
+          d="M35 180 C145 180, 195 105, 290 100 S435 45, 520 40"
+          stroke="#34D399"
+          stroke-width="5"
+          stroke-linecap="round"
+          stroke-dasharray="18 130"
+        />
+
+        <!-- EV Vehicle Position Node -->
+        <g class="ev-node" transform="translate(70, 178)">
+          <circle cx="0" cy="0" r="17" fill="#10B981" fill-opacity="0.2" />
+          <circle cx="0" cy="0" r="9" fill="#10B981" />
+          <circle cx="0" cy="0" r="4" fill="#FFFFFF" />
+        </g>
+
+        <!-- Fast Charging Station Waypoint A -->
+        <g class="station-node node-a" transform="translate(290, 100)">
+          <circle cx="0" cy="0" r="22" fill="#0EA5E9" fill-opacity="0.15" class="pulse-ring" />
+          <circle cx="0" cy="0" r="12" fill="#0EA5E9" />
+          <path d="M-2 -5 L3 0 L-1 0 L1 5 L-3 0 L1 0 Z" fill="#FFFFFF" />
+        </g>
+
+        <!-- Destination Battery Swap Station Waypoint B -->
+        <g class="station-node node-b" transform="translate(520, 40)">
+          <circle cx="0" cy="0" r="24" fill="#10B981" fill-opacity="0.2" class="pulse-ring" />
+          <circle cx="0" cy="0" r="13" fill="#10B981" />
+          <polyline points="-4 -1 0 3 5 -3" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+        </g>
+      </svg>
+
+      <!-- Floating Smart Telemetry Cards -->
+      <div class="hud-telemetry card-left">
+        <div class="telemetry-icon-wrap charge">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
           </svg>
-        </article>
+        </div>
+        <div class="telemetry-content">
+          <div class="telemetry-title">Trạm Vincom Center</div>
+          <div class="telemetry-meta">
+            <span class="status-live">Khả dụng 6/8 trụ</span>
+            <span class="meta-dot">·</span>
+            <span class="meta-sub">DC 180kW</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="hud-telemetry card-right">
+        <div class="telemetry-icon-wrap swap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="7" width="20" height="12" rx="3" />
+            <path d="M6 11l3 3m0 0l3-3m-3 3V8" />
+          </svg>
+        </div>
+        <div class="telemetry-content">
+          <div class="telemetry-title">Đổi pin tự động</div>
+          <div class="telemetry-meta">
+            <span class="status-speed">&lt; 3 phút</span>
+            <span class="meta-dot">·</span>
+            <span class="meta-sub">Pin 100% SOH</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="hud-bottom-telemetry">
+        <div class="telemetry-metric">
+          <span>Thời gian chờ tb:</span>
+          <strong>2.5 phút</strong>
+        </div>
+        <div class="telemetry-divider"></div>
+        <div class="telemetry-metric">
+          <span>Khả dụng tức thì:</span>
+          <strong>98.4%</strong>
+        </div>
+        <div class="telemetry-divider"></div>
+        <div class="telemetry-metric">
+          <span>Trạm đang mở rộng:</span>
+          <strong>+24 trạm</strong>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mobility Feature Pills -->
+    <div class="feature-strip">
+      @for (feature of features; track feature.title) {
+        <div class="feature-item">
+          <div class="feature-icon">
+            @if (feature.icon === 'navigation') {
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polygon points="3 11 22 2 13 21 11 13 3 11" />
+              </svg>
+            } @else if (feature.icon === 'zap') {
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+              </svg>
+            } @else {
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+              </svg>
+            }
+          </div>
+          <div class="feature-copy">
+            <strong>{{ feature.title }}</strong>
+            <p>{{ feature.desc }}</p>
+          </div>
+        </div>
       }
     </div>
   </div>
 
+  <!-- Bottom Real-time Operational Metrics -->
   <footer class="showcase-footer">
-    <span class="pulse"></span>Sẵn sàng cho hành trình năng lượng tiếp theo
+    <div class="metrics-grid">
+      @for (m of metrics; track m.label) {
+        <div class="metric-card">
+          <div class="metric-num">
+            <span class="val">{{ m.value }}</span>
+            <span class="unit">{{ m.unit }}</span>
+          </div>
+          <div class="metric-label">{{ m.label }}</div>
+          <div class="metric-sub">{{ m.sublabel }}</div>
+        </div>
+      }
+    </div>
   </footer>
-</section>
+</aside>

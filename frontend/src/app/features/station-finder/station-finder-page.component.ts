@@ -16,10 +16,20 @@ import { PlaceSearchService } from './services/place-search.service';
 import { PlaceSearchResult } from './models/place-search.model';
 import { StationListComponent } from './station-list/station-list.component';
 import { StationMapComponent } from './station-map/station-map.component';
+import { CustomerReservationModalComponent } from '../reservations/customer-reservation-modal/customer-reservation-modal.component';
+import { ReservationService } from '../reservations/services/reservation.service';
+import { ReservationServiceType } from '../reservations/models/reservation.models';
+import { StationRealtimeService } from '../../core/services/station-realtime.service';
 
 @Component({
   selector: 'app-station-finder-page',
-  imports: [FormsModule, RouterLink, StationListComponent, StationMapComponent],
+  imports: [
+    FormsModule,
+    RouterLink,
+    StationListComponent,
+    StationMapComponent,
+    CustomerReservationModalComponent,
+  ],
   templateUrl: './station-finder-page.component.html',
   styleUrl: './station-finder-page.component.scss',
 })
@@ -27,13 +37,30 @@ export class StationFinderPageComponent implements OnInit {
   private readonly api = inject(LocationsApiService);
   private readonly placeSearch = inject(PlaceSearchService);
   private readonly authService = inject(AuthService);
+  private readonly reservationService = inject(ReservationService);
+  private readonly realtimeService = inject(StationRealtimeService);
   private readonly destroyRef = inject(DestroyRef);
   private detailRequest?: Subscription;
   private stationRequest?: Subscription;
   private globalQuery = '';
   private page = 0;
 
+  readonly realtimeStatus = this.realtimeService.connectionStatus;
+  readonly isRefreshing = signal(false);
+  readonly hasRecentInventoryUpdate = signal(false);
+
   readonly currentUser = this.authService.currentUser;
+  readonly isOperator = computed(() => {
+    const roles = this.currentUser()?.roles || [];
+    return roles.includes('Operator') || roles.includes('Admin');
+  });
+  readonly activeReservation = this.reservationService.activeReservation;
+  readonly isHeld = this.reservationService.isHeld;
+  readonly isCheckedIn = this.reservationService.isCheckedIn;
+  readonly formattedCountdown = this.reservationService.formattedCountdown;
+  readonly showReservationModal = signal<boolean>(false);
+  readonly modalInitialServiceType = signal<ReservationServiceType | null>(null);
+
   readonly stations = signal<Station[]>([]);
   readonly selectedId = signal<string | null>(null);
   readonly detail = signal<Station | null>(null);
@@ -57,6 +84,7 @@ export class StationFinderPageComponent implements OnInit {
 
   // Tiện ích tìm kiếm & bộ lọc kiểu Google Maps
   readonly searchQuery = signal('');
+  readonly activeSearchSource = signal<'header' | 'sidebar'>('header');
   readonly activeServiceFilter = signal<'all' | 'charging' | 'swap'>('all');
   readonly availabilityFilter = signal<'all' | 'open' | 'available'>('all');
   readonly sidebarCollapsed = signal(false);
@@ -90,6 +118,76 @@ export class StationFinderPageComponent implements OnInit {
 
   ngOnInit() {
     this.autoDetectLocationAndLoad();
+    if (this.currentUser()) {
+      this.reservationService.getActive().subscribe();
+    }
+
+    // Lắng nghe sự kiện cập nhật thời gian thực từ SignalR
+    this.realtimeService.stationUpdated$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((event) => {
+        // Cập nhật thẻ chi tiết nếu khách đang mở xem đúng trạm này
+        if (this.selectedId() === event.locationId) {
+          this.detail.update((current) => {
+            if (!current) return null;
+            return {
+              ...current,
+              availableChargingBays:
+                event.availableChargingBays ?? current.availableChargingBays,
+              availableBatteries:
+                event.availableBatteries ?? current.availableBatteries,
+            };
+          });
+          // Kích hoạt hiệu ứng flash highlight
+          this.hasRecentInventoryUpdate.set(true);
+          setTimeout(() => this.hasRecentInventoryUpdate.set(false), 2000);
+        }
+
+        // Cập nhật trong danh sách hiển thị trên bản đồ & danh sách bên
+        this.stations.update((list) =>
+          list.map((st) =>
+            st.id === event.locationId
+              ? {
+                  ...st,
+                  availableChargingBays:
+                    event.availableChargingBays ?? st.availableChargingBays,
+                  availableBatteries:
+                    event.availableBatteries ?? st.availableBatteries,
+                }
+              : st,
+          ),
+        );
+      });
+
+    // Lá chắn 2: Lắng nghe Window Focus / Tab Visibility Change
+    if (typeof document !== 'undefined') {
+      const onVisibilityChange = () => {
+        if (document.visibilityState === 'visible' && this.selectedId()) {
+          this.refreshDetail(true);
+        }
+      };
+      document.addEventListener('visibilitychange', onVisibilityChange);
+      this.destroyRef.onDestroy(() => {
+        document.removeEventListener('visibilitychange', onVisibilityChange);
+        const activeId = this.selectedId();
+        if (activeId) {
+          this.realtimeService.unwatchStation(activeId);
+        }
+      });
+    }
+  }
+
+  openReservationModal(serviceType?: ReservationServiceType) {
+    if (serviceType) {
+      this.modalInitialServiceType.set(serviceType);
+    } else {
+      this.modalInitialServiceType.set(null);
+    }
+    this.showReservationModal.set(true);
+  }
+
+  closeReservationModal() {
+    this.showReservationModal.set(false);
   }
 
   // Tự động xin quyền GPS và tìm trạm xung quanh vị trí của bạn
@@ -290,6 +388,12 @@ export class StationFinderPageComponent implements OnInit {
   }
 
   selectStation(id: string) {
+    const prevId = this.selectedId();
+    if (prevId && prevId !== id) {
+      this.realtimeService.unwatchStation(prevId);
+    }
+    this.realtimeService.watchStation(id);
+
     if (typeof window !== 'undefined' && window.innerWidth < 1050) {
       this.sidebarCollapsed.set(true);
       if (window.innerWidth <= 768) setTimeout(() => this.mobileView.set('map'), 0);
@@ -317,10 +421,40 @@ export class StationFinderPageComponent implements OnInit {
   }
 
   closeDetail() {
+    const prevId = this.selectedId();
+    if (prevId) {
+      this.realtimeService.unwatchStation(prevId);
+    }
     this.detailRequest?.unsubscribe();
     this.selectedId.set(null);
     this.detail.set(null);
     this.detailLoading.set(false);
+  }
+
+  refreshDetail(silent = false) {
+    const id = this.selectedId();
+    if (!id || this.isRefreshing()) return;
+    if (!silent) this.isRefreshing.set(true);
+
+    this.api
+      .detail(id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (station) => {
+          this.detail.set(station);
+          this.stations.update((list) =>
+            list.map((st) => (st.id === id ? station : st)),
+          );
+          if (!silent) {
+            this.hasRecentInventoryUpdate.set(true);
+            setTimeout(() => this.hasRecentInventoryUpdate.set(false), 1500);
+          }
+          this.isRefreshing.set(false);
+        },
+        error: () => {
+          this.isRefreshing.set(false);
+        },
+      });
   }
 
   logout() {

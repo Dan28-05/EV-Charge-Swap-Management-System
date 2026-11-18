@@ -24,8 +24,10 @@ Tài liệu nguồn của dự án:
 | Tests | Unit test và HTTP integration test; integration dùng SQLite trong bộ nhớ |
 | GitHub Actions | Chỉ có thư mục giữ chỗ; chưa có workflow CI/CD |
 | Users/JWT/RBAC | Đã có Identity, đăng ký Customer, JWT, refresh rotation/reuse detection, logout, xem/sửa họ tên hồ sơ, xác thực riêng email/số điện thoại, đổi và khôi phục mật khẩu, bootstrap Admin và Admin tạo Operator |
-| ChargingBays, Batteries, Reservations | Chưa triển khai |
-| ChargingSessions, BatterySwaps, Invoice, Payment | Chưa triển khai |
+| ChargingBays, Batteries, Reservations | Có API khai báo và cập nhật tài nguyên, sửa giờ phục vụ, giữ chỗ, hủy, hết hạn và check-in theo trạm; đồng bộ SignalR thời gian thực |
+| Operator Dashboard & Realtime | Giao diện Operator (`/operator/dashboard`) quản lý trụ sạc, pin, giờ phục vụ, check-in mã giữ chỗ; tự động đồng bộ thời gian thực sang bản đồ khách hàng |
+| ChargingSessions | Đã có backend: Operator xác nhận xe đỗ, bắt đầu/kết thúc phiên với chỉ số công tơ, xác nhận xe rời hoặc không sạc |
+| BatterySwaps, Invoice, Payment | Chưa triển khai |
 | Angular / Station Finder | Trang công khai `/`: danh sách phân trang, bản đồ, chi tiết và chỉ đường; có giao diện desktop/mobile |
 | Thông báo nghiệp vụ | Chưa triển khai |
 
@@ -46,8 +48,8 @@ Các phần nghiệp vụ bên dưới là mục tiêu phát triển, không ph�
 | Vai trò | Quyền dự kiến |
 | --- | --- |
 | Customer | Tìm địa điểm, đặt/hủy, xem lịch sử và thanh toán |
-| Operator | Xác nhận khách đến, ghi nhận sạc/giao nhận pin, xác nhận xe rời và báo sự cố tại địa điểm được phân công |
-| Admin | Quản lý mạng lưới, nhân viên, tài nguyên, giá và báo cáo |
+| Operator | Tại trạm được phân công, sửa giờ phục vụ, cập nhật trạng thái cổng sạc và pin, xác nhận khách đến, ghi nhận sử dụng và báo sự cố |
+| Admin | Quản lý trạm và danh mục tài nguyên, thiết lập lịch ban đầu, phân công nhân viên, quản lý giá và xem báo cáo |
 
 ### Đặt chỗ và xác nhận thực tế
 
@@ -291,7 +293,7 @@ Mở **http://localhost:4200/**. Không cần đăng nhập để xem trạm. N�
 - Khi chạy Docker Compose, Nginx chuyển `/api/` sang `api:8080`; đường dẫn SPA vẫn trả về `index.html`. Build frontend dùng `npm ci` và output Angular `dist/*/browser`.
 - Nạp seed demo theo mục 8: 10 trạm trọng điểm mẫu hoặc 100 trạm sạc & đổi pin thực tế trải khắp các đô thị toàn quốc (TP.HCM, Hà Nội, Đà Nẵng, Quy Nhơn, Hải Phòng, Bình Dương, Cần Thơ, Nha Trang, Vũng Tàu...). Sau đó tải lại dashboard; nút **Tải thêm địa điểm** lấy 20 trạm mỗi lần. Danh sách và marker luôn dùng chung tập dữ liệu, loại trùng theo ID.
 - Feature nằm trong `features/station-finder/`: page điều phối trạng thái, `station-list/` hiển thị danh sách, `station-map/` quản lý Leaflet, `services/` gọi API và `models/` định nghĩa DTO. Chọn thẻ hoặc marker mở chi tiết từ API; Chỉ đường mở Google Maps bằng tọa độ đích.
-- Header dùng logo con hươu trong `frontend/public/favicon.png`. Danh sách có thể đóng/mở; khi chọn trạm, bản đồ giữ marker trong phần nhìn thấy, kể cả khi bảng chi tiết đang mở trên mobile. Mục Đặt chỗ/Lịch sử được ghi “Sắp có” vì API đặt chỗ và lịch sử chưa triển khai; nút Đặt chỗ trong chi tiết bị vô hiệu hóa để không tạo lượt đặt giả.
+- Header dùng logo con hươu trong `frontend/public/favicon.png`. Danh sách có thể đóng/mở; khi chọn trạm, bản đồ giữ marker trong phần nhìn thấy, kể cả khi bảng chi tiết đang mở trên mobile. Mục Đặt chỗ/Lịch sử được ghi “Sắp có” trong giao diện; backend đặt chỗ đã có API riêng và chưa nối với nút Đặt chỗ.
 - Trạng thái trạm do Admin cập nhật qua trường `operatingStatus` khi `POST/PUT /api/locations`: `Unknown`, `Open`, `Closed`, `Maintenance`. Trạm cũ mặc định `Unknown` (giao diện ghi “Chưa có thông tin”). `isActive=false` ẩn trạm khỏi API công khai, còn `Closed`/`Maintenance` vẫn hiển thị với nhãn tương ứng. Trạng thái này không tự thay đổi theo giờ; giờ phục vụ và tình trạng thiết bị là dữ liệu riêng ở mốc sau.
 - Dữ liệu demo có lịch phục vụ 24/7 (`isOpen24Hours=true`), công suất sạc `chargingPowerKw` thuộc 30/60/150/250 kW nếu có sạc ô tô, và `batteryCapacityKwh=1.5` cho dịch vụ đổi pin LFP. Seed phân bổ thông số và trạng thái giả lập ổn định theo ID; đây không phải trạng thái thiết bị hay số pin còn thực tế. `Closed`/`Maintenance` là ngoại lệ tạm thời của lịch 24/7.
 - Thanh tìm kiếm tra tên hoặc địa chỉ trạm trên toàn bộ database, đồng thời cho phép tìm địa danh. Giao diện không còn nút chọn bán kính. Khi duyệt bản đồ, dữ liệu được tải trong phạm vi 50 km quanh tâm vùng đang xem bằng API nearby. Có lọc dịch vụ và hai bộ lọc khả dụng: **Đang mở** hoặc **Còn chỗ**. Chưa có giá, đặt chỗ hoặc lịch sử.
@@ -368,6 +370,48 @@ Resend yêu cầu xác minh domain gửi email. SMS đến số Việt Nam yêu 
 
 Các response lỗi dùng Problem Details. Middleware thêm header `X-Request-ID`; lỗi có `traceId` để đối chiếu log. Request logging không ghi query string, request/response body hoặc thông tin đăng nhập.
 
+## Đặt chỗ qua API
+
+Backend hỗ trợ giữ chỗ sạc ô tô và giữ một pin xe máy trong 15 phút. Seed địa điểm phục vụ demo bản đồ. Để đặt được tại một trạm, Admin cần đặt trạng thái vận hành `Open` và tạo tài nguyên cùng giờ phục vụ ban đầu cho dịch vụ tương ứng. Operator được phân công có thể sửa giờ phục vụ và cập nhật trạng thái từng cổng hoặc pin.
+
+| Vai trò | Endpoint | Body hoặc tham số |
+| --- | --- | --- |
+| Admin | `POST /api/locations/{locationId}/charging-bays` | `{ "code": "A01", "powerKw": 60 }` |
+| Admin | `POST /api/locations/{locationId}/batteries` | `{ "serial": "PIN-001" }`, chỉ đăng ký pin đã sẵn sàng giao |
+| Admin | `POST /api/locations/{locationId}/service-hours` | `{ "serviceType": 1, "day": 1, "opensAtMinute": 480, "closesAtMinute": 1200 }` |
+| Admin | `POST /api/locations/{locationId}/operators` | `{ "operatorId": "<id>" }` |
+| Admin | `PUT /api/operators/{operatorId}/assignment` | `{ "locationId": "<id>" }` điều chuyển |
+| Admin | `DELETE /api/operators/{operatorId}/assignment` | Kết thúc phân công hiện tại |
+| Admin | `GET /api/operators/{operatorId}/assignments` | Xem lịch sử phân công |
+| Operator | `GET /api/operators/me/location` | Xem trạm hiện đang phụ trách |
+| Operator | `GET /api/operator/me/station` | Xem cổng sạc, pin, giờ phục vụ và lượt đặt hiện tại của trạm |
+| Operator | `PATCH /api/operator/me/charging-bays/{id}/equipment-state` | `{ "state": 2 }` để báo cổng lỗi; 1 Active, 2 Faulted, 3 Maintenance |
+| Operator | `PATCH /api/operator/me/batteries/{id}/state` | `{ "state": 5 }` để báo pin lỗi; chuyển trạng thái theo quy tắc pin |
+| Operator | `PUT /api/operator/me/service-hours` | `{ "serviceType": 1, "day": 1, "intervals": [{ "opensAtMinute": 480, "closesAtMinute": 1200 }] }` |
+| Customer | `POST /api/reservations` | `{ "locationId": "<id>", "serviceType": 1 }` |
+| Customer | `GET /api/reservations/active` hoặc `GET /api/reservations/{id}` | Xem lượt của chính mình |
+| Customer | `POST /api/reservations/{id}/cancel` | Hủy lượt còn hạn và chưa check-in |
+| Operator | `POST /api/reservations/check-in` | `{ "locationId": "<id>", "code": "<mã từ lượt đặt>" }` |
+| Operator | `POST /api/reservations/{id}/close-without-service?locationId=<id>` | Xác nhận khách không sử dụng dịch vụ và chỗ đỗ đã trống nếu là lượt sạc |
+| Operator | `POST /api/operator/me/charging-reservations/{id}/vehicle-arrived` | Xác nhận xe đã đỗ, chuyển bay sang `Occupied` |
+| Operator | `GET /api/operator/me/charging-reservations/{id}` | Xem trạng thái xe và phiên sạc của lượt tại trạm được phân công |
+| Operator | `POST /api/operator/me/charging-reservations/{id}/start` | `{ "meterKwh": 120.5 }` chỉ số công tơ bắt đầu |
+| Operator | `POST /api/operator/me/charging-reservations/{id}/complete` | `{ "meterKwh": 135.7 }` chỉ số kết thúc, bay vẫn `Occupied` |
+| Operator | `POST /api/operator/me/charging-reservations/{id}/no-charge` | Xác nhận xe đã đỗ nhưng không sạc; không tạo phiên sạc |
+| Operator | `POST /api/operator/me/charging-reservations/{id}/vehicle-departed` | Sau khi kết thúc sạc hoặc xác nhận không sạc, đóng lượt và chuyển bay sang `Vacant` |
+| Customer | `GET /api/reservations/{id}/charging-session` | Xem phiên sạc của chính mình |
+
+`serviceType` là `1` cho sạc ô tô và `2` cho đổi pin. `day` dùng `0` cho Chủ nhật, `1` cho Thứ hai đến `6` cho Thứ bảy. Giờ phục vụ tính theo phút từ 00:00 theo giờ Việt Nam. Ví dụ `480–1200` là 08:00–20:00, còn `0–1440` là cả ngày. Tạo lịch riêng cho từng dịch vụ và từng ngày. Lịch qua đêm được nhập thành hai khoảng ở hai ngày.
+
+API chọn tài nguyên trong transaction PostgreSQL. Mỗi khách và mỗi tài nguyên chỉ có tối đa một lượt `Held` hoặc `CheckedIn`. Nếu trạm ngừng nhận đặt, khách đang có lượt hiệu lực hoặc tài nguyên đã hết, API trả `409`. Job chỉ chuyển lượt `Held` quá hạn sang `Expired`. Thời điểm hết hạn được kiểm tra khi hủy hoặc check-in, kể cả khi job chưa chạy.
+API công khai hiện tính số cổng và pin khả dụng từ bảng tài nguyên cùng lượt giữ đang hoạt động. Các giá trị `available_charging_bays` và `available_batteries` cũ trong bảng `locations` không còn quyết định số hiển thị; dữ liệu seed chỉ có Location sẽ hiển thị 0 cho đến khi Admin khai báo cổng và pin. `OperatorResourceUpdates` thêm thông tin người và thời điểm cập nhật. Lượt đã giữ vẫn tồn tại khi Operator báo lỗi tài nguyên; xử lý chuyển hoặc hủy lượt đó thuộc luồng sự cố tiếp theo. Việc đổi giờ chỉ ảnh hưởng lượt mới.
+
+Quan hệ dữ liệu gồm một `Location` có nhiều `ChargingBay`, `Battery` và `ServiceHours`. Mỗi Operator có tối đa một `OperatorAssignment` đang hoạt động, còn một trạm có thể có nhiều Operator. Các bản ghi phân công đã kết thúc được giữ làm lịch sử. Mỗi `Reservation` trỏ tới một Customer, một Location và đúng một trong hai tài nguyên.
+
+`AddReservations` tạo các bảng backend. `OperatorAssignmentHistory` bổ sung lịch sử và ràng buộc mỗi Operator chỉ có một phân công đang hoạt động. `ChargingLifecycle` thêm mốc xe đến/rời, xác nhận không sạc và bảng `charging_sessions`; các cột mới trên reservation đều nullable để giữ dữ liệu cũ. Mỗi reservation có tối đa một phiên sạc, công tơ kết thúc phải lớn hơn hoặc bằng công tơ đầu. Chạy migration theo mục 6 trước khi gọi API. Để chạy test migration và tranh chỗ, đặt biến `EV_RESERVATIONS_TEST_DATABASE` thành connection string của **database PostgreSQL riêng cho test**, rồi chạy lệnh ở mục 9. Test này tự áp dụng migration.
+
+Frontend cho phiên sạc, giao nhận pin thực tế, tính phí và thanh toán thuộc các bước triển khai tiếp theo.
+
 ## 8. Dữ liệu demo
 
 Sau khi áp dụng migration, có thể thêm 10 trạm trọng điểm minh họa tại TP.HCM, Hà Nội, Đà Nẵng và Quy Nhơn vào database local:
@@ -417,11 +461,11 @@ Khi tự viết CI, có thể đặt workflow build/test trong thư mục này; 
 
 ## 12. ERD và lộ trình tiếp theo
 
-Chín entity lõi dự kiến: `User`, `Location`, `ChargingBay`, `Battery`, `Reservation`, `ChargingSession`, `BatterySwap`, `Invoice`, `Payment`. Hiện đã triển khai `User`, `Location` và entity hạ tầng `RefreshToken`.
+Chín entity lõi dự kiến: `User`, `Location`, `ChargingBay`, `Battery`, `Reservation`, `ChargingSession`, `BatterySwap`, `Invoice`, `Payment`. Hiện đã triển khai `User`, `Location`, `ChargingBay`, `Battery`, `Reservation` và `ChargingSession`, cùng entity hạ tầng `RefreshToken`.
 
-1. Thêm chỗ sạc, pin, phân công nhân viên và giờ phục vụ cho các Location đã có.
-2. Thêm đặt chỗ 15 phút, chống đặt trùng và job hết hạn.
-3. Thêm phiên sạc, giao nhận pin và lịch sử sự cố.
+1. Đã thêm API khai báo chỗ sạc, pin, phân công nhân viên và giờ phục vụ.
+2. Đã thêm API đặt chỗ 15 phút, chống đặt trùng, job hết hạn và check-in.
+3. Đã thêm backend phiên sạc và xác nhận xe rời; tiếp theo là giao nhận pin và lịch sử sự cố.
 4. Thêm bảng giá, hóa đơn, payment webhook và test đồng thời/idempotency.
 5. Mở rộng Angular với tìm kiếm/bán kính, đặt chỗ, lịch sử, thông báo và báo cáo; bản đồ/chỉ đường cơ bản đã có.
 

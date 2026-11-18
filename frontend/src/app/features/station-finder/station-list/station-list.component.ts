@@ -47,14 +47,11 @@ import {
 
             <!-- Card Main Content -->
             <div class="card-content">
-              <!-- Row 1: Station Name (up to 2 lines allowed) + Status (only for Open) -->
+              <!-- Row 1: Station Name (up to 2 lines allowed) + Active Status Dot -->
               <div class="card-title-row">
                 <strong class="card-name" [title]="station.name">{{ station.name }}</strong>
                 @if (station.operatingStatus === 'Open') {
-                  <span class="status-tag open">
-                    <span class="status-dot"></span>
-                    {{ operatingStatusLabel(station) }}
-                  </span>
+                  <span class="status-dot-active" title="Đang hoạt động" aria-label="Đang hoạt động"></span>
                 }
               </div>
 
@@ -138,7 +135,7 @@ import {
       border: 1px solid #e2e8f0;
       border-radius: 10px;
       background: #ffffff;
-      padding: 11px 12px;
+      padding: 13px 14px;
       transition: all 0.18s ease;
       position: relative;
     }
@@ -166,20 +163,20 @@ import {
     .choose {
       display: flex;
       align-items: flex-start;
-      gap: 11px;
+      gap: 12px;
       width: 100%;
       padding: 0;
       text-align: left;
       border: 0;
       background: none;
-      color: #173e34;
+      color: #0f172a;
       cursor: pointer;
       font: inherit;
     }
     .card-icon {
       flex: none;
-      width: 36px;
-      height: 36px;
+      width: 38px;
+      height: 38px;
       border-radius: 8px;
       display: grid;
       place-items: center;
@@ -206,13 +203,13 @@ import {
       display: flex;
       align-items: flex-start;
       justify-content: space-between;
-      gap: 6px;
-      margin-bottom: 3px;
+      gap: 8px;
+      margin-bottom: 4px;
     }
     .card-name {
-      font-size: 13.5px;
+      font-size: 15px;
       font-weight: 700;
-      color: #173e34;
+      color: #0f172a;
       line-height: 1.35;
       display: -webkit-box;
       -webkit-line-clamp: 2;
@@ -221,6 +218,16 @@ import {
       text-overflow: ellipsis;
       word-break: break-word;
       flex: 1;
+    }
+    .status-dot-active {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #10b981;
+      box-shadow: 0 0 0 2.5px rgba(16, 185, 129, 0.22);
+      display: inline-block;
+      flex: none;
+      margin-top: 5px;
     }
     .status-tag {
       font-size: 11px;
@@ -257,15 +264,15 @@ import {
     .card-location {
       display: flex;
       align-items: center;
-      gap: 5px;
-      font-size: 12px;
+      gap: 6px;
+      font-size: 13px;
       color: #64748b;
-      margin-bottom: 6px;
+      margin-bottom: 7px;
       line-height: 1.3;
     }
     .distance-text {
       font-weight: 600;
-      color: #173e34;
+      color: #0f172a;
       white-space: nowrap;
     }
     .location-dot {
@@ -277,18 +284,21 @@ import {
       text-overflow: ellipsis;
       flex: 1;
       min-width: 0;
+      font-size: 13px;
+      color: #64748b;
     }
     .card-capacity-row {
       display: flex;
       align-items: center;
-      font-size: 12px;
+      font-size: 13px;
     }
     .capacity-stats {
       display: flex;
       align-items: center;
-      gap: 6px;
-      color: #17634f;
+      gap: 7px;
+      color: #334155;
       font-weight: 500;
+      font-size: 13px;
     }
     .stat-unit {
       display: inline-flex;
@@ -297,7 +307,8 @@ import {
     }
     .stat-unit strong {
       font-weight: 700;
-      color: #104f3e;
+      color: #0f172a;
+      font-size: 13.5px;
     }
     .stat-sep {
       color: #cbd5e1;

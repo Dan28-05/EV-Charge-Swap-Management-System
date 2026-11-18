@@ -3,6 +3,7 @@ using System.IdentityModel.Tokens.Jwt;
 using EVChargeSwap.Data;
 using EVChargeSwap.Features.Authorization;
 using EVChargeSwap.Features.Locations.Caching;
+using EVChargeSwap.Features.Locations.Services;
 using EVChargeSwap.Features.Reservations.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -20,7 +21,7 @@ public sealed record ReplaceHoursRequest([EnumDataType(typeof(ReservationService
 [ApiController]
 [Authorize(Roles = AppRoles.Operator)]
 [Route("api/operator/me")]
-public sealed class OperatorOperationsController(AppDbContext db, TimeProvider clock, ILocationCache cache) : ControllerBase
+public sealed class OperatorOperationsController(AppDbContext db, TimeProvider clock, ILocationCache cache, IStationNotifier? notifier = null) : ControllerBase
 {
     [HttpGet("station")]
     public async Task<IActionResult> Station(CancellationToken ct)
@@ -63,6 +64,7 @@ public sealed class OperatorOperationsController(AppDbContext db, TimeProvider c
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
         await cache.InvalidateLocationAsync(locationId.Value, ct);
+        if (notifier is not null) await notifier.NotifyStationInventoryChangedAsync(locationId.Value, ct);
         return NoContent();
     }
 
@@ -96,6 +98,7 @@ public sealed class OperatorOperationsController(AppDbContext db, TimeProvider c
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
         await cache.InvalidateLocationAsync(locationId.Value, ct);
+        if (notifier is not null) await notifier.NotifyStationInventoryChangedAsync(locationId.Value, ct);
         return NoContent();
     }
 
@@ -138,6 +141,7 @@ public sealed class OperatorOperationsController(AppDbContext db, TimeProvider c
             .ExecuteUpdateAsync(x => x.SetProperty(l => l.IsOpen24Hours, isOpen24Hours), ct);
         await transaction.CommitAsync(ct);
         await cache.InvalidateLocationAsync(locationId.Value, ct);
+        if (notifier is not null) await notifier.NotifyStationInventoryChangedAsync(locationId.Value, ct);
         return NoContent();
     }
 

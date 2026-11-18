@@ -1,7 +1,7 @@
 <header class="header">
   <div class="header-left">
     <a class="brand" routerLink="/">
-      <span class="logo-frame"><img class="brand-logo" src="/favicon.png" alt="Logo con hươu EVGo" /></span>
+      <span class="logo-frame"><img class="brand-logo" src="/favicon.png" alt="EVGo" /></span>
       <span class="brand-text">EVGo</span>
       <span class="brand-tag">Charge & Swap</span>
     </a>
@@ -16,7 +16,32 @@
       </svg>
       Bản đồ trạm
     </button>
-    <span class="nav-coming" title="Chức năng đặt chỗ đang được phát triển">Đặt chỗ · Sắp có</span>
+    @if (isHeld()) {
+      <button type="button" class="nav-reservation-pill held" (click)="openReservationModal()" title="Xem phiếu giữ chỗ & đếm ngược">
+        <span class="pulse-beacon"></span>
+        ⚡ Đang giữ chỗ: {{ formattedCountdown() }}
+      </button>
+    } @else if (isCheckedIn()) {
+      <button type="button" class="nav-reservation-pill checked-in" (click)="openReservationModal()" title="Xem phiếu giữ chỗ đã check-in">
+        ✓ Đã check-in tại trạm
+      </button>
+    } @else {
+      <button type="button" class="nav-item" (click)="openReservationModal()" title="Mở phiếu đặt giữ chỗ">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+          <path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zm0-12H5V6h14v2z" />
+        </svg>
+        Đặt giữ chỗ (15p)
+      </button>
+    }
+
+    @if (isOperator()) {
+      <a routerLink="/operator/dashboard" class="nav-operator-pill" title="Mở Dashboard vận hành trạm">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+          <path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/>
+        </svg>
+        Dashboard vận hành
+      </a>
+    }
     @if (currentUser()) { <span class="nav-coming" title="Lịch sử sử dụng đang được phát triển">Lịch sử · Sắp có</span> }
 
     @if (currentUser(); as user) {
@@ -113,9 +138,9 @@
       class="floating-sidebar"
       [class.collapsed]="sidebarCollapsed()"
       [class.mobile-hidden]="mobileView() === 'map'"
-      aria-labelledby="finder-heading"
+      aria-label="Danh sách trạm"
     >
-      <!-- Prominent Collapse Handle Bar (Thanh rút gọn) -->
+      <!-- Collapse Toggle Tab on Sidebar Edge -->
       <button
         type="button"
         class="collapse-handle-bar collapse-toggle"
@@ -123,15 +148,13 @@
         [attr.aria-label]="sidebarCollapsed() ? 'Mở danh sách trạm' : 'Thu gọn danh sách trạm'"
         (click)="toggleSidebar()"
       >
-        <div class="handle-grip" aria-hidden="true"></div>
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5">
+        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
           @if (sidebarCollapsed()) {
             <polyline points="9 18 15 12 9 6" />
           } @else {
             <polyline points="15 18 9 12 15 6" />
           }
         </svg>
-        <span class="handle-text">Thu gọn</span>
       </button>
 
       <!-- Search & Filters Header -->
@@ -144,7 +167,7 @@
             height="17"
             fill="none"
             stroke="currentColor"
-            stroke-width="2.5"
+            stroke-width="2.3"
           >
             <circle cx="11" cy="11" r="8" />
             <line x1="21" y1="21" x2="16.65" y2="16.65" />
@@ -159,7 +182,6 @@
             (keydown.enter)="submitSearch()"
             aria-label="Tìm địa điểm hoặc tên trạm"
           />
-          <button type="button" class="place-search-btn" (click)="submitSearch()" aria-label="Tìm kiếm">Tìm</button>
           @if (searchQuery()) {
             <button
               type="button"
@@ -170,7 +192,20 @@
               ✕
             </button>
           }
+          <button
+            type="button"
+            class="place-search-btn"
+            (click)="submitSearch()"
+            title="Tìm kiếm"
+            aria-label="Tìm kiếm"
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5">
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+          </button>
         </div>
+
         @if (placeSearchLoading() || placeResults().length || placeSearchError()) {
           <div class="place-results" role="status">
             @if (placeSearchLoading()) { <p>Đang tìm địa danh…</p> }
@@ -181,11 +216,11 @@
           </div>
         }
 
-        <!-- Filter Chips Row -->
-        <div class="filter-chips" aria-label="Lọc theo dịch vụ">
+        <!-- Service filter pills row: balanced equal-width 3 buttons -->
+        <div class="service-filter-row" role="tablist" aria-label="Lọc theo dịch vụ">
           <button
             type="button"
-            class="chip"
+            class="service-pill"
             [class.active]="activeServiceFilter() === 'all'"
             [attr.aria-pressed]="activeServiceFilter() === 'all'"
             (click)="setServiceFilter('all')"
@@ -194,59 +229,57 @@
           </button>
           <button
             type="button"
-            class="chip chip-charge"
+            class="service-pill"
             [class.active]="activeServiceFilter() === 'charging'"
             [attr.aria-pressed]="activeServiceFilter() === 'charging'"
             (click)="setServiceFilter('charging')"
           >
-            <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor">
               <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
             </svg>
             <span>Sạc ô tô</span>
           </button>
           <button
             type="button"
-            class="chip chip-swap"
+            class="service-pill"
             [class.active]="activeServiceFilter() === 'swap'"
             [attr.aria-pressed]="activeServiceFilter() === 'swap'"
             (click)="setServiceFilter('swap')"
           >
-            <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor">
               <path d="M16 4h-1V2.5a.5.5 0 0 0-.5-.5h-5a.5.5 0 0 0-.5.5V4H8C6.34 4 5 5.34 5 7v12c0 1.66 1.34 3 3 3h8c1.66 0 3-1.34 3-3V7c0-1.66-1.34-3-3-3zm-1 12H9v-2h6v2zm0-4H9v-2h6v2zm0-4H9V6h6v2z" />
             </svg>
             <span>Đổi pin</span>
           </button>
         </div>
 
-        <div class="filter-chips availability-chips" aria-label="Lọc theo khả dụng">
-          <span class="filter-label">Ưu tiên:</span>
-          <button
-            type="button"
-            class="chip"
-            [class.active]="availabilityFilter() === 'open'"
-            [attr.aria-pressed]="availabilityFilter() === 'open'"
-            (click)="setAvailabilityFilter(availabilityFilter() === 'open' ? 'all' : 'open')"
-          >
-            Đang mở
-          </button>
-          <button
-            type="button"
-            class="chip"
-            [class.active]="availabilityFilter() === 'available'"
-            [attr.aria-pressed]="availabilityFilter() === 'available'"
-            (click)="setAvailabilityFilter(availabilityFilter() === 'available' ? 'all' : 'available')"
-          >
-            Còn chỗ
-          </button>
-        </div>
-
-        <!-- Radius Selector Row (no Windows scrollbar) -->
-
-        <!-- Results count -->
-        <div class="sidebar-meta">
-          <span class="result-count" aria-live="polite">
-            <strong>{{ displayedStations().length }}</strong> trạm
-          </span>
+        <!-- Priority availability filters row: balanced spacing -->
+        <div class="priority-filter-row" aria-label="Lọc theo khả dụng">
+          <span class="priority-label">Ưu tiên:</span>
+          <div class="priority-pills">
+            <button
+              type="button"
+              class="priority-pill"
+              [class.active]="availabilityFilter() === 'open'"
+              [attr.aria-pressed]="availabilityFilter() === 'open'"
+              (click)="setAvailabilityFilter(availabilityFilter() === 'open' ? 'all' : 'open')"
+            >
+              <span class="dot-open"></span>
+              <span>Đang mở</span>
+            </button>
+            <button
+              type="button"
+              class="priority-pill"
+              [class.active]="availabilityFilter() === 'available'"
+              [attr.aria-pressed]="availabilityFilter() === 'available'"
+              (click)="setAvailabilityFilter(availabilityFilter() === 'available' ? 'all' : 'available')"
+            >
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor">
+                <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+              </svg>
+              <span>Còn chỗ</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -313,26 +346,59 @@
       <section class="detail" aria-labelledby="detail-heading" aria-live="polite">
         <div class="detail-header-card">
           <div class="detail-badge-row">
-            <span
-              class="detail-type-tag"
-              [class.open]="detail()?.operatingStatus === 'Open'"
-              [class.maintenance]="detail()?.operatingStatus === 'Maintenance'"
-              [class.closed]="detail()?.operatingStatus === 'Closed'"
-            >
+            <div class="detail-tags-cluster">
+              <span
+                class="detail-type-tag"
+                [class.open]="detail()?.operatingStatus === 'Open'"
+                [class.maintenance]="detail()?.operatingStatus === 'Maintenance'"
+                [class.closed]="detail()?.operatingStatus === 'Closed'"
+              >
+                @if (detail()) {
+                  <span class="status-dot"></span>
+                }
+                {{ detail() ? operatingStatusLabel(detail()!) : 'Chi tiết địa điểm' }}
+              </span>
+
               @if (detail()) {
-                <span class="status-dot"></span>
+                <span
+                  class="realtime-status-pill"
+                  [class.live]="realtimeStatus() === 'connected'"
+                  [class.reconnecting]="realtimeStatus() === 'reconnecting'"
+                  [class.offline]="realtimeStatus() === 'disconnected'"
+                  [title]="realtimeStatus() === 'connected' ? 'Đang nhận dữ liệu thời gian thực' : 'Đang thử kết nối lại'"
+                >
+                  <span class="pulse-indicator"></span>
+                  {{ realtimeStatus() === 'connected' ? 'Trực tiếp' : 'Ngoại tuyến' }}
+                </span>
               }
-              {{ detail() ? operatingStatusLabel(detail()!) : 'Chi tiết địa điểm' }}
-            </span>
-            <button
-              type="button"
-              class="close-detail-btn"
-              aria-label="Đóng chi tiết"
-              title="Đóng chi tiết"
-              (click)="closeDetail()"
-            >
-              ✕
-            </button>
+            </div>
+
+            <div class="detail-action-buttons">
+              @if (detail()) {
+                <button
+                  type="button"
+                  class="refresh-detail-btn"
+                  [class.spinning]="isRefreshing()"
+                  aria-label="Cập nhật thông số trạm"
+                  title="Cập nhật thông số trạm"
+                  (click)="refreshDetail()"
+                >
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
+                  </svg>
+                </button>
+              }
+
+              <button
+                type="button"
+                class="close-detail-btn"
+                aria-label="Đóng chi tiết"
+                title="Đóng chi tiết"
+                (click)="closeDetail()"
+              >
+                ✕
+              </button>
+            </div>
           </div>
 
           @if (detailLoading()) {
@@ -349,18 +415,17 @@
           @if (detail(); as station) {
             <h2 id="detail-heading">{{ station.name }}</h2>
             <p class="detail-address">{{ station.address }}</p>
-            @if (station.isOpen24Hours) {
-              <p class="detail-address">Giờ phục vụ: 24 giờ mỗi ngày, cả tuần</p>
-            }
 
             <div class="detail-quick-stats">
               @if (station.distanceKm != null) {
-                <span class="stat-item highlight"
-                  >📍 Cách bạn {{ formatDistance(station.distanceKm) }}</span
-                >
+                <span class="stat-item highlight">📍 Cách bạn {{ formatDistance(station.distanceKm) }}</span>
                 <span class="stat-divider">•</span>
               }
-              <span class="stat-item">{{ serviceLabel(station) }}</span>
+              @if (station.isOpen24Hours) {
+                <span class="stat-item">🕒 Phục vụ 24/7</span>
+              } @else {
+                <span class="stat-item">🕒 Phục vụ theo ca</span>
+              }
             </div>
 
             <div class="detail-capabilities">
@@ -371,17 +436,21 @@
                       <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
                     </svg>
                   </div>
-                  <div class="cap-text">
-                    <strong>Sạc ô tô điện</strong>
-                    @if (station.chargingPowerKw) { <small>Công suất: {{ station.chargingPowerKw }} kW</small> }
+                  <div class="cap-main">
+                    <strong class="cap-title">Sạc ô tô điện</strong>
+                    @if (station.chargingPowerKw) {
+                      <span class="cap-spec">Công suất: {{ station.chargingPowerKw }} kW</span>
+                    }
+                  </div>
+                  <div class="cap-stat-badge" [class.highlight-pulse]="hasRecentInventoryUpdate()">
                     @if (station.operatingStatus === 'Open') {
                       @if (station.availableChargingBays != null) {
-                        <small class="bay-avail-count">⚡ Bãi sạc có sẵn: <strong>{{ station.availableChargingBays }}/10</strong> chỗ</small>
+                        <span class="bay-avail-count">⚡ <strong>{{ station.availableChargingBays }}/10</strong> chỗ</span>
                       }
                     } @else if (station.operatingStatus === 'Maintenance') {
-                      <small class="bay-avail-count inactive">⚡ Bãi sạc: <del>{{ station.availableChargingBays ?? 0 }}/10 chỗ</del> <em>(Đang bảo trì - Tạm ngưng)</em></small>
+                      <span class="bay-avail-count inactive">Tạm ngưng</span>
                     } @else {
-                      <small class="bay-avail-count inactive">⚡ Bãi sạc: <del>{{ station.availableChargingBays ?? 0 }}/10 chỗ</del> <em>(Trạm đang đóng cửa)</em></small>
+                      <span class="bay-avail-count inactive">Đóng cửa</span>
                     }
                   </div>
                 </div>
@@ -393,17 +462,21 @@
                       <path d="M16 4h-1V2.5a.5.5 0 0 0-.5-.5h-5a.5.5 0 0 0-.5.5V4H8C6.34 4 5 5.34 5 7v12c0 1.66 1.34 3 3 3h8c1.66 0 3-1.34 3-3V7c0-1.66-1.34-3-3-3zm-1 12H9v-2h6v2zm0-4H9v-2h6v2zm0-4H9V6h6v2z" />
                     </svg>
                   </div>
-                  <div class="cap-text">
-                    <strong>Đổi pin xe máy điện</strong>
-                    @if (station.batteryCapacityKwh) { <small>Pin LFP {{ station.batteryCapacityKwh }} kWh</small> }
+                  <div class="cap-main">
+                    <strong class="cap-title">Đổi pin xe máy điện</strong>
+                    @if (station.batteryCapacityKwh) {
+                      <span class="cap-spec">Pin LFP {{ station.batteryCapacityKwh }} kWh</span>
+                    }
+                  </div>
+                  <div class="cap-stat-badge" [class.highlight-pulse]="hasRecentInventoryUpdate()">
                     @if (station.operatingStatus === 'Open') {
                       @if (station.availableBatteries != null) {
-                        <small class="battery-avail-count">🔋 Pin có sẵn: <strong>{{ station.availableBatteries }}/20</strong> bình</small>
+                        <span class="battery-avail-count">🔋 <strong>{{ station.availableBatteries }}/20</strong> bình</span>
                       }
                     } @else if (station.operatingStatus === 'Maintenance') {
-                      <small class="battery-avail-count inactive">🔋 Đổi pin: <del>{{ station.availableBatteries ?? 0 }}/20 bình</del> <em>(Đang bảo trì - Tạm ngưng)</em></small>
+                      <span class="battery-avail-count inactive">Tạm ngưng</span>
                     } @else {
-                      <small class="battery-avail-count inactive">🔋 Đổi pin: <del>{{ station.availableBatteries ?? 0 }}/20 bình</del> <em>(Trạm đang đóng cửa)</em></small>
+                      <span class="battery-avail-count inactive">Đóng cửa</span>
                     }
                   </div>
                 </div>
@@ -411,8 +484,6 @@
             </div>
 
             <div class="detail-actions">
-              <button type="button" class="booking-unavailable" disabled title="Đặt chỗ sẽ khả dụng khi hệ thống quản lý chỗ sạc và pin sẵn sàng">Đặt chỗ · Sắp có</button>
-              <small class="booking-note">Chức năng đặt chỗ sẽ mở khi hệ thống xác nhận chỗ sạc hoặc pin còn sẵn.</small>
               <a
                 class="directions directions-primary-btn"
                 [href]="directionsUrl(station)"
@@ -425,9 +496,27 @@
                 Chỉ đường trên Google Maps ↗
               </a>
 
-              <button type="button" class="copy-address-btn" (click)="copyAddress(station.address)">
-                {{ copied() ? '✓ Đã sao chép' : 'Sao chép địa chỉ' }}
-              </button>
+              <div class="detail-sub-actions">
+                <button type="button" class="copy-address-btn" (click)="copyAddress(station.address)">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                  </svg>
+                  {{ copied() ? '✓ Đã chép' : 'Sao chép địa chỉ' }}
+                </button>
+                @if (station.operatingStatus === 'Open') {
+                  <button type="button" class="btn-booking-action" (click)="openReservationModal()">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+                      <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+                    </svg>
+                    Đặt giữ chỗ (15p)
+                  </button>
+                } @else {
+                  <span class="booking-pill-status disabled">
+                    Trạm tạm ngưng
+                  </span>
+                }
+              </div>
             </div>
           }
         </div>
@@ -435,3 +524,11 @@
     }
   </div>
 </main>
+
+@if (showReservationModal()) {
+  <app-customer-reservation-modal
+    [station]="detail()"
+    [initialServiceType]="modalInitialServiceType()"
+    (closed)="closeReservationModal()"
+  />
+}

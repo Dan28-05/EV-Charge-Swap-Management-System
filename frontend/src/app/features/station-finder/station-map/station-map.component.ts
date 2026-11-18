@@ -17,7 +17,7 @@ import { STATION_FINDER_CONFIG } from '../station-finder.config';
 @Component({
   selector: 'app-station-map',
   template: `
-    <div #canvas class="canvas" aria-label="Bản đồ trạm sạc và đổi pin Google Maps"></div>
+    <div #canvas class="canvas" aria-label="Bản đồ trạm sạc và đổi pin OpenStreetMap"></div>
 
     <div class="map-floating-controls" [class.panel-open]="!!selectedId" aria-label="Điều khiển bản đồ">
       <div class="control-group zoom-group">

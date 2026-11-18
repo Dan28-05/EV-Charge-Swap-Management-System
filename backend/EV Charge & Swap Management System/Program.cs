@@ -2,6 +2,7 @@ using EVChargeSwap.Data;
 using EVChargeSwap.Features.Authentication;
 using EVChargeSwap.Features.Authentication.Services;
 using EVChargeSwap.Features.Locations.Caching;
+using EVChargeSwap.Features.Locations.Hubs;
 using EVChargeSwap.Features.Locations.Services;
 using EVChargeSwap.Features.Users.Entities;
 using EVChargeSwap.Features.Users.Services;
@@ -102,6 +103,8 @@ builder.Services.AddSingleton<ILocationCache>(sp =>
     return new RedisLocationCache(multiplexer, logger);
 });
 builder.Services.AddScoped<LocationService>();
+builder.Services.AddSignalR();
+builder.Services.AddSingleton<IStationNotifier, StationNotifier>();
 builder.Services.AddScoped<EVChargeSwap.Features.Reservations.Services.ReservationService>();
 builder.Services.AddScoped<EVChargeSwap.Features.Reservations.Services.ChargingService>();
 builder.Services.AddScoped<EVChargeSwap.Features.Reservations.Services.OperatorAssignmentService>();
@@ -198,7 +201,7 @@ builder.Services.AddHealthChecks().AddCheck<DatabaseHealthCheck>(
 
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
 builder.Services.AddCors(options => options.AddPolicy("Angular", policy =>
-    policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod()));
+    policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod().AllowCredentials()));
 
 var app = builder.Build();
 
@@ -237,6 +240,7 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions
     ResponseWriter = HealthResponseWriter.WriteAsync
 });
 app.MapControllers();
+app.MapHub<StationHub>("/hubs/stations");
 
 await using (var scope = app.Services.CreateAsyncScope())
 {

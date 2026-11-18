@@ -24,8 +24,8 @@ Customer registration collects full name, email, Vietnamese mobile number, and p
 | Role | Primary permissions |
 | --- | --- |
 | **Customer** | Find locations, reserve/cancel, view history and invoices, and pay |
-| **Operator** | Confirm customers, operate charging/swaps, and report incidents at assigned locations |
-| **Admin** | Manage locations, resources, staff, pricing, and reports |
+| **Operator** | At assigned locations, edit per-service hours, update charging bay and battery states, confirm customers, operate charging/swaps, and report incidents |
+| **Admin** | Manage location records and resource inventory, set initial service hours, assign Operators, manage pricing, and review reports |
 
 Unauthenticated users may view public information. The backend must enforce both role and location assignment on every relevant API. Hiding an Angular button is not authorization.
 
@@ -35,7 +35,7 @@ Customers can read their own profile and update their full name. Email and phone
 
 ### 3.1. Locations, maps, and search
 
-- Admin can create, edit, and hide a location with its name, address, coordinates, offered services, and service hours for each service.
+- Admin can create, edit, and hide location records with name, address, coordinates, and offered services. Admin sets the initial per-service schedule. Operators can edit service hours only at assigned locations.
 - Angular displays locations on a map. A location offering both services still has one marker.
 - Customers can search by name/address and radius; filter by service, price, available charging bays, or ready batteries.
 - The station finder searches station names and addresses across the entire network; the customer interface does not expose a radius selector.
@@ -75,10 +75,11 @@ Version one supports **reserve to arrive now**, not future time-slot booking.
 ### 3.5. Check-in and car charging
 
 - The Operator verifies the reservation code and changes the reservation to `CHECKED_IN`. **Check-in is not charging start.**
+- The Operator separately confirms that the car occupies the bay before a charging session can start.
 - When the vehicle is parked and charging begins, the Operator creates a `ChargingSession` with start time and starting kWh reading.
 - At charging completion, the Operator records end time and ending kWh. Ending kWh cannot be below starting kWh.
 - **Charging completion does not mean vehicle departure.** The bay remains `OCCUPIED` and unavailable until the Operator confirms departure and changes it to `VACANT`.
-- If the Customer arrives but chooses not to charge, the Operator closes the reservation with reason `DID_NOT_CHARGE`. No charging session or electricity invoice is created; the bay only reopens after vehicle departure.
+- If the Customer arrives but chooses not to charge, the Operator marks `DID_NOT_CHARGE` and then confirms vehicle departure. No charging session or electricity invoice is created; the reservation closes and the bay reopens only on departure. If the customer checks in but never parks, the Operator may close the unused reservation directly while the bay is vacant.
 
 ### 3.6. Motorcycle battery swaps
 
@@ -91,6 +92,8 @@ Version one supports **reserve to arrive now**, not future time-slot booking.
 ### 3.7. Incidents
 
 - Operators can report a charging bay or battery fault with description and timestamp.
+- When a resource is faulted after being held, keep the reservation for incident resolution. New reservations exclude faulted resources. Changes to service hours apply to new reservations and do not revoke checked-in visits.
+- Public available-resource counts come from individual bays, batteries, and active reservations in PostgreSQL.
 - If a resource fails after reservation but before use, the system finds an alternative of the same service at the same location; the Operator confirms reassignment. If none exists, the reservation is cancelled with an incident reason and the Customer is notified.
 - `IncidentReport` links the resource, related usage when applicable, reporter, and resolution.
 - Usage history supports investigation. The system must **not automatically conclude customer liability or create compensation charges**.
@@ -132,6 +135,7 @@ Begin with nine core business entities:
 Add supporting entities with their feature:
 
 - `OperatorAssignment` for operator-location assignments.
+- Each Operator has at most one active assignment at a time. A location may have multiple Operators. Transfers end the previous assignment and retain its history.
 - `ServiceHours` for per-service/per-day hours.
 - `Tariff` for managed pricing.
 - `IncidentReport` for incident handling.

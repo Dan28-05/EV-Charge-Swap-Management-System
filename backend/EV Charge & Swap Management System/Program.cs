@@ -102,6 +102,10 @@ builder.Services.AddSingleton<ILocationCache>(sp =>
     return new RedisLocationCache(multiplexer, logger);
 });
 builder.Services.AddScoped<LocationService>();
+builder.Services.AddScoped<EVChargeSwap.Features.Reservations.Services.ReservationService>();
+builder.Services.AddScoped<EVChargeSwap.Features.Reservations.Services.ChargingService>();
+builder.Services.AddScoped<EVChargeSwap.Features.Reservations.Services.OperatorAssignmentService>();
+builder.Services.AddHostedService<EVChargeSwap.Features.Reservations.Services.ReservationExpiryJob>();
 builder.Services.AddIdentityCore<ApplicationUser>(options =>
     {
         options.User.RequireUniqueEmail = true;

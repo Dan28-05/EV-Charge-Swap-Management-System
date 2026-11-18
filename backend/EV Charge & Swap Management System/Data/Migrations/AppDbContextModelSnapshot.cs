@@ -237,6 +237,319 @@ namespace EVChargeSwap.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("EVChargeSwap.Features.Reservations.Entities.Battery", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("LocationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Serial")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<int>("State")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("StateUpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("StateUpdatedById")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LocationId");
+
+                    b.HasIndex("Serial")
+                        .IsUnique();
+
+                    b.HasIndex("StateUpdatedById");
+
+                    b.ToTable("batteries", (string)null);
+                });
+
+            modelBuilder.Entity("EVChargeSwap.Features.Reservations.Entities.ChargingBay", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<int>("EquipmentState")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("LocationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("ParkingState")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("PowerKw")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("StateUpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("StateUpdatedById")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StateUpdatedById");
+
+                    b.HasIndex("LocationId", "Code")
+                        .IsUnique();
+
+                    b.ToTable("charging_bays", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_charging_bays_power", " \"PowerKw\" > 0 ");
+                        });
+                });
+
+            modelBuilder.Entity("EVChargeSwap.Features.Reservations.Entities.ChargingSession", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ChargingBayId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("CompletedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CompletedById")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal?>("EndMeterKwh")
+                        .HasPrecision(12, 3)
+                        .HasColumnType("numeric(12,3)");
+
+                    b.Property<Guid>("ReservationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("StartMeterKwh")
+                        .HasPrecision(12, 3)
+                        .HasColumnType("numeric(12,3)");
+
+                    b.Property<DateTimeOffset>("StartedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("StartedById")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChargingBayId");
+
+                    b.HasIndex("CompletedById");
+
+                    b.HasIndex("ReservationId")
+                        .IsUnique();
+
+                    b.HasIndex("StartedById");
+
+                    b.ToTable("charging_sessions", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_charging_sessions_completion", "(\"CompletedAtUtc\" IS NULL AND \"EndMeterKwh\" IS NULL AND \"CompletedById\" IS NULL) OR (\"CompletedAtUtc\" IS NOT NULL AND \"EndMeterKwh\" IS NOT NULL AND \"CompletedById\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_charging_sessions_end_meter", "\"EndMeterKwh\" IS NULL OR \"EndMeterKwh\" >= \"StartMeterKwh\"");
+
+                            t.HasCheckConstraint("ck_charging_sessions_start_meter", "\"StartMeterKwh\" >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("EVChargeSwap.Features.Reservations.Entities.OperatorAssignment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("AssignedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("AssignedByAdminId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("EndedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("LocationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OperatorId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AssignedByAdminId");
+
+                    b.HasIndex("LocationId");
+
+                    b.HasIndex("OperatorId", "AssignedAtUtc");
+
+                    b.HasIndex(new[] { "OperatorId" }, "ux_operator_active_assignment")
+                        .IsUnique()
+                        .HasFilter("\"EndedAtUtc\" IS NULL");
+
+                    b.ToTable("operator_assignments", (string)null);
+                });
+
+            modelBuilder.Entity("EVChargeSwap.Features.Reservations.Entities.Reservation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("BatteryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ChargingBayId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("CheckedInAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CheckedInById")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("ClosedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ClosedById")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ClosingReason")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CustomerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("ExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("LocationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("NoChargeConfirmedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("NoChargeConfirmedById")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTimeOffset?>("VehicleArrivedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("VehicleArrivedById")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("VehicleDepartedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("VehicleDepartedById")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CheckedInById");
+
+                    b.HasIndex("ClosedById");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.HasIndex("LocationId");
+
+                    b.HasIndex("NoChargeConfirmedById");
+
+                    b.HasIndex("VehicleArrivedById");
+
+                    b.HasIndex("VehicleDepartedById");
+
+                    b.HasIndex("Status", "ExpiresAtUtc");
+
+                    b.HasIndex(new[] { "BatteryId" }, "ux_reservations_active_battery")
+                        .IsUnique()
+                        .HasFilter(" \"Status\" IN ('Held', 'CheckedIn')  AND \"BatteryId\" IS NOT NULL");
+
+                    b.HasIndex(new[] { "ChargingBayId" }, "ux_reservations_active_bay")
+                        .IsUnique()
+                        .HasFilter(" \"Status\" IN ('Held', 'CheckedIn')  AND \"ChargingBayId\" IS NOT NULL");
+
+                    b.HasIndex(new[] { "CustomerId" }, "ux_reservations_active_customer")
+                        .IsUnique()
+                        .HasFilter(" \"Status\" IN ('Held', 'CheckedIn') ");
+
+                    b.ToTable("reservations", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_reservations_expiry", " \"ExpiresAtUtc\" > \"CreatedAtUtc\" ");
+
+                            t.HasCheckConstraint("ck_reservations_resource", "(\"ChargingBayId\" IS NULL) <> (\"BatteryId\" IS NULL)");
+                        });
+                });
+
+            modelBuilder.Entity("EVChargeSwap.Features.Reservations.Entities.ServiceHours", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("ClosesAtMinute")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Day")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("LocationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("OpensAtMinute")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ServiceType")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedById")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UpdatedById");
+
+                    b.HasIndex("LocationId", "ServiceType", "Day", "OpensAtMinute", "ClosesAtMinute")
+                        .IsUnique();
+
+                    b.ToTable("service_hours", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_service_hours_interval", " \"OpensAtMinute\" >= 0 AND \"OpensAtMinute\" < \"ClosesAtMinute\" AND \"ClosesAtMinute\" <= 1440 ");
+                        });
+                });
+
             modelBuilder.Entity("EVChargeSwap.Features.Users.Entities.ApplicationUser", b =>
                 {
                     b.Property<Guid>("Id")
@@ -536,6 +849,143 @@ namespace EVChargeSwap.Data.Migrations
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("EVChargeSwap.Features.Reservations.Entities.Battery", b =>
+                {
+                    b.HasOne("EVChargeSwap.Features.Locations.Entities.Location", null)
+                        .WithMany()
+                        .HasForeignKey("LocationId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("EVChargeSwap.Features.Users.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("StateUpdatedById")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("EVChargeSwap.Features.Reservations.Entities.ChargingBay", b =>
+                {
+                    b.HasOne("EVChargeSwap.Features.Locations.Entities.Location", null)
+                        .WithMany()
+                        .HasForeignKey("LocationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("EVChargeSwap.Features.Users.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("StateUpdatedById")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("EVChargeSwap.Features.Reservations.Entities.ChargingSession", b =>
+                {
+                    b.HasOne("EVChargeSwap.Features.Reservations.Entities.ChargingBay", null)
+                        .WithMany()
+                        .HasForeignKey("ChargingBayId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("EVChargeSwap.Features.Users.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("CompletedById")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("EVChargeSwap.Features.Reservations.Entities.Reservation", null)
+                        .WithOne()
+                        .HasForeignKey("EVChargeSwap.Features.Reservations.Entities.ChargingSession", "ReservationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("EVChargeSwap.Features.Users.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("StartedById")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("EVChargeSwap.Features.Reservations.Entities.OperatorAssignment", b =>
+                {
+                    b.HasOne("EVChargeSwap.Features.Users.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("AssignedByAdminId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("EVChargeSwap.Features.Locations.Entities.Location", null)
+                        .WithMany()
+                        .HasForeignKey("LocationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("EVChargeSwap.Features.Users.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("OperatorId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("EVChargeSwap.Features.Reservations.Entities.Reservation", b =>
+                {
+                    b.HasOne("EVChargeSwap.Features.Reservations.Entities.Battery", null)
+                        .WithMany()
+                        .HasForeignKey("BatteryId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("EVChargeSwap.Features.Reservations.Entities.ChargingBay", null)
+                        .WithMany()
+                        .HasForeignKey("ChargingBayId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("EVChargeSwap.Features.Users.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("CheckedInById")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("EVChargeSwap.Features.Users.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("ClosedById")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("EVChargeSwap.Features.Users.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("CustomerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("EVChargeSwap.Features.Locations.Entities.Location", null)
+                        .WithMany()
+                        .HasForeignKey("LocationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("EVChargeSwap.Features.Users.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("NoChargeConfirmedById")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("EVChargeSwap.Features.Users.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("VehicleArrivedById")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("EVChargeSwap.Features.Users.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("VehicleDepartedById")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("EVChargeSwap.Features.Reservations.Entities.ServiceHours", b =>
+                {
+                    b.HasOne("EVChargeSwap.Features.Locations.Entities.Location", null)
+                        .WithMany()
+                        .HasForeignKey("LocationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("EVChargeSwap.Features.Users.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedById")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<System.Guid>", b =>

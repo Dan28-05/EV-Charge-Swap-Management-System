@@ -5,6 +5,7 @@ using EVChargeSwap.Features.Locations.Caching;
 using EVChargeSwap.Features.Locations.Entities;
 using EVChargeSwap.Features.Locations.Requests;
 using EVChargeSwap.Features.Locations.Responses;
+using EVChargeSwap.Features.Reservations.Entities;
 
 namespace EVChargeSwap.Features.Locations.Services;
 
@@ -24,7 +25,7 @@ public sealed class LocationService(AppDbContext db, ILocationCache? cache = nul
         var count = await query.CountAsync(cancellationToken);
         var locations = await query.OrderBy(x => x.Name).ThenBy(x => x.Id)
             .Skip(pagination.GetOffset()).Take(pagination.PageSize).ToListAsync(cancellationToken);
-        return new PagedResponse<LocationResponse>(locations.Select(ToResponse).ToList(),
+        return new PagedResponse<LocationResponse>(await WithLiveCountsAsync(locations.Select(ToResponse).ToList(), cancellationToken),
             pagination.Page, pagination.PageSize, count);
     }
 
@@ -35,8 +36,9 @@ public sealed class LocationService(AppDbContext db, ILocationCache? cache = nul
         var count = await query.CountAsync(cancellationToken);
         var locations = await query.OrderBy(x => x.Name).ThenBy(x => x.Id)
             .Skip(pagination.GetOffset()).Take(pagination.PageSize).ToListAsync(cancellationToken);
-        return new PagedResponse<AdminLocationResponse>(locations
-            .Select(x => new AdminLocationResponse(ToResponse(x), x.IsActive)).ToList(),
+        var responses = await WithLiveCountsAsync(locations.Select(ToResponse).ToList(), cancellationToken);
+        return new PagedResponse<AdminLocationResponse>(responses
+            .Select((x, i) => new AdminLocationResponse(x, locations[i].IsActive)).ToList(),
             pagination.Page, pagination.PageSize, count);
     }
 
@@ -47,18 +49,12 @@ public sealed class LocationService(AppDbContext db, ILocationCache? cache = nul
         {
             var cached = await _cache.GetPagedAsync(pagination.Page, pagination.PageSize, cancellationToken);
             if (cached is not null)
-            {
-                return cached;
-            }
+                return cached with { Items = await WithLiveCountsAsync(cached.Items.ToList(), cancellationToken) };
         }
-
         var query = db.Locations.AsNoTracking().Where(x => includeInactive || x.IsActive);
         var totalCount = await query.CountAsync(cancellationToken);
         var items = await query
-            .OrderByDescending(x => x.OperatingStatus == LocationOperatingStatus.Open &&
-                ((x.OffersCarCharging && x.AvailableChargingBays > 0) ||
-                 (x.OffersBatterySwap && x.AvailableBatteries > 0)))
-            .ThenByDescending(x => x.OperatingStatus == LocationOperatingStatus.Open)
+            .OrderByDescending(x => x.OperatingStatus == LocationOperatingStatus.Open)
             .ThenBy(x => x.Name)
             .ThenBy(x => x.Id)
             .Skip(pagination.GetOffset())
@@ -68,11 +64,9 @@ public sealed class LocationService(AppDbContext db, ILocationCache? cache = nul
                 x.IsOpen24Hours, x.ChargingPowerKw, x.BatteryCapacityKwh, x.AvailableBatteries, x.AvailableChargingBays))
             .ToListAsync(cancellationToken);
 
-        var result = new PagedResponse<LocationResponse>(items, pagination.Page, pagination.PageSize, totalCount);
-        if (!includeInactive)
-        {
-            await _cache.SetPagedAsync(result, cancellationToken);
-        }
+        var result = new PagedResponse<LocationResponse>(await WithLiveCountsAsync(items, cancellationToken),
+            pagination.Page, pagination.PageSize, totalCount);
+        if (!includeInactive) await _cache.SetPagedAsync(result, cancellationToken);
         return result;
     }
 
@@ -80,10 +74,7 @@ public sealed class LocationService(AppDbContext db, ILocationCache? cache = nul
     {
         var cached = await _cache.GetAsync(id, cancellationToken);
         if (cached is not null)
-        {
-            return cached;
-        }
-
+            return (await WithLiveCountsAsync([cached], cancellationToken))[0];
         var location = await db.Locations.AsNoTracking()
             .Where(x => x.Id == id && x.IsActive)
             .Select(x => new LocationResponse(x.Id, x.Name, x.Address, x.Latitude,
@@ -91,12 +82,9 @@ public sealed class LocationService(AppDbContext db, ILocationCache? cache = nul
                 x.IsOpen24Hours, x.ChargingPowerKw, x.BatteryCapacityKwh, x.AvailableBatteries, x.AvailableChargingBays))
             .SingleOrDefaultAsync(cancellationToken);
 
-        if (location is not null)
-        {
-            await _cache.SetAsync(location, cancellationToken);
-        }
-
-        return location;
+        if (location is null) return null;
+        await _cache.SetAsync(location, cancellationToken);
+        return (await WithLiveCountsAsync([location], cancellationToken))[0];
     }
 
     public async Task<PagedResponse<NearbyLocationResponse>> NearbyAsync(NearbyLocationsRequest request,
@@ -118,19 +106,6 @@ public sealed class LocationService(AppDbContext db, ILocationCache? cache = nul
         if (request.Service == "swap") query = query.Where(x => x.OffersBatterySwap);
         if (request.Availability == "open")
             query = query.Where(x => x.OperatingStatus == LocationOperatingStatus.Open);
-        if (request.Availability == "available")
-        {
-            query = request.Service switch
-            {
-                "charging" => query.Where(x => x.OperatingStatus == LocationOperatingStatus.Open &&
-                    x.AvailableChargingBays > 0),
-                "swap" => query.Where(x => x.OperatingStatus == LocationOperatingStatus.Open &&
-                    x.AvailableBatteries > 0),
-                _ => query.Where(x => x.OperatingStatus == LocationOperatingStatus.Open &&
-                    ((x.OffersCarCharging && x.AvailableChargingBays > 0) ||
-                     (x.OffersBatterySwap && x.AvailableBatteries > 0)))
-            };
-        }
         if (!string.IsNullOrWhiteSpace(request.Search))
         {
             var term = request.Search.Trim().ToLower();
@@ -140,10 +115,12 @@ public sealed class LocationService(AppDbContext db, ILocationCache? cache = nul
         var candidates = await query.Select(x => new LocationResponse(x.Id, x.Name, x.Address,
             x.Latitude, x.Longitude, x.OffersCarCharging, x.OffersBatterySwap, x.OperatingStatus,
             x.IsOpen24Hours, x.ChargingPowerKw, x.BatteryCapacityKwh, x.AvailableBatteries, x.AvailableChargingBays)).ToListAsync(cancellationToken);
+        candidates = await WithLiveCountsAsync(candidates, cancellationToken);
         var matches = candidates
             .Select(x => new NearbyLocationResponse(x, DistanceKm(latitude, longitude,
                 (double)x.Latitude, (double)x.Longitude)))
-            .Where(x => x.DistanceKm <= request.RadiusKm)
+            .Where(x => x.DistanceKm <= request.RadiusKm &&
+                (request.Availability != "available" || IsOpenAndAvailable(x.Location, request.Service)))
             .OrderByDescending(x => IsOpenAndAvailable(x.Location, request.Service))
             .ThenByDescending(x => x.Location.OperatingStatus == LocationOperatingStatus.Open)
             .ThenBy(x => x.DistanceKm).ThenBy(x => x.Location.Name).ThenBy(x => x.Location.Id)
@@ -161,7 +138,7 @@ public sealed class LocationService(AppDbContext db, ILocationCache? cache = nul
         db.Locations.Add(location);
         await db.SaveChangesAsync(cancellationToken);
 
-        var response = ToResponse(location);
+        var response = (await WithLiveCountsAsync([ToResponse(location)], cancellationToken))[0];
         await _cache.InvalidateAllAsync(cancellationToken);
         await _cache.SetAsync(response, cancellationToken);
         return response;
@@ -178,7 +155,7 @@ public sealed class LocationService(AppDbContext db, ILocationCache? cache = nul
         location.SetServiceDetails(request.IsOpen24Hours, request.ChargingPowerKw, request.BatteryCapacityKwh, request.AvailableBatteries, request.AvailableChargingBays);
         await db.SaveChangesAsync(cancellationToken);
 
-        var response = ToResponse(location);
+        var response = (await WithLiveCountsAsync([ToResponse(location)], cancellationToken))[0];
         await _cache.InvalidateLocationAsync(id, cancellationToken);
         if (location.IsActive)
         {
@@ -202,6 +179,39 @@ public sealed class LocationService(AppDbContext db, ILocationCache? cache = nul
         new(x.Id, x.Name, x.Address, x.Latitude, x.Longitude,
             x.OffersCarCharging, x.OffersBatterySwap, x.OperatingStatus,
             x.IsOpen24Hours, x.ChargingPowerKw, x.BatteryCapacityKwh, x.AvailableBatteries, x.AvailableChargingBays);
+
+    private async Task<List<LocationResponse>> WithLiveCountsAsync(List<LocationResponse> locations, CancellationToken ct)
+    {
+        if (locations.Count == 0) return locations;
+        var ids = locations.Select(x => x.Id).ToArray();
+        var now = DateTimeOffset.UtcNow;
+        var activeReservations = await db.Set<Reservation>().AsNoTracking()
+            .Where(r => ids.Contains(r.LocationId) &&
+                (r.Status == ReservationStatus.CheckedIn || r.Status == ReservationStatus.Held))
+            .Select(r => new { r.Status, r.ExpiresAtUtc, r.ChargingBayId, r.BatteryId }).ToListAsync(ct);
+        // SQLite in HTTP tests cannot translate DateTimeOffset comparisons; expiry is applied after the bounded read.
+        var heldResources = activeReservations.Where(r => r.Status == ReservationStatus.CheckedIn || r.ExpiresAtUtc > now);
+        var heldBayIds = heldResources.Where(x => x.ChargingBayId.HasValue)
+            .Select(x => x.ChargingBayId!.Value).ToHashSet();
+        var heldBatteryIds = heldResources.Where(x => x.BatteryId.HasValue)
+            .Select(x => x.BatteryId!.Value).ToHashSet();
+        var bays = await db.Set<ChargingBay>().AsNoTracking()
+            .Where(x => ids.Contains(x.LocationId) && x.EquipmentState == ChargerState.Active &&
+                x.ParkingState == ParkingState.Vacant)
+            .Select(x => new { x.Id, x.LocationId }).ToListAsync(ct);
+        var batteries = await db.Set<Battery>().AsNoTracking()
+            .Where(x => x.LocationId != null && ids.Contains(x.LocationId.Value) && x.State == BatteryState.Ready)
+            .Select(x => new { x.Id, x.LocationId }).ToListAsync(ct);
+        var bayCounts = bays.Where(x => !heldBayIds.Contains(x.Id))
+            .GroupBy(x => x.LocationId).ToDictionary(x => x.Key, x => x.Count());
+        var batteryCounts = batteries.Where(x => !heldBatteryIds.Contains(x.Id))
+            .GroupBy(x => x.LocationId!.Value).ToDictionary(x => x.Key, x => x.Count());
+        return locations.Select(x => x with
+        {
+            AvailableChargingBays = x.OffersCarCharging ? bayCounts.GetValueOrDefault(x.Id) : null,
+            AvailableBatteries = x.OffersBatterySwap ? batteryCounts.GetValueOrDefault(x.Id) : null
+        }).ToList();
+    }
 
     private static bool IsOpenAndAvailable(LocationResponse location, string service) =>
         location.OperatingStatus == LocationOperatingStatus.Open && service switch

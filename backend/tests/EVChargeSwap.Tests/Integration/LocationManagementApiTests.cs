@@ -103,10 +103,10 @@ public sealed class LocationManagementApiTests
         Assert.Equal(LocationOperatingStatus.Maintenance, location.OperatingStatus);
         Assert.True(location.IsOpen24Hours);
         Assert.Equal(150, location.ChargingPowerKw);
-        Assert.Equal(6, location.AvailableChargingBays);
+        Assert.Equal(0, location.AvailableChargingBays);
         var publicDetail = await client.GetFromJsonAsync<LocationResponse>($"/api/locations/{location.Id}");
         Assert.Equal(LocationOperatingStatus.Maintenance, publicDetail?.OperatingStatus);
-        Assert.Equal(6, publicDetail?.AvailableChargingBays);
+        Assert.Equal(0, publicDetail?.AvailableChargingBays);
 
         var update = await client.PutAsJsonAsync($"/api/locations/{location.Id}", new LocationUpsertRequest
         {
@@ -121,7 +121,7 @@ public sealed class LocationManagementApiTests
         Assert.Equal(LocationOperatingStatus.Closed, updated?.OperatingStatus);
         Assert.Null(updated?.ChargingPowerKw);
         Assert.Equal(1.5m, updated?.BatteryCapacityKwh);
-        Assert.Equal(12, updated?.AvailableBatteries);
+        Assert.Equal(0, updated?.AvailableBatteries);
         var publicList = await client.GetFromJsonAsync<PagedResponse<LocationResponse>>(
             "/api/locations?pageSize=100");
         Assert.Contains(publicList!.Items, x => x.Id == location.Id &&

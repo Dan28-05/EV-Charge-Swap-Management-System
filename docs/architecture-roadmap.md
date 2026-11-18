@@ -160,7 +160,9 @@ Location operating status is a manually updated, public field (`Unknown`, `Open`
 2. `ChargingBay` with equipment and parking state.
 3. `Battery` lifecycle.
 4. `ServiceHours`.
-5. `OperatorAssignment` and location-scoped authorization.
+5. `OperatorAssignment` and location-scoped authorization. Admin provisions resources and sets the initial schedule. Operators edit service hours and update charging bay and battery states at assigned locations.
+   Each Operator has at most one current location. PostgreSQL enforces this with a partial unique index; historical assignments remain available after transfer.
+   Operator resource changes record the acting user and time. Public availability is calculated from resources and holds in PostgreSQL; the prior manually entered Location counts are legacy data.
 
 ### Phase 2 — Reservations and operations
 
@@ -168,6 +170,7 @@ Location operating status is a manually updated, public field (`Unknown`, `Open`
 2. Database-enforced concurrency and one-active-reservation-per-customer rule.
 3. Idempotent expiry job.
 4. Check-in, charging session, vehicle departure, and no-charge flow.
+   The backend records Operator-confirmed vehicle arrival separately from check-in, permits one meter-backed charging session per reservation, and holds the bay until departure is confirmed. Customer and Operator UI for this flow is pending.
 5. Battery swap and inspection/charging lifecycle.
 
 ### Phase 3 — Reliable asynchronous processing

@@ -1,0 +1,264 @@
+<div class="operator-page">
+  <!-- Top Bar -->
+  <header class="operator-header">
+    <div class="header-inner">
+      <div class="brand-group">
+        <a routerLink="/" class="brand-link">
+          <img src="/favicon.png" alt="EVGo" class="brand-logo" />
+          <span class="brand-name">EVGo</span>
+        </a>
+        <span class="header-divider">/</span>
+        <div class="header-title">
+          <h1>Quầy Vận Hành & Check-in Trạm</h1>
+          <span class="role-badge">Nhân Viên Vận Hành (Operator)</span>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <a routerLink="/" class="btn-back-map">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+            <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
+          </svg>
+          Về bản đồ tìm trạm
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <main class="operator-main">
+    <div class="content-container">
+      <!-- STATION SELECTOR PANEL -->
+      <section class="station-selector-panel">
+        <div class="section-badge">BƯỚC 1: XÁC ĐỊNH TRẠM ĐANG VẬN HÀNH</div>
+        <div class="station-select-group">
+          <label for="station-select" class="field-label">Chọn trạm phân công:</label>
+          <div class="station-filter-row">
+            <input
+              type="text"
+              class="station-filter-input"
+              placeholder="🔍 Lọc nhanh theo tên hoặc địa chỉ trạm..."
+              [ngModel]="stationSearchTerm()"
+              (ngModelChange)="onSearchChange($event)"
+            />
+            <div class="select-wrapper">
+              <select
+                id="station-select"
+                class="station-select"
+                [ngModel]="selectedStation()?.id"
+                (ngModelChange)="onStationSelect($event)"
+                [disabled]="stationsLoading()"
+              >
+                @for (st of filteredStations(); track st.id) {
+                  <option [value]="st.id">
+                    {{ st.name }} ({{ st.offersCarCharging ? 'Sạc' : '' }}{{ st.offersCarCharging && st.offersBatterySwap ? ' & ' : '' }}{{ st.offersBatterySwap ? 'Đổi pin' : '' }})
+                  </option>
+                }
+              </select>
+            </div>
+          </div>
+        </div>
+
+        @if (selectedStation(); as station) {
+          <div class="selected-station-card">
+            <div class="station-card-left">
+              <span class="station-icon">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                  <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
+                </svg>
+              </span>
+              <div>
+                <strong class="station-name">{{ station.name }}</strong>
+                <p class="station-addr">{{ station.address }}</p>
+              </div>
+            </div>
+            <div class="station-status-pill open">
+              <span class="dot"></span>
+              Đang hoạt động
+            </div>
+          </div>
+        }
+      </section>
+
+      <!-- CHECK-IN SCANNER / CODE ENTRY FORM -->
+      <section class="checkin-box">
+        <div class="section-badge">BƯỚC 2: QUÉT HOẶC NHẬP MÃ GIỮ CHỖ CỦA KHÁCH</div>
+
+        <!-- NOTIFICATIONS -->
+        @if (errorMessage()) {
+          <div class="banner error" role="alert">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+            </svg>
+            <div>
+              <strong>Lỗi check-in:</strong>
+              <p>{{ errorMessage() }}</p>
+            </div>
+          </div>
+        }
+
+        @if (successMessage()) {
+          <div class="banner success" role="status">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+            </svg>
+            <div>
+              <strong>Thành công:</strong>
+              <p>{{ successMessage() }}</p>
+            </div>
+          </div>
+        }
+
+        <!-- FORM -->
+        @if (!currentReservation() || currentReservation()?.status === 'Completed') {
+          <div class="code-entry-card">
+            <div class="input-head">
+              <label for="code-input" class="field-label">Mã Check-in 32 ký tự (từ mã QR / ứng dụng khách hàng):</label>
+              <span class="char-count" [class.complete]="reservationCode().length === 32">
+                {{ reservationCode().length }}/32 ký tự
+              </span>
+            </div>
+
+            <div class="input-control-row">
+              <input
+                id="code-input"
+                type="text"
+                class="code-input-field"
+                placeholder="Ví dụ: 86DAAC0F5183AD453962BC8D9B8DDF97"
+                [value]="reservationCode()"
+                (input)="onCodeInput($any($event.target).value)"
+                maxlength="32"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <button type="button" class="btn-paste" (click)="pasteFromClipboard()" title="Dán từ Clipboard">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+                  <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
+                </svg>
+                Dán mã
+              </button>
+            </div>
+
+            <p class="input-hint">
+              Nhân viên có thể dùng máy quét mã vạch 2D / máy quét QR cắm cổng USB, hoặc nhập trực tiếp chuỗi ký tự trên màn hình của khách.
+            </p>
+
+            <button
+              type="button"
+              class="btn-submit-checkin"
+              [disabled]="loading() || reservationCode().length !== 32"
+              (click)="submitCheckIn()"
+            >
+              @if (loading()) {
+                <span class="spinner"></span>
+                Đang xác nhận check-in...
+              } @else {
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                  <path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"/>
+                </svg>
+                Xác Nhận Khách Đã Đến (Check-in)
+              }
+            </button>
+          </div>
+        }
+
+        <!-- CHECKED-IN RESULT CARD -->
+        @if (currentReservation(); as res) {
+          <div class="result-card">
+            <div class="result-header">
+              <div class="result-title-group">
+                <span class="status-badge" [class.checked-in]="res.status === 'CheckedIn'" [class.closed]="res.status === 'Completed'">
+                  {{ res.status === 'CheckedIn' ? '✓ ĐÃ CHECK-IN TẠI TRẠM' : 'ĐÃ ĐÓNG LƯỢT' }}
+                </span>
+                <h3 class="res-title">Lượt giữ chỗ: {{ res.id.slice(0, 8) }}...</h3>
+              </div>
+              <span class="time-badge">
+                {{ (res.checkedInAtUtc || res.expiresAtUtc) | date:'HH:mm:ss dd/MM/yyyy' }}
+              </span>
+            </div>
+
+            <div class="res-grid">
+              <div class="res-col">
+                <span class="col-label">LOẠI DỊCH VỤ</span>
+                <strong class="col-val">
+                  {{ res.chargingBayId ? '⚡ Sạc ô tô điện' : '🔋 Đổi pin xe máy điện' }}
+                </strong>
+              </div>
+
+              <div class="res-col">
+                <span class="col-label">TÀI NGUYÊN ĐƯỢC CẤP</span>
+                <strong class="col-val highlight">
+                  {{ res.chargingBayId ? 'Cổng sạc: ' + res.chargingBayId.slice(0, 8) : 'Mã pin: ' + res.batteryId?.slice(0, 8) }}
+                </strong>
+              </div>
+
+              <div class="res-col">
+                <span class="col-label">TRẠNG THÁI HIỆN TẠI</span>
+                <strong class="col-val">
+                  @if (res.status === 'CheckedIn') {
+                    <span class="text-green">Khách đang có mặt tại bãi</span>
+                  } @else {
+                    <span class="text-muted">{{ res.closingReason || 'Đã hoàn tất' }}</span>
+                  }
+                </strong>
+              </div>
+            </div>
+
+            <!-- OPERATOR ACTIONS FOR THIS RESERVATION -->
+            <div class="result-actions">
+              @if (res.status === 'CheckedIn') {
+                <button
+                  type="button"
+                  class="btn-close-service"
+                  [disabled]="loading()"
+                  (click)="openCloseConfirm()"
+                  title="Đóng lượt giữ chỗ khi khách đã đến nhưng không cắm sạc hoặc không đổi pin"
+                >
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="15" y1="9" x2="9" y2="15"></line>
+                    <line x1="9" y1="9" x2="15" y2="15"></line>
+                  </svg>
+                  Đóng lượt không dùng dịch vụ (Khách đổi ý / Xe không tương thích)
+                </button>
+              }
+
+              <button type="button" class="btn-new-checkin" (click)="resetDesk()">
+                Tiếp tục lượt khách tiếp theo →
+              </button>
+            </div>
+          </div>
+        }
+      </section>
+    </div>
+
+    <!-- CLOSE WITHOUT SERVICE CONFIRMATION MODAL -->
+    @if (showCloseConfirm()) {
+      <div class="confirm-modal-backdrop" role="alertdialog" aria-modal="true">
+        <div class="confirm-modal-box">
+          <div class="modal-icon warning">
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor">
+              <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/>
+            </svg>
+          </div>
+          <h3>Xác nhận đóng lượt không dùng dịch vụ?</h3>
+          <p>
+            Hành động này xác nhận khách hàng đã đến trạm nhưng <strong>không cắm sạc hoặc không đổi pin</strong>. Cổng sạc/bình pin sẽ được giải phóng ngay lập tức cho các khách hàng tiếp theo.
+          </p>
+          <div class="confirm-btn-group">
+            <button type="button" class="btn-cancel" (click)="dismissCloseConfirm()">
+              Hủy bỏ
+            </button>
+            <button type="button" class="btn-confirm-danger" [disabled]="loading()" (click)="executeCloseWithoutService()">
+              @if (loading()) {
+                Đang xử lý...
+              } @else {
+                Xác nhận đóng lượt
+              }
+            </button>
+          </div>
+        </div>
+      </div>
+    }
+  </main>
+</div>

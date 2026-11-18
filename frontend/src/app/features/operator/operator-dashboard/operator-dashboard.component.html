@@ -1,0 +1,773 @@
+<div class="dashboard-wrapper">
+  <!-- TOP APP BAR -->
+  <header class="dashboard-header">
+    <div class="header-left">
+      <a routerLink="/" class="back-link" title="Quay lại Bản đồ trạm">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5">
+          <polyline points="15 18 9 12 15 6"></polyline>
+        </svg>
+        <span>Bản đồ</span>
+      </a>
+      <div class="brand-divider"></div>
+      <div class="brand-title">
+        <span class="brand-logo">EVGo</span>
+        <span class="portal-badge">Operator Desk</span>
+      </div>
+    </div>
+
+    <div class="header-right">
+      <button type="button" class="refresh-btn" [class.spinning]="loading()" (click)="refresh()" title="Làm mới dữ liệu">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+        </svg>
+        <span>Làm mới</span>
+      </button>
+
+      <div class="operator-profile">
+        <div class="avatar-circle">
+          {{ currentUser()?.fullName ? currentUser()!.fullName.charAt(0) : 'O' }}
+        </div>
+        <div class="profile-info">
+          <span class="operator-name">{{ currentUser()?.fullName || 'Nhân viên vận hành' }}</span>
+          <span class="operator-role">Trực trạm</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN CONTAINER -->
+  <main class="dashboard-main">
+    @if (error()) {
+      <div class="error-banner">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="8" x2="12" y2="12"></line>
+          <line x1="12" y1="16" x2="12.01" y2="16"></line>
+        </svg>
+        <div class="error-content">
+          <h4>Thông báo trạm</h4>
+          <p>{{ error() }}</p>
+        </div>
+      </div>
+    }
+
+    @if (stationData(); as data) {
+      <!-- STATION HERO BANNER -->
+      <section class="station-hero-card">
+        <div class="hero-left">
+          <div class="station-status-pill" [class.open]="data.location.operatingStatus === 'Open'">
+            <span class="dot"></span>
+            <span>{{ data.location.operatingStatus === 'Open' ? 'Đang hoạt động' : 'Tạm đóng / Bảo trì' }}</span>
+          </div>
+          <h1 class="station-title">{{ data.location.name }}</h1>
+          <p class="station-address">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+              <circle cx="12" cy="10" r="3"></circle>
+            </svg>
+            {{ data.location.address }}
+          </p>
+          <div class="service-badges">
+            @if (data.location.offersCarCharging) {
+              <span class="badge car-charge">⚡ Sạc ô tô điện</span>
+            }
+            @if (data.location.offersBatterySwap) {
+              <span class="badge battery-swap">🔋 Đổi pin xe máy</span>
+            }
+          </div>
+        </div>
+
+        <!-- QUICK CHECK-IN BOX -->
+        <div class="quick-checkin-box">
+          <div class="box-header">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+              <line x1="16" y1="13" x2="8" y2="13"></line>
+              <line x1="16" y1="17" x2="8" y2="17"></line>
+              <polyline points="10 9 9 9 8 9"></polyline>
+            </svg>
+            <span>Tiếp nhận khách (Check-in 32 ký tự)</span>
+          </div>
+
+          <div class="checkin-input-group">
+            <input
+              type="text"
+              class="code-input"
+              [value]="formatCodeDisplay(checkinCode())"
+              (input)="onCodeInput($any($event.target).value)"
+              placeholder="Nhập hoặc dán mã 32 ký tự..."
+              maxlength="39"
+            />
+            <button type="button" class="btn-paste" (click)="pasteCode()" title="Dán từ Clipboard">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
+                <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+              </svg>
+            </button>
+            <button
+              type="button"
+              class="btn-checkin"
+              [disabled]="checkinLoading() || checkinCode().length < 32"
+              (click)="executeQuickCheckin()"
+            >
+              @if (checkinLoading()) {
+                <span class="spinner-sm"></span>
+              } @else {
+                <span>Xác nhận</span>
+              }
+            </button>
+          </div>
+
+          @if (checkinSuccess()) {
+            <p class="feedback-msg success">{{ checkinSuccess() }}</p>
+          }
+          @if (checkinError()) {
+            <p class="feedback-msg error">{{ checkinError() }}</p>
+          }
+        </div>
+      </section>
+
+      <!-- STAT COUNTER CARDS -->
+      <section class="stat-grid">
+        <div class="stat-card" [class.highlight]="availableBays() > 0">
+          <div class="stat-icon-wrapper charging">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.5">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+            </svg>
+          </div>
+          <div class="stat-content">
+            <span class="stat-label">Trụ sạc ô tô</span>
+            <div class="stat-value-group">
+              <span class="stat-value">{{ availableBays() }}/{{ totalBays() }}</span>
+              <span class="stat-unit">sẵn sàng</span>
+            </div>
+            <span class="stat-hint">{{ occupiedBays() }} xe đang đỗ · {{ faultedBays() }} hỏng</span>
+          </div>
+        </div>
+
+        <div class="stat-card" [class.highlight]="readyBatteries() > 0">
+          <div class="stat-icon-wrapper battery">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="2" y="7" width="16" height="10" rx="2" ry="2"></rect>
+              <line x1="22" y1="11" x2="22" y2="13"></line>
+              <line x1="6" y1="11" x2="6" y2="13"></line>
+              <line x1="10" y1="11" x2="10" y2="13"></line>
+            </svg>
+          </div>
+          <div class="stat-content">
+            <span class="stat-label">Kho pin xe máy</span>
+            <div class="stat-value-group">
+              <span class="stat-value">{{ readyBatteries() }}/{{ totalBatteries() }}</span>
+              <span class="stat-unit">sẵn sàng</span>
+            </div>
+            <span class="stat-hint">{{ chargingBatteries() }} đang sạc · {{ inspectionBatteries() }} kiểm tra</span>
+          </div>
+        </div>
+
+        <div class="stat-card" [class.active-card]="checkedInReservationsCount() > 0">
+          <div class="stat-icon-wrapper active-ops">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <polyline points="12 6 12 12 16 14"></polyline>
+            </svg>
+          </div>
+          <div class="stat-content">
+            <span class="stat-label">Lượt khách tại trạm</span>
+            <div class="stat-value-group">
+              <span class="stat-value">{{ checkedInReservationsCount() }}</span>
+              <span class="stat-unit">đang phục vụ</span>
+            </div>
+            <span class="stat-hint">{{ heldReservationsCount() }} lượt giữ chỗ đang trên đường tới</span>
+          </div>
+        </div>
+
+        <div class="stat-card">
+          <div class="stat-icon-wrapper schedule">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+              <line x1="16" y1="2" x2="16" y2="6"></line>
+              <line x1="8" y1="2" x2="8" y2="6"></line>
+              <line x1="3" y1="10" x2="21" y2="10"></line>
+            </svg>
+          </div>
+          <div class="stat-content">
+            <span class="stat-label">Chế độ vận hành</span>
+            <div class="stat-value-group">
+              <span class="stat-value status-text">24/7</span>
+              <span class="stat-unit">toàn tuần</span>
+            </div>
+            <span class="stat-hint">Ca trực: {{ currentUser()?.fullName }}</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- NAVIGATION TABS -->
+      <nav class="dashboard-tabs">
+        <button
+          type="button"
+          class="tab-btn"
+          [class.active]="currentTab() === 'operations'"
+          (click)="setTab('operations')"
+        >
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+            <line x1="16" y1="13" x2="8" y2="13"></line>
+            <line x1="16" y1="17" x2="8" y2="17"></line>
+            <polyline points="10 9 9 9 8 9"></polyline>
+          </svg>
+          <span>Phiên sạc & Đặt chỗ</span>
+          @if (data.reservations.length > 0) {
+            <span class="tab-count">{{ data.reservations.length }}</span>
+          }
+        </button>
+
+        <button
+          type="button"
+          class="tab-btn"
+          [class.active]="currentTab() === 'bays'"
+          (click)="setTab('bays')"
+        >
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+          </svg>
+          <span>Trụ sạc ô tô</span>
+          <span class="tab-count">{{ data.bays.length }}</span>
+        </button>
+
+        <button
+          type="button"
+          class="tab-btn"
+          [class.active]="currentTab() === 'batteries'"
+          (click)="setTab('batteries')"
+        >
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="7" width="16" height="10" rx="2" ry="2"></rect>
+            <line x1="22" y1="11" x2="22" y2="13"></line>
+          </svg>
+          <span>Kho pin xe máy</span>
+          <span class="tab-count">{{ data.batteries.length }}</span>
+        </button>
+
+        <button
+          type="button"
+          class="tab-btn"
+          [class.active]="currentTab() === 'hours'"
+          (click)="setTab('hours')"
+        >
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polyline points="12 6 12 12 16 14"></polyline>
+          </svg>
+          <span>Giờ phục vụ</span>
+        </button>
+      </nav>
+
+      <!-- TAB CONTENT: 1. OPERATIONS (CHARGING LIFECYCLE) -->
+      @if (currentTab() === 'operations') {
+        <section class="tab-pane operations-pane">
+          <div class="pane-header">
+            <div>
+              <h2 class="pane-title">Quản lý phiên sạc & Lượt giữ chỗ hiện hành</h2>
+              <p class="pane-desc">Xác nhận các mốc vật lý: xe vào bãi, bắt đầu sạc kèm số công tơ, kết thúc và xe rời bãi.</p>
+            </div>
+          </div>
+
+          @if (data.reservations.length === 0) {
+            <div class="empty-state">
+              <div class="empty-icon-box">
+                <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                  <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                </svg>
+              </div>
+              <h3>Hiện chưa có lượt giữ chỗ nào tại trạm</h3>
+              <p>Khách hàng đặt chỗ hoặc check-in sẽ lập tức xuất hiện tại danh sách này.</p>
+            </div>
+          } @else {
+            <div class="operations-grid">
+              @for (res of data.reservations; track res.id) {
+                <div class="operation-card" [class.checked-in]="res.status === 'CheckedIn'">
+                  <!-- CARD TOP -->
+                  <div class="card-top">
+                    <div class="res-type-badge" [class.charging]="!!res.chargingBayId" [class.swap]="!!res.batteryId">
+                      @if (res.chargingBayId) {
+                        <span>⚡ Sạc ô tô: {{ findBayCode(res.chargingBayId) }}</span>
+                      } @else {
+                        <span>🔋 Đổi pin: {{ findBatterySerial(res.batteryId) }}</span>
+                      }
+                    </div>
+
+                    <div class="res-status-tag" [class.held]="res.status === 'Held'" [class.active]="res.status === 'CheckedIn'">
+                      <span class="dot"></span>
+                      <span>{{ res.status === 'Held' ? 'Đang giữ chỗ (15p)' : 'Khách đã đến (Checked-In)' }}</span>
+                    </div>
+                  </div>
+
+                  <!-- PROGRESS STEPPER FOR CHARGING SESSIONS -->
+                  @if (res.chargingBayId) {
+                    <div class="charging-stepper">
+                      <div class="step-item" [class.done]="true">
+                        <div class="step-circle">1</div>
+                        <span class="step-text">Check-in</span>
+                      </div>
+                      <div class="step-line" [class.done]="!!res.vehicleArrivedAtUtc"></div>
+
+                      <div class="step-item" [class.done]="!!res.vehicleArrivedAtUtc" [class.active]="res.status === 'CheckedIn' && !res.vehicleArrivedAtUtc">
+                        <div class="step-circle">2</div>
+                        <span class="step-text">Xe vào bãi</span>
+                      </div>
+                      <div class="step-line" [class.done]="!!res.session?.startedAtUtc || !!res.noChargeConfirmedAtUtc"></div>
+
+                      <div class="step-item" [class.done]="!!res.session?.startedAtUtc" [class.active]="!!res.vehicleArrivedAtUtc && !res.session && !res.noChargeConfirmedAtUtc">
+                        <div class="step-circle">3</div>
+                        <span class="step-text">Đang sạc</span>
+                      </div>
+                      <div class="step-line" [class.done]="!!res.session?.completedAtUtc || !!res.noChargeConfirmedAtUtc"></div>
+
+                      <div class="step-item" [class.done]="!!res.session?.completedAtUtc || !!res.noChargeConfirmedAtUtc" [class.active]="!!res.session && !res.session.completedAtUtc">
+                        <div class="step-circle">4</div>
+                        <span class="step-text">Hoàn tất</span>
+                      </div>
+                      <div class="step-line" [class.done]="!!res.vehicleDepartedAtUtc"></div>
+
+                      <div class="step-item" [class.done]="!!res.vehicleDepartedAtUtc" [class.active]="(!!res.session?.completedAtUtc || !!res.noChargeConfirmedAtUtc) && !res.vehicleDepartedAtUtc">
+                        <div class="step-circle">5</div>
+                        <span class="step-text">Xe rời</span>
+                      </div>
+                    </div>
+
+                    <!-- METER READING DISPLAY -->
+                    @if (res.session) {
+                      <div class="meter-info-box">
+                        <div class="meter-row">
+                          <span class="meter-lbl">Công tơ đầu:</span>
+                          <span class="meter-val">{{ res.session.startMeterKwh }} kWh</span>
+                        </div>
+                        @if (res.session.endMeterKwh !== null && res.session.endMeterKwh !== undefined) {
+                          <div class="meter-row">
+                            <span class="meter-lbl">Công tơ cuối:</span>
+                            <span class="meter-val">{{ res.session.endMeterKwh }} kWh</span>
+                          </div>
+                          <div class="meter-row total">
+                            <span class="meter-lbl">Điện tiêu thụ:</span>
+                            <span class="meter-val highlight">
+                              {{ (res.session.endMeterKwh - res.session.startMeterKwh).toFixed(2) }} kWh
+                            </span>
+                          </div>
+                        }
+                      </div>
+                    }
+
+                    @if (res.noChargeConfirmedAtUtc) {
+                      <div class="no-charge-alert">
+                        <span>ℹ️ Khách xác nhận vào đỗ nhưng không sạc điện. Chờ xe rời bãi.</span>
+                      </div>
+                    }
+                  }
+
+                  <!-- ACTION BUTTONS ACCORDING TO STATE -->
+                  <div class="card-actions">
+                    @if (res.status === 'Held') {
+                      <span class="action-hint">Khách đang trên đường tới. Khi khách xuất hiện, nhập mã ở ô Check-in trên.</span>
+                      <button type="button" class="btn-action secondary" (click)="closeWithoutService(res)">
+                        Hủy lượt giữ chỗ này
+                      </button>
+                    }
+
+                    @if (res.status === 'CheckedIn' && res.chargingBayId) {
+                      <!-- Step 2: Vehicle Arrival -->
+                      @if (!res.vehicleArrivedAtUtc) {
+                        <button type="button" class="btn-action primary" (click)="confirmVehicleArrived(res)">
+                          🚗 Xác nhận xe đã vào bãi đỗ
+                        </button>
+                        <button type="button" class="btn-action secondary" (click)="closeWithoutService(res)">
+                          Đóng lượt (Khách không sạc)
+                        </button>
+                      }
+
+                      <!-- Step 3: Start Charging or No Charge -->
+                      @if (res.vehicleArrivedAtUtc && !res.session && !res.noChargeConfirmedAtUtc) {
+                        <button type="button" class="btn-action primary" (click)="openStartChargingModal(res)">
+                          ⚡ Bắt đầu sạc (Ghi công tơ đầu)
+                        </button>
+                        <button type="button" class="btn-action warning" (click)="confirmNoCharge(res)">
+                          Khách không sạc
+                        </button>
+                      }
+
+                      <!-- Step 4: Complete Charging -->
+                      @if (res.session && !res.session.completedAtUtc) {
+                        <button type="button" class="btn-action success" (click)="openCompleteChargingModal(res)">
+                          🛑 Hoàn tất sạc (Ghi công tơ cuối)
+                        </button>
+                      }
+
+                      <!-- Step 5: Vehicle Departure -->
+                      @if ((res.session?.completedAtUtc || res.noChargeConfirmedAtUtc) && !res.vehicleDepartedAtUtc) {
+                        <button type="button" class="btn-action primary" (click)="confirmVehicleDeparted(res)">
+                          👋 Xác nhận xe đã rời bãi (Mở chỗ đỗ)
+                        </button>
+                      }
+                    }
+
+                    @if (res.status === 'CheckedIn' && res.batteryId) {
+                      <div class="swap-status-box">
+                        <p>Khách đã check-in đổi pin. Tiến hành nhận pin cũ và giao viên pin: <strong>{{ findBatterySerial(res.batteryId) }}</strong>.</p>
+                        <button type="button" class="btn-action secondary" (click)="closeWithoutService(res)">
+                          Đóng lượt đổi pin
+                        </button>
+                      </div>
+                    }
+                  </div>
+                </div>
+              }
+            </div>
+          }
+        </section>
+      }
+
+      <!-- TAB CONTENT: 2. CHARGING BAYS -->
+      @if (currentTab() === 'bays') {
+        <section class="tab-pane bays-pane">
+          <div class="pane-header">
+            <div>
+              <h2 class="pane-title">Danh sách trụ sạc ô tô điện ({{ data.bays.length }} trụ)</h2>
+              <p class="pane-desc">Quản lý tình trạng thiết bị và cảm biến chỗ đỗ xe tại trạm.</p>
+            </div>
+          </div>
+
+          <div class="bays-grid">
+            @for (bay of data.bays; track bay.id) {
+              <div class="bay-card" [class.faulted]="bay.equipmentState === 2" [class.occupied]="bay.parkingState === 2">
+                <div class="bay-header">
+                  <div class="bay-code-group">
+                    <span class="bay-code">{{ bay.code }}</span>
+                    <span class="bay-power">{{ bay.powerKw }} kW</span>
+                  </div>
+                  <span class="parking-tag" [class.occupied]="bay.parkingState === 2">
+                    {{ getParkingLabel(bay.parkingState) }}
+                  </span>
+                </div>
+
+                <div class="bay-state-row">
+                  <span class="state-label">Thiết bị:</span>
+                  <span
+                    class="state-pill"
+                    [class.active]="bay.equipmentState === 1"
+                    [class.faulted]="bay.equipmentState === 2"
+                    [class.maintenance]="bay.equipmentState === 3"
+                  >
+                    {{ getBayEquipmentLabel(bay.equipmentState) }}
+                  </span>
+                </div>
+
+                <div class="bay-controls">
+                  <span class="ctrl-title">Đổi trạng thái trụ:</span>
+                  <div class="btn-state-group">
+                    <button
+                      type="button"
+                      class="btn-sm"
+                      [class.current]="bay.equipmentState === 1"
+                      (click)="changeBayState(bay, 1)"
+                    >
+                      Hoạt động
+                    </button>
+                    <button
+                      type="button"
+                      class="btn-sm danger"
+                      [class.current]="bay.equipmentState === 2"
+                      (click)="changeBayState(bay, 2)"
+                    >
+                      Báo hỏng
+                    </button>
+                    <button
+                      type="button"
+                      class="btn-sm warn"
+                      [class.current]="bay.equipmentState === 3"
+                      (click)="changeBayState(bay, 3)"
+                    >
+                      Bảo trì
+                    </button>
+                  </div>
+                </div>
+              </div>
+            }
+          </div>
+        </section>
+      }
+
+      <!-- TAB CONTENT: 3. BATTERIES -->
+      @if (currentTab() === 'batteries') {
+        <section class="tab-pane batteries-pane">
+          <div class="pane-header">
+            <div>
+              <h2 class="pane-title">Kho pin xe máy điện ({{ data.batteries.length }} bình)</h2>
+              <p class="pane-desc">Kiểm soát vòng đời pin: Kiểm tra khi nhận về ➔ Đang sạc ➔ Sẵn sàng bàn giao.</p>
+            </div>
+
+            <!-- FILTER CHIPS -->
+            <div class="filter-chips">
+              <button
+                type="button"
+                class="chip"
+                [class.active]="batteryFilter() === 'all'"
+                (click)="batteryFilter.set('all')"
+              >
+                Tất cả ({{ totalBatteries() }})
+              </button>
+              <button
+                type="button"
+                class="chip"
+                [class.active]="batteryFilter() === 1"
+                (click)="batteryFilter.set(1)"
+              >
+                Sẵn sàng ({{ readyBatteries() }})
+              </button>
+              <button
+                type="button"
+                class="chip"
+                [class.active]="batteryFilter() === 4"
+                (click)="batteryFilter.set(4)"
+              >
+                Đang sạc ({{ chargingBatteries() }})
+              </button>
+              <button
+                type="button"
+                class="chip"
+                [class.active]="batteryFilter() === 3"
+                (click)="batteryFilter.set(3)"
+              >
+                Chờ kiểm tra ({{ inspectionBatteries() }})
+              </button>
+              <button
+                type="button"
+                class="chip"
+                [class.active]="batteryFilter() === 5"
+                (click)="batteryFilter.set(5)"
+              >
+                Lỗi / Hỏng ({{ faultedBatteries() }})
+              </button>
+            </div>
+          </div>
+
+          <div class="batteries-table-card">
+            <table class="dashboard-table">
+              <thead>
+                <tr>
+                  <th>Mã Serial</th>
+                  <th>Loại pin</th>
+                  <th>Trạng thái hiện tại</th>
+                  <th>Cập nhật gần nhất</th>
+                  <th>Thao tác vận hành</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (bat of filteredBatteries(); track bat.id) {
+                  <tr>
+                    <td>
+                      <span class="serial-code">🔋 {{ bat.serial }}</span>
+                    </td>
+                    <td>Pin LFP 1.5 kWh</td>
+                    <td>
+                      <span
+                        class="battery-badge"
+                        [class.ready]="bat.state === 1"
+                        [class.with-cust]="bat.state === 2"
+                        [class.inspection]="bat.state === 3"
+                        [class.charging]="bat.state === 4"
+                        [class.faulted]="bat.state === 5"
+                      >
+                        {{ getBatteryStateLabel(bat.state) }}
+                      </span>
+                    </td>
+                    <td class="text-muted">
+                      {{ bat.stateUpdatedAtUtc ? (bat.stateUpdatedAtUtc | date: 'short') : 'Ban đầu' }}
+                    </td>
+                    <td>
+                      <div class="battery-actions">
+                        <!-- Inspection -> Charging or Faulted -->
+                        @if (bat.state === 3) {
+                          <button type="button" class="btn-xs primary" (click)="changeBatteryState(bat, 4)">
+                            ⚡ Đưa vào sạc
+                          </button>
+                          <button type="button" class="btn-xs danger" (click)="changeBatteryState(bat, 5)">
+                            Báo lỗi
+                          </button>
+                        }
+
+                        <!-- Charging -> Ready or Faulted -->
+                        @if (bat.state === 4) {
+                          <button type="button" class="btn-xs success" (click)="changeBatteryState(bat, 1)">
+                            ✓ Đã đầy (Sẵn sàng)
+                          </button>
+                          <button type="button" class="btn-xs danger" (click)="changeBatteryState(bat, 5)">
+                            Báo lỗi
+                          </button>
+                        }
+
+                        <!-- Ready -> Faulted -->
+                        @if (bat.state === 1) {
+                          <button type="button" class="btn-xs danger" (click)="changeBatteryState(bat, 5)">
+                            Báo lỗi
+                          </button>
+                        }
+
+                        <!-- Faulted -> Inspection -->
+                        @if (bat.state === 5) {
+                          <button type="button" class="btn-xs warn" (click)="changeBatteryState(bat, 3)">
+                            Kiểm tra lại
+                          </button>
+                        }
+
+                        @if (bat.state === 2) {
+                          <span class="text-muted small">Khách đang giữ</span>
+                        }
+                      </div>
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        </section>
+      }
+
+      <!-- TAB CONTENT: 4. SERVICE HOURS -->
+      @if (currentTab() === 'hours') {
+        <section class="tab-pane hours-pane">
+          <div class="pane-header">
+            <div>
+              <h2 class="pane-title">Khung giờ phục vụ tại trạm</h2>
+              <p class="pane-desc">Lịch phục vụ quy định thời điểm khách hàng có thể đặt chỗ và sử dụng dịch vụ.</p>
+            </div>
+          </div>
+
+          <div class="hours-card">
+            <table class="dashboard-table">
+              <thead>
+                <tr>
+                  <th>Ngày trong tuần</th>
+                  <th>⚡ Sạc ô tô điện</th>
+                  <th>🔋 Đổi pin xe máy</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (d of daysOfWeek; track d.day) {
+                  <tr>
+                    <td class="day-name">
+                      <strong>{{ d.label }}</strong>
+                    </td>
+                    <td>
+                      @if (data.location.offersCarCharging) {
+                        <span class="hours-badge">{{ getHoursForDay(1, d.day) }}</span>
+                      } @else {
+                        <span class="text-muted">Không cung cấp</span>
+                      }
+                    </td>
+                    <td>
+                      @if (data.location.offersBatterySwap) {
+                        <span class="hours-badge">{{ getHoursForDay(2, d.day) }}</span>
+                      } @else {
+                        <span class="text-muted">Không cung cấp</span>
+                      }
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        </section>
+      }
+    }
+  </main>
+
+  <!-- MODAL GHI SỐ CÔNG TƠ ĐIỆN (START / COMPLETE CHARGING) -->
+  @if (meterModalOpen()) {
+    <div class="modal-backdrop" (click)="closeMeterModal()">
+      <div class="meter-modal" (click)="$event.stopPropagation()">
+        <div class="modal-hdr">
+          <div class="title-wrap">
+            <div class="icon-wrap" [class.end]="meterModalMode() === 'complete'">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+              </svg>
+            </div>
+            <div>
+              <h3>{{ meterModalMode() === 'start' ? 'Bắt đầu phiên sạc' : 'Kết thúc phiên sạc' }}</h3>
+              <p class="sub">
+                {{ meterModalMode() === 'start' ? 'Ghi nhận số công tơ ban đầu' : 'Ghi nhận số công tơ khi hoàn tất sạc' }}
+              </p>
+            </div>
+          </div>
+          <button type="button" class="btn-close" (click)="closeMeterModal()">✕</button>
+        </div>
+
+        <div class="modal-body">
+          @if (meterModalMode() === 'complete' && selectedReservation()?.session; as s) {
+            <div class="meter-summary-box">
+              <div class="sum-row">
+                <span>Chỉ số công tơ đầu:</span>
+                <strong>{{ s.startMeterKwh }} kWh</strong>
+              </div>
+              <div class="sum-row">
+                <span>Thời gian bắt đầu:</span>
+                <span>{{ s.startedAtUtc | date: 'shortTime' }}</span>
+              </div>
+            </div>
+          }
+
+          <div class="form-group">
+            <label for="meterInput">
+              {{ meterModalMode() === 'start' ? 'Chỉ số công tơ điện ban đầu (kWh):' : 'Chỉ số công tơ điện kết thúc (kWh):' }}
+            </label>
+            <div class="input-with-unit">
+              <input
+                id="meterInput"
+                type="number"
+                step="0.01"
+                min="0"
+                class="form-control"
+                [value]="meterKwhInput()"
+                (input)="meterKwhInput.set($any($event.target).valueAsNumber)"
+                placeholder="Nhập số điện, ví dụ: 1250.45"
+                autofocus
+              />
+              <span class="unit-tag">kWh</span>
+            </div>
+          </div>
+
+          @if (meterModalMode() === 'complete' && meterKwhInput() && selectedReservation()?.session; as s) {
+            @if (meterKwhInput()! >= s.startMeterKwh) {
+              <div class="calc-box">
+                <span>Ước tính tiêu thụ:</span>
+                <span class="calc-val">{{ (meterKwhInput()! - s.startMeterKwh).toFixed(2) }} kWh</span>
+              </div>
+            }
+          }
+
+          @if (meterError()) {
+            <p class="error-text">{{ meterError() }}</p>
+          }
+        </div>
+
+        <div class="modal-ftr">
+          <button type="button" class="btn secondary" (click)="closeMeterModal()">Hủy</button>
+          <button
+            type="button"
+            class="btn primary"
+            [disabled]="meterSubmitting() || meterKwhInput() === null || meterKwhInput()! < 0"
+            (click)="submitMeterReading()"
+          >
+            @if (meterSubmitting()) {
+              <span class="spinner-sm"></span>
+            } @else {
+              <span>{{ meterModalMode() === 'start' ? 'Xác nhận bắt đầu sạc' : 'Xác nhận hoàn tất sạc' }}</span>
+            }
+          </button>
+        </div>
+      </div>
+    </div>
+  }
+</div>

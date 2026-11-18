@@ -15,5 +15,26 @@ export const routes: Routes = [
     ],
   },
   { path: 'profile', loadComponent: () => import('./features/auth/profile/profile.component').then(m => m.ProfileComponent), title: 'Hồ sơ cá nhân — EVGo' },
+  {
+    path: 'operator/dashboard',
+    loadComponent: () =>
+      import('./features/operator/operator-dashboard/operator-dashboard.component').then(
+        (m) => m.OperatorDashboardComponent,
+      ),
+    title: 'Dashboard Vận Hành — EVGo',
+  },
+  {
+    path: 'operator',
+    redirectTo: 'operator/dashboard',
+    pathMatch: 'full',
+  },
+  {
+    path: 'operator/check-in',
+    loadComponent: () =>
+      import('./features/reservations/operator-checkin/operator-checkin.component').then(
+        (m) => m.OperatorCheckinComponent,
+      ),
+    title: 'Quầy Vận Hành & Check-in — EVGo',
+  },
   { path: '**', redirectTo: '' },
 ];

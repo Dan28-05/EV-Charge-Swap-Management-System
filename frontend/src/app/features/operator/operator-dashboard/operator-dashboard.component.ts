@@ -47,8 +47,9 @@ export class OperatorDashboardComponent implements OnInit {
   readonly meterSubmitting = signal<boolean>(false);
   readonly meterError = signal<string | null>(null);
 
-  // Battery filter
+  // Battery filter & update state
   readonly batteryFilter = signal<number | 'all'>('all');
+  readonly updatingBatteryId = signal<string | null>(null);
 
   // Computed summary metrics
   readonly totalBays = computed(() => this.stationData()?.bays.length ?? 0);
@@ -290,9 +291,16 @@ export class OperatorDashboardComponent implements OnInit {
 
   // --- Battery State Management ---
   changeBatteryState(battery: OperatorBattery, nextState: BatteryLifecycleState): void {
+    if (battery.state === nextState || this.updatingBatteryId() === battery.id) return;
+    this.updatingBatteryId.set(battery.id);
     this.operatorService.updateBatteryState(battery.id, nextState).subscribe({
-      next: () => {},
-      error: (err) => alert(err.error?.detail || 'Không thể cập nhật trạng thái viên pin.'),
+      next: () => {
+        this.updatingBatteryId.set(null);
+      },
+      error: (err) => {
+        this.updatingBatteryId.set(null);
+        alert(err.error?.detail || err.error || 'Không thể cập nhật trạng thái viên pin.');
+      },
     });
   }
 

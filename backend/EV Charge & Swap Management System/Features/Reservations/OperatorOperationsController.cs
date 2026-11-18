@@ -80,12 +80,16 @@ public sealed class OperatorOperationsController(AppDbContext db, TimeProvider c
         var battery = await db.Set<Battery>().SingleOrDefaultAsync(x => x.Id == id && x.LocationId == locationId, ct);
         if (battery is null) return NotFound();
         var next = request.State;
+        if (battery.State == next) return NoContent();
+        if (battery.State == BatteryState.WithCustomer || next == BatteryState.WithCustomer)
+            return Conflict("Customer battery assignments must be processed via the swap workflow.");
+
         var allowed = (battery.State, next) switch
         {
-            (BatteryState.Ready, BatteryState.Faulted) => true,
-            (BatteryState.Inspection, BatteryState.Charging or BatteryState.Faulted) => true,
-            (BatteryState.Charging, BatteryState.Ready or BatteryState.Faulted) => true,
-            (BatteryState.Faulted, BatteryState.Inspection) => true,
+            (BatteryState.Ready, BatteryState.Charging or BatteryState.Inspection or BatteryState.Faulted) => true,
+            (BatteryState.Inspection, BatteryState.Charging or BatteryState.Ready or BatteryState.Faulted) => true,
+            (BatteryState.Charging, BatteryState.Ready or BatteryState.Inspection or BatteryState.Faulted) => true,
+            (BatteryState.Faulted, BatteryState.Inspection or BatteryState.Charging or BatteryState.Ready) => true,
             _ => false
         };
         if (!allowed) return Conflict("This battery transition requires a service or inspection workflow.");

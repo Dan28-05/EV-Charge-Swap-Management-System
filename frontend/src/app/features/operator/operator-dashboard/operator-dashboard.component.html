@@ -586,43 +586,78 @@
                       {{ bat.stateUpdatedAtUtc ? (bat.stateUpdatedAtUtc | date: 'short') : 'Ban đầu' }}
                     </td>
                     <td>
-                      <div class="battery-actions">
-                        <!-- Inspection -> Charging or Faulted -->
-                        @if (bat.state === 3) {
-                          <button type="button" class="btn-xs primary" (click)="changeBatteryState(bat, 4)">
-                            ⚡ Đưa vào sạc
-                          </button>
-                          <button type="button" class="btn-xs danger" (click)="changeBatteryState(bat, 5)">
-                            Báo lỗi
-                          </button>
-                        }
-
-                        <!-- Charging -> Ready or Faulted -->
-                        @if (bat.state === 4) {
-                          <button type="button" class="btn-xs success" (click)="changeBatteryState(bat, 1)">
-                            ✓ Đã đầy (Sẵn sàng)
-                          </button>
-                          <button type="button" class="btn-xs danger" (click)="changeBatteryState(bat, 5)">
-                            Báo lỗi
-                          </button>
-                        }
-
-                        <!-- Ready -> Faulted -->
-                        @if (bat.state === 1) {
-                          <button type="button" class="btn-xs danger" (click)="changeBatteryState(bat, 5)">
-                            Báo lỗi
-                          </button>
-                        }
-
-                        <!-- Faulted -> Inspection -->
-                        @if (bat.state === 5) {
-                          <button type="button" class="btn-xs warn" (click)="changeBatteryState(bat, 3)">
-                            Kiểm tra lại
-                          </button>
-                        }
-
+                      <div class="battery-actions-wrapper">
                         @if (bat.state === 2) {
-                          <span class="text-muted small">Khách đang giữ</span>
+                          <span class="cust-held-badge">
+                            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2">
+                              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                              <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                            </svg>
+                            <span>Khách đang giữ (Theo xe)</span>
+                          </span>
+                        } @else {
+                          <div class="battery-segmented-control" [class.is-updating]="updatingBatteryId() === bat.id">
+                            <!-- 1: SẴN SÀNG -->
+                            <button
+                              type="button"
+                              class="segment-action-btn ready"
+                              [class.current]="bat.state === 1"
+                              [disabled]="bat.state === 1 || updatingBatteryId() === bat.id"
+                              (click)="changeBatteryState(bat, 1)"
+                              title="Chuyển sang Sẵn sàng (Kho xuất)"
+                            >
+                              <span class="indicator-dot"></span>
+                              <span>Sẵn sàng</span>
+                            </button>
+
+                            <!-- 4: ĐANG SẠC -->
+                            <button
+                              type="button"
+                              class="segment-action-btn charging"
+                              [class.current]="bat.state === 4"
+                              [disabled]="bat.state === 4 || updatingBatteryId() === bat.id"
+                              (click)="changeBatteryState(bat, 4)"
+                              title="Chuyển sang Đang sạc (Cắm trụ sạc)"
+                            >
+                              <svg class="action-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5">
+                                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                              </svg>
+                              <span>Sạc</span>
+                            </button>
+
+                            <!-- 3: KIỂM TRA -->
+                            <button
+                              type="button"
+                              class="segment-action-btn inspection"
+                              [class.current]="bat.state === 3"
+                              [disabled]="bat.state === 3 || updatingBatteryId() === bat.id"
+                              (click)="changeBatteryState(bat, 3)"
+                              title="Chuyển sang Bàn kiểm tra / Đo thông số"
+                            >
+                              <svg class="action-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="11" cy="11" r="8"></circle>
+                                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                              </svg>
+                              <span>Kiểm tra</span>
+                            </button>
+
+                            <!-- 5: BÁO LỖI -->
+                            <button
+                              type="button"
+                              class="segment-action-btn faulted"
+                              [class.current]="bat.state === 5"
+                              [disabled]="bat.state === 5 || updatingBatteryId() === bat.id"
+                              (click)="changeBatteryState(bat, 5)"
+                              title="Báo hỏng / Lỗi kỹ thuật / Cách ly"
+                            >
+                              <svg class="action-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                                <line x1="12" y1="9" x2="12" y2="13"></line>
+                                <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                              </svg>
+                              <span>Báo lỗi</span>
+                            </button>
+                          </div>
                         }
                       </div>
                     </td>

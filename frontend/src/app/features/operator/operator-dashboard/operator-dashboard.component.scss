@@ -1053,7 +1053,8 @@
 .batteries-table-card, .hours-card {
   border: 1px solid #e2e8f0;
   border-radius: 12px;
-  overflow: hidden;
+  overflow-x: auto;
+  background: #ffffff;
 }
 
 .dashboard-table {
@@ -1105,43 +1106,148 @@
     &.faulted { background: #fef2f2; color: #991b1b; }
   }
 
-  .battery-actions {
+  .battery-actions-wrapper {
     display: flex;
-    gap: 6px;
+    align-items: center;
 
-    .btn-xs {
-      padding: 4px 10px;
-      font-size: 0.74rem;
+    .cust-held-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 12px;
+      background: #f1f5f9;
+      color: #64748b;
+      font-size: 0.76rem;
       font-weight: 600;
-      border-radius: 6px;
-      border: none;
-      cursor: pointer;
-      transition: all 0.15s ease;
+      border-radius: 8px;
+      border: 1px dashed #cbd5e1;
+    }
 
-      &.primary {
-        background: #17634f;
-        color: #ffffff;
-        &:hover { background: #114c3c; }
+    .battery-segmented-control {
+      display: inline-flex;
+      align-items: center;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 3px;
+      gap: 3px;
+      transition: opacity 0.2s ease;
+
+      &.is-updating {
+        opacity: 0.55;
+        pointer-events: none;
       }
 
-      &.success {
-        background: #059669;
-        color: #ffffff;
-        &:hover { background: #047857; }
-      }
+      .segment-action-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 4px 10px;
+        font-size: 0.74rem;
+        font-weight: 600;
+        border-radius: 6px;
+        border: 1px solid transparent;
+        background: transparent;
+        color: #64748b;
+        cursor: pointer;
+        transition: all 0.15s ease;
+        white-space: nowrap;
 
-      &.danger {
-        background: #fee2e2;
-        color: #991b1b;
-        &:hover { background: #fecaca; }
-      }
+        .action-icon {
+          flex-shrink: 0;
+        }
 
-      &.warn {
-        background: #fef3c7;
-        color: #92400e;
-        &:hover { background: #fde68a; }
+        .indicator-dot {
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+          background: currentColor;
+          display: none;
+        }
+
+        &:hover:not(.current):not(:disabled) {
+          background: #ffffff;
+          color: #0f172a;
+          box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+          border-color: #cbd5e1;
+        }
+
+        // Active / Current state highlights
+        &.current {
+          cursor: default;
+          box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+
+          .indicator-dot {
+            display: inline-block;
+          }
+
+          &.ready {
+            background: #ecfdf5;
+            color: #065f46;
+            border-color: #a7f3d0;
+            font-weight: 700;
+          }
+
+          &.charging {
+            background: #eff6ff;
+            color: #1e40af;
+            border-color: #bfdbfe;
+            font-weight: 700;
+
+            .action-icon {
+              color: #2563eb;
+              animation: pulse-charge 1.6s infinite ease-in-out;
+            }
+          }
+
+          &.inspection {
+            background: #fffbeb;
+            color: #92400e;
+            border-color: #fde68a;
+            font-weight: 700;
+          }
+
+          &.faulted {
+            background: #fef2f2;
+            color: #991b1b;
+            border-color: #fecaca;
+            font-weight: 700;
+          }
+        }
+
+        // Distinct hover colors when interactive
+        &:not(.current):not(:disabled) {
+          &.ready:hover {
+            color: #059669;
+            border-color: #a7f3d0;
+            background: #f0fdf4;
+          }
+
+          &.charging:hover {
+            color: #2563eb;
+            border-color: #bfdbfe;
+            background: #eff6ff;
+          }
+
+          &.inspection:hover {
+            color: #d97706;
+            border-color: #fde68a;
+            background: #fffbeb;
+          }
+
+          &.faulted:hover {
+            color: #dc2626;
+            border-color: #fecaca;
+            background: #fef2f2;
+          }
+        }
       }
     }
+  }
+
+  @keyframes pulse-charge {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.55; transform: scale(1.15); }
   }
 
   .hours-badge {

@@ -229,6 +229,18 @@ public sealed class ReservationsPostgresTests
             .Where(x => x.Id == bay.Id).Select(x => x.StateUpdatedById).SingleAsync());
         Assert.IsType<NoContentResult>(await operations.ChangeBattery(newBatteryHold.BatteryId!.Value,
             new ChangeBatteryStateRequest(BatteryState.Faulted), default));
+        // Verify warehouse transitions without roundabout faulting
+        Assert.IsType<NoContentResult>(await operations.ChangeBattery(newBatteryHold.BatteryId!.Value,
+            new ChangeBatteryStateRequest(BatteryState.Inspection), default));
+        Assert.IsType<NoContentResult>(await operations.ChangeBattery(newBatteryHold.BatteryId!.Value,
+            new ChangeBatteryStateRequest(BatteryState.Charging), default));
+        Assert.IsType<NoContentResult>(await operations.ChangeBattery(newBatteryHold.BatteryId!.Value,
+            new ChangeBatteryStateRequest(BatteryState.Ready), default));
+        Assert.IsType<ConflictObjectResult>(await operations.ChangeBattery(newBatteryHold.BatteryId!.Value,
+            new ChangeBatteryStateRequest(BatteryState.WithCustomer), default));
+        // Put back to faulted so check-in assertion below remains valid
+        Assert.IsType<NoContentResult>(await operations.ChangeBattery(newBatteryHold.BatteryId!.Value,
+            new ChangeBatteryStateRequest(BatteryState.Faulted), default));
         Assert.Equal(0, await service.CheckInAsync(location.Id, operatorUser.Id, newBatteryHold.Code, default));
         Assert.IsType<BadRequestObjectResult>(await operations.ReplaceHours(new ReplaceHoursRequest(
             ReservationServiceType.Charging, DayOfWeek.Monday,

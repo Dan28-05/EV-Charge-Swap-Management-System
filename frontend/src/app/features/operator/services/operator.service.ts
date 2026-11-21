@@ -21,6 +21,34 @@ export interface ChargingReservationStatusResponse {
   session?: OperatorChargingSessionInfo | null;
 }
 
+export interface StationIncident {
+  id: string;
+  chargingBayId: string | null;
+  batteryId: string | null;
+  reservationId: string | null;
+  chargingSessionId: string | null;
+  description: string;
+  reportedAtUtc: string;
+}
+
+export interface IncidentOptions {
+  canChangeReservation: boolean;
+  candidates: { id: string; code: string }[];
+}
+
+export enum IncidentResolution {
+  Reassigned = 1,
+  Cancelled,
+  Recorded,
+}
+
+export interface StationTariff {
+  id: string;
+  serviceType: number;
+  unitPrice: number;
+  effectiveFromUtc: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class OperatorService {
   private readonly http = inject(HttpClient);
@@ -111,8 +139,34 @@ export class OperatorService {
     );
   }
 
-  updateBayEquipmentState(bayId: string, state: ChargerEquipmentState): Observable<void> {
-    return this.http.patch<void>(`/api/operator/me/charging-bays/${bayId}/equipment-state`, { state }).pipe(
+  getOpenIncidents(page: number): Observable<StationIncident[]> {
+    return this.http.get<StationIncident[]>('/api/operator/me/incidents', { params: { page } });
+  }
+
+  getTariffs(): Observable<StationTariff[]> {
+    return this.http.get<StationTariff[]>('/api/operator/me/tariffs');
+  }
+
+  createTariff(serviceType: number, unitPrice: number): Observable<StationTariff> {
+    return this.http.post<StationTariff>('/api/operator/me/tariffs', { serviceType, unitPrice });
+  }
+
+  completeBatterySwap(id: string, returnedSerial: string, issuedSerial: string, inspectionResult: string): Observable<unknown> {
+    return this.http.post(`/api/operator/me/battery-swaps/${id}/complete`,
+      { returnedSerial, issuedSerial, inspectionResult });
+  }
+
+  getIncidentOptions(id: string): Observable<IncidentOptions> {
+    return this.http.get<IncidentOptions>(`/api/operator/me/incidents/${id}/options`);
+  }
+
+  resolveIncident(id: string, resolution: IncidentResolution, replacementId?: string): Observable<void> {
+    return this.http.post<void>(`/api/operator/me/incidents/${id}/resolve`, { resolution, replacementId });
+  }
+
+  updateBayEquipmentState(bayId: string, state: ChargerEquipmentState, description?: string): Observable<void> {
+    const request = description === undefined ? { state } : { state, description };
+    return this.http.patch<void>(`/api/operator/me/charging-bays/${bayId}/equipment-state`, request).pipe(
       tap(() => {
         // Optimistic local update
         const current = this.stationData();
@@ -126,8 +180,9 @@ export class OperatorService {
     );
   }
 
-  updateBatteryState(batteryId: string, state: BatteryLifecycleState): Observable<void> {
-    return this.http.patch<void>(`/api/operator/me/batteries/${batteryId}/state`, { state }).pipe(
+  updateBatteryState(batteryId: string, state: BatteryLifecycleState, description?: string): Observable<void> {
+    const request = description === undefined ? { state } : { state, description };
+    return this.http.patch<void>(`/api/operator/me/batteries/${batteryId}/state`, request).pipe(
       tap(() => {
         // Optimistic local update
         const current = this.stationData();

@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideHttpClient } from '@angular/common/http';
-import { OperatorService } from './operator.service';
+import { IncidentResolution, OperatorService } from './operator.service';
 import {
   BatteryLifecycleState,
   ChargerEquipmentState,
@@ -92,6 +92,24 @@ describe('OperatorService', () => {
     expect(req.request.method).toBe('PATCH');
     expect(req.request.body).toEqual({ state: BatteryLifecycleState.Charging });
     req.flush(null);
+  });
+
+  it('sends the fault description and requires a separate resolution request', () => {
+    service.updateBatteryState('bat-1', BatteryLifecycleState.Faulted, 'Pin lỗi').subscribe();
+    const fault = httpMock.expectOne('/api/operator/me/batteries/bat-1/state');
+    expect(fault.request.body).toEqual({ state: BatteryLifecycleState.Faulted, description: 'Pin lỗi' });
+    fault.flush(null);
+
+    service.getIncidentOptions('incident-1').subscribe();
+    const options = httpMock.expectOne('/api/operator/me/incidents/incident-1/options');
+    expect(options.request.method).toBe('GET');
+    options.flush({ canChangeReservation: true, candidates: [{ id: 'bat-2', code: 'PIN-2' }] });
+
+    service.resolveIncident('incident-1', IncidentResolution.Reassigned, 'bat-2').subscribe();
+    const resolution = httpMock.expectOne('/api/operator/me/incidents/incident-1/resolve');
+    expect(resolution.request.method).toBe('POST');
+    expect(resolution.request.body).toEqual({ resolution: IncidentResolution.Reassigned, replacementId: 'bat-2' });
+    resolution.flush(null);
   });
 
   it('should post vehicle-arrived event and refresh dashboard', () => {

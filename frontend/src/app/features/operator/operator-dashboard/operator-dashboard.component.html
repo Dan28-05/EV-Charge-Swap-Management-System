@@ -264,8 +264,114 @@
         </button>
       </nav>
 
+      @if (faultTarget(); as target) {
+        <section class="tab-pane incident-panel" aria-labelledby="fault-form-title">
+          <h2 class="pane-title" id="fault-form-title">Báo sự cố · {{ target.code }}</h2>
+          <form class="incident-controls" (ngSubmit)="reportFault()">
+            <label for="fault-description">Mô tả sự cố</label>
+            <textarea id="fault-description" name="faultDescription" rows="3" maxlength="500"
+              [ngModel]="faultDescription()" (ngModelChange)="faultDescription.set($event)"></textarea>
+            @if (faultError(); as message) { <p role="alert">{{ message }}</p> }
+            <div class="incident-actions">
+              <button type="submit" [disabled]="faultBusy() || !faultDescription().trim()">Gửi báo cáo</button>
+              <button type="button" [disabled]="faultBusy()" (click)="faultTarget.set(null)">Đóng</button>
+            </div>
+          </form>
+        </section>
+      }
+
       <!-- TAB CONTENT: 1. OPERATIONS (CHARGING LIFECYCLE) -->
       @if (currentTab() === 'operations') {
+        <section class="tab-pane incident-panel" aria-labelledby="station-tariff-title">
+          <h2 class="pane-title" id="station-tariff-title">Bảng giá tại trạm</h2>
+          <form class="incident-controls" (ngSubmit)="publishTariff()">
+            <label for="tariff-service">Dịch vụ</label>
+            <select id="tariff-service" name="tariffService" [ngModel]="tariffService()" (ngModelChange)="tariffService.set($event)">
+              <option [ngValue]="1">Sạc ô tô (đ/kWh)</option>
+              <option [ngValue]="2">Đổi pin (đ/lượt)</option>
+            </select>
+            <label for="tariff-price">Đơn giá có hiệu lực ngay</label>
+            <input id="tariff-price" name="tariffPrice" type="number" min="0" step="0.01"
+              [ngModel]="tariffPrice()" (ngModelChange)="tariffPrice.set($event)">
+            <div class="incident-actions">
+              <button type="submit" [disabled]="billingBusy() || tariffPrice() === null">Lưu giá</button>
+              <button type="button" (click)="loadTariffs()">Xem bảng giá</button>
+            </div>
+          </form>
+          @for (tariff of tariffs(); track tariff.id) {
+            <p>{{ tariff.unitPrice | number }} đ/{{ tariff.serviceType === 1 ? 'kWh' : 'lượt' }}
+              · {{ tariff.effectiveFromUtc | date:'dd/MM/yyyy HH:mm':'+0700' }}</p>
+          }
+          @if (!swapReservation() && billingError(); as message) { <p role="alert">{{ message }}</p> }
+        </section>
+        @if (swapReservation(); as reservation) {
+          <section class="tab-pane incident-panel" aria-labelledby="battery-swap-title">
+            <h2 class="pane-title" id="battery-swap-title">Xác nhận giao nhận pin</h2>
+            <p>Pin đã giữ: {{ findBatterySerial(reservation.batteryId) }}</p>
+            <form class="incident-controls" (ngSubmit)="completeSwap()">
+              <label for="returned-serial">Serial pin khách trả</label>
+              <input id="returned-serial" name="returnedSerial" maxlength="64" required
+                [ngModel]="returnedSerial()" (ngModelChange)="returnedSerial.set($event)">
+              <label for="issued-serial">Serial pin thực tế đã giao</label>
+              <input id="issued-serial" name="issuedSerial" maxlength="64" required
+                [ngModel]="issuedSerial()" (ngModelChange)="issuedSerial.set($event)">
+              <label for="inspection-result">Kết quả kiểm tra ban đầu</label>
+              <textarea id="inspection-result" name="inspectionResult" maxlength="500" required
+                [ngModel]="inspectionResult()" (ngModelChange)="inspectionResult.set($event)"></textarea>
+              @if (billingError(); as message) { <p role="alert">{{ message }}</p> }
+              <div class="incident-actions">
+                <button type="submit" [disabled]="billingBusy()">Xác nhận đã giao nhận</button>
+                <button type="button" [disabled]="billingBusy()" (click)="swapReservation.set(null)">Đóng</button>
+              </div>
+            </form>
+          </section>
+        }
+        <section class="tab-pane incident-panel" aria-labelledby="open-incidents-title">
+          <h2 class="pane-title" id="open-incidents-title">Sự cố chờ xử lý</h2>
+          @if (incidentError(); as message) { <p role="alert">{{ message }}</p> }
+          @if (incidents(); as reports) {
+            @for (report of reports; track report.id) {
+              <article class="incident-item">
+                <strong>{{ report.chargingBayId ? findBayCode(report.chargingBayId) : findBatterySerial(report.batteryId) }}</strong>
+                <span>{{ report.reportedAtUtc | date:'dd/MM/yyyy HH:mm':'+0700' }}</span>
+                <p>{{ report.description }}</p>
+                <button type="button" [disabled]="incidentBusy()" (click)="openIncident(report.id)">Xem phương án</button>
+                @if (selectedIncidentId() === report.id && incidentOptions(); as options) {
+                  <div class="incident-controls">
+                    @if (options.canChangeReservation && options.candidates.length > 0) {
+                      <label [for]="'replacement-' + report.id">Tài nguyên thay thế</label>
+                      <select [id]="'replacement-' + report.id" [ngModel]="replacementId()"
+                        (ngModelChange)="replacementId.set($event)" [disabled]="incidentBusy()">
+                        <option value="">Chọn tài nguyên</option>
+                        @for (candidate of options.candidates; track candidate.id) {
+                          <option [value]="candidate.id">{{ candidate.code }}</option>
+                        }
+                      </select>
+                      <button type="button" [disabled]="incidentBusy() || !replacementId()"
+                        (click)="resolveIncident(incidentResolution.Reassigned)">Xác nhận chuyển</button>
+                    } @else if (options.canChangeReservation) {
+                      <p>Hiện không có tài nguyên thay thế.</p>
+                      <button type="button" [disabled]="incidentBusy()"
+                        (click)="resolveIncident(incidentResolution.Cancelled)">Xác nhận hủy lượt đặt</button>
+                    } @else {
+                      <p>Đóng báo cáo này sẽ giữ nguyên lượt đặt. Nếu xe đã đỗ, tiếp tục xử lý tại mục phiên sạc.</p>
+                      <button type="button" [disabled]="incidentBusy()"
+                        (click)="resolveIncident(incidentResolution.Recorded)">Xác nhận đóng báo cáo</button>
+                    }
+                  </div>
+                }
+              </article>
+            } @empty { <p>Trang này không có sự cố chờ xử lý.</p> }
+            @if (incidentPage() > 1 || reports.length === 50) {
+              <div class="incident-actions">
+                <button type="button" [disabled]="incidentPage() === 1 || incidentBusy()"
+                  (click)="loadIncidents(incidentPage() - 1)">Trang trước</button>
+                <button type="button" [disabled]="reports.length < 50 || incidentBusy()"
+                  (click)="loadIncidents(incidentPage() + 1)">Trang sau</button>
+              </div>
+            }
+          } @else if (!incidentError()) { <p>Đang tải sự cố…</p> }
+        </section>
         <section class="tab-pane operations-pane">
           <div class="pane-header">
             <div>
@@ -413,6 +519,7 @@
                     }
 
                     @if (res.status === 'CheckedIn' && res.batteryId) {
+                      <button type="button" class="btn-action" (click)="openSwap(res)">Giao nhận pin</button>
                       <div class="swap-status-box">
                         <p>Khách đã check-in đổi pin. Tiến hành nhận pin cũ và giao viên pin: <strong>{{ findBatterySerial(res.batteryId) }}</strong>.</p>
                         <button type="button" class="btn-action secondary" (click)="closeWithoutService(res)">

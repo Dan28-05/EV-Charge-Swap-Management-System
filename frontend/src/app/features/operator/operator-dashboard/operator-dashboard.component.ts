@@ -10,7 +10,8 @@ import {
   OperatorChargingBay,
   ParkingOccupancyState,
 } from '../models/operator.models';
-import { OperatorService } from '../services/operator.service';
+import { IncidentOptions, IncidentResolution, OperatorService, StationIncident, StationTariff } from '../services/operator.service';
+import { finalize } from 'rxjs';
 import { AuthService } from '../../auth/services/auth.service';
 
 type DashboardTab = 'operations' | 'bays' | 'batteries' | 'hours';
@@ -32,6 +33,27 @@ export class OperatorDashboardComponent implements OnInit {
   readonly loading = this.operatorService.loading;
   readonly error = this.operatorService.error;
   readonly currentUser = this.authService.currentUser;
+  readonly swapReservation = signal<OperatorActiveReservation | null>(null);
+  readonly tariffs = signal<StationTariff[]>([]);
+  readonly billingError = signal<string | null>(null);
+  readonly billingBusy = signal(false);
+  readonly tariffService = signal(1);
+  readonly tariffPrice = signal<number | null>(null);
+  readonly returnedSerial = signal('');
+  readonly issuedSerial = signal('');
+  readonly inspectionResult = signal('');
+  readonly incidentResolution = IncidentResolution;
+  readonly incidents = signal<StationIncident[] | null>(null);
+  readonly incidentPage = signal(1);
+  readonly selectedIncidentId = signal<string | null>(null);
+  readonly incidentOptions = signal<IncidentOptions | null>(null);
+  readonly replacementId = signal('');
+  readonly incidentBusy = signal(false);
+  readonly incidentError = signal<string | null>(null);
+  readonly faultTarget = signal<{ kind: 'bay' | 'battery'; id: string; code: string } | null>(null);
+  readonly faultDescription = signal('');
+  readonly faultBusy = signal(false);
+  readonly faultError = signal<string | null>(null);
 
   // Quick check-in input
   readonly checkinCode = signal<string>('');
@@ -115,6 +137,125 @@ export class OperatorDashboardComponent implements OnInit {
   refresh(): void {
     this.operatorService.getStationDashboard().subscribe({
       error: () => {},
+    });
+    this.loadIncidents(this.incidentPage());
+  }
+
+  openSwap(reservation: OperatorActiveReservation): void {
+    this.billingError.set(null);
+    this.returnedSerial.set('');
+    this.issuedSerial.set('');
+    this.inspectionResult.set('');
+    this.swapReservation.set(reservation);
+  }
+
+  completeSwap(): void {
+    const reservation = this.swapReservation();
+    const returned = this.returnedSerial().trim();
+    const issued = this.issuedSerial().trim();
+    const inspection = this.inspectionResult().trim();
+    if (!reservation || this.billingBusy() || !returned || !issued || !inspection) return;
+    this.billingBusy.set(true);
+    this.billingError.set(null);
+    this.operatorService.completeBatterySwap(reservation.id, returned, issued, inspection)
+      .pipe(finalize(() => this.billingBusy.set(false))).subscribe({
+        next: () => { this.swapReservation.set(null); this.refresh(); },
+        error: (err) => this.billingError.set(err.error?.detail || 'Không thể xác nhận giao nhận pin.'),
+      });
+  }
+
+  loadTariffs(): void {
+    this.operatorService.getTariffs().subscribe({
+      next: (rows) => this.tariffs.set(rows),
+      error: () => this.billingError.set('Không tải được bảng giá.'),
+    });
+  }
+
+  publishTariff(): void {
+    const price = this.tariffPrice();
+    if (price === null || this.billingBusy()) return;
+    this.billingBusy.set(true);
+    this.billingError.set(null);
+    this.operatorService.createTariff(this.tariffService(), price)
+      .pipe(finalize(() => this.billingBusy.set(false))).subscribe({
+        next: () => { this.tariffPrice.set(null); this.loadTariffs(); },
+        error: (err) => this.billingError.set(err.error?.detail || 'Không thể lưu đơn giá.'),
+      });
+  }
+
+  loadIncidents(page: number): void {
+    this.incidentError.set(null);
+    this.selectedIncidentId.set(null);
+    this.incidentOptions.set(null);
+    this.incidentPage.set(page);
+    this.incidents.set(null);
+    this.operatorService.getOpenIncidents(page).subscribe({
+      next: (reports) => {
+        if (this.incidentPage() === page) this.incidents.set(reports);
+      },
+      error: () => {
+        if (this.incidentPage() === page) this.incidentError.set('Không tải được danh sách sự cố.');
+      },
+    });
+  }
+
+  openIncident(id: string): void {
+    this.selectedIncidentId.set(id);
+    this.incidentOptions.set(null);
+    this.replacementId.set('');
+    this.incidentError.set(null);
+    this.operatorService.getIncidentOptions(id).subscribe({
+      next: (options) => {
+        if (this.selectedIncidentId() === id) this.incidentOptions.set(options);
+      },
+      error: () => {
+        if (this.selectedIncidentId() === id) this.incidentError.set('Không tải được phương án xử lý.');
+      },
+    });
+  }
+
+  resolveIncident(resolution: IncidentResolution): void {
+    const id = this.selectedIncidentId();
+    const replacementId = resolution === IncidentResolution.Reassigned ? this.replacementId() : undefined;
+    if (!id || this.incidentBusy() || (resolution === IncidentResolution.Reassigned && !replacementId)) return;
+    this.incidentError.set(null);
+    this.incidentBusy.set(true);
+    this.operatorService.resolveIncident(id, resolution, replacementId)
+      .pipe(finalize(() => this.incidentBusy.set(false)))
+      .subscribe({
+        next: () => {
+          this.incidentPage.set(1);
+          this.refresh();
+        },
+        error: (err) => this.incidentError.set(err.status === 409
+          ? 'Phương án đã thay đổi. Chọn lại sự cố để tải thông tin mới.'
+          : 'Không thể xác nhận xử lý sự cố.'),
+      });
+  }
+
+  private openFaultForm(kind: 'bay' | 'battery', id: string, code: string): void {
+    this.faultTarget.set({ kind, id, code });
+    this.faultError.set(null);
+    this.faultDescription.set('');
+  }
+
+  reportFault(): void {
+    const target = this.faultTarget();
+    const description = this.faultDescription().trim();
+    if (!target || !description || description.length > 500 || this.faultBusy()) return;
+    this.faultBusy.set(true);
+    this.faultError.set(null);
+    const request = target.kind === 'bay'
+      ? this.operatorService.updateBayEquipmentState(target.id, ChargerEquipmentState.Faulted, description)
+      : this.operatorService.updateBatteryState(target.id, BatteryLifecycleState.Faulted, description);
+    request.pipe(finalize(() => this.faultBusy.set(false))).subscribe({
+      next: () => {
+        this.faultTarget.set(null);
+        this.currentTab.set('operations');
+        this.incidentPage.set(1);
+        this.refresh();
+      },
+      error: () => this.faultError.set('Không thể gửi báo cáo sự cố.'),
     });
   }
 
@@ -282,6 +423,10 @@ export class OperatorDashboardComponent implements OnInit {
 
   // --- Bay Equipment Management ---
   changeBayState(bay: OperatorChargingBay, newState: ChargerEquipmentState): void {
+    if (newState === ChargerEquipmentState.Faulted) {
+      this.openFaultForm('bay', bay.id, bay.code);
+      return;
+    }
     if (bay.equipmentState === newState) return;
     this.operatorService.updateBayEquipmentState(bay.id, newState).subscribe({
       next: () => {},
@@ -291,6 +436,10 @@ export class OperatorDashboardComponent implements OnInit {
 
   // --- Battery State Management ---
   changeBatteryState(battery: OperatorBattery, nextState: BatteryLifecycleState): void {
+    if (nextState === BatteryLifecycleState.Faulted) {
+      this.openFaultForm('battery', battery.id, battery.serial);
+      return;
+    }
     if (battery.state === nextState || this.updatingBatteryId() === battery.id) return;
     this.updatingBatteryId.set(battery.id);
     this.operatorService.updateBatteryState(battery.id, nextState).subscribe({

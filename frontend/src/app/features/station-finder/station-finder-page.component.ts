@@ -458,6 +458,9 @@ export class StationFinderPageComponent implements OnInit {
   }
 
   logout() {
-    this.authService.clearSession();
+    this.authService.logout().subscribe({
+      next: () => this.currentUser.set(null),
+      error: () => this.currentUser.set(null),
+    });
   }
 }

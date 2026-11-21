@@ -21,6 +21,10 @@ export interface ResetPasswordRequest {
   newPassword: string;
 }
 
+export interface RefreshTokenRequest {
+  refreshToken: string;
+}
+
 export interface AuthenticatedUser {
   id: string;
   fullName: string;

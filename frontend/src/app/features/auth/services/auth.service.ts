@@ -1,7 +1,7 @@
-import { HttpClient, HttpHeaders } from '@angular/common/http';
+import { HttpClient, HttpContext, HttpHeaders } from '@angular/common/http';
 import { Injectable, PLATFORM_ID, computed, inject, signal } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
-import { Observable } from 'rxjs';
+import { Observable, catchError, finalize, of, shareReplay, tap, throwError } from 'rxjs';
 import {
   AuthenticatedUser,
   AuthenticationResponse,
@@ -9,7 +9,9 @@ import {
   RegisterCustomerRequest,
   ChangePasswordRequest,
   ResetPasswordRequest,
+  RefreshTokenRequest,
 } from '../models/authentication.models';
+import { IS_REFRESH_REQUEST, SKIP_AUTH } from '../../../core/interceptors/auth.interceptor';
 
 @Injectable({ providedIn: 'root' })
 export class AuthService {
@@ -18,6 +20,8 @@ export class AuthService {
 
   private readonly authStorageKey = 'evgo.auth';
   private readonly rememberedIdentifierKey = 'evgo.rememberedIdentifier';
+
+  private refreshTokenInProgress$: Observable<AuthenticationResponse> | null = null;
 
   readonly session = signal<AuthenticationResponse | null>(this.loadInitialSession());
   readonly currentUser = computed<AuthenticatedUser | null>(() => this.session()?.user ?? null);
@@ -65,6 +69,66 @@ export class AuthService {
 
   resetPassword(request: ResetPasswordRequest): Observable<void> {
     return this.http.post<void>('/api/auth/password/reset', request);
+  }
+
+  refreshToken(): Observable<AuthenticationResponse> {
+    if (this.refreshTokenInProgress$) {
+      return this.refreshTokenInProgress$;
+    }
+
+    const currentSession = this.session();
+    const token = currentSession?.refreshToken;
+    if (!token) {
+      this.clearSession();
+      return throwError(() => new Error('Không tìm thấy refresh token trong phiên đăng nhập.'));
+    }
+
+    const refreshPayload: RefreshTokenRequest = { refreshToken: token };
+
+    this.refreshTokenInProgress$ = this.http
+      .post<AuthenticationResponse>('/api/auth/refresh', refreshPayload, {
+        context: new HttpContext().set(SKIP_AUTH, true).set(IS_REFRESH_REQUEST, true),
+      })
+      .pipe(
+        tap((newSession) => {
+          this.session.set(newSession);
+          if (isPlatformBrowser(this.platformId)) {
+            const storage = localStorage.getItem(this.authStorageKey)
+              ? localStorage
+              : sessionStorage;
+            storage.setItem(this.authStorageKey, JSON.stringify(newSession));
+          }
+        }),
+        catchError((error) => {
+          this.clearSession();
+          return throwError(() => error);
+        }),
+        finalize(() => {
+          this.refreshTokenInProgress$ = null;
+        }),
+        shareReplay({ bufferSize: 1, refCount: false })
+      );
+
+    return this.refreshTokenInProgress$;
+  }
+
+  logout(): Observable<void> {
+    const token = this.session()?.refreshToken;
+    this.clearSession();
+
+    if (!token) {
+      return of(void 0);
+    }
+
+    const logoutPayload: RefreshTokenRequest = { refreshToken: token };
+
+    return this.http
+      .post<void>('/api/auth/logout', logoutPayload, {
+        context: new HttpContext().set(SKIP_AUTH, true).set(IS_REFRESH_REQUEST, true),
+      })
+      .pipe(
+        catchError(() => of(void 0))
+      );
   }
 
   updateCachedUser(user: AuthenticatedUser): void {

@@ -102,8 +102,10 @@ export class ProfileComponent implements OnInit {
   }
 
   protected logout(): void {
-    this.auth.clearSession();
-    this.router.navigate(['/login']);
+    this.auth.logout().subscribe({
+      next: () => this.router.navigate(['/login']),
+      error: () => this.router.navigate(['/login']),
+    });
   }
 
   protected getInitials(name: string): string {

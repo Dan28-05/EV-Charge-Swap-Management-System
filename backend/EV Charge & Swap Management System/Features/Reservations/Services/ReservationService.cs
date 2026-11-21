@@ -74,6 +74,10 @@ public sealed class ReservationService(AppDbContext db, TimeProvider clock, IOut
         if (await Active.AnyAsync(x => x.CustomerId == customerId, ct))
             return (null, "You already have an active reservation.", false);
 
+        // Completion may release an active visit and create its invoice in a single transaction at another station.
+        if (await db.Invoices.AnyAsync(x => x.CustomerId == customerId && x.Status == InvoiceStatus.Pending, ct))
+            return (null, "Bạn có hóa đơn chưa thanh toán. Vui lòng thanh toán trong Lịch sử hóa đơn trước khi đặt chỗ mới.", false);
+
         Guid? bayId = null;
         Guid? batteryId = null;
         if (serviceType == ReservationServiceType.Charging)

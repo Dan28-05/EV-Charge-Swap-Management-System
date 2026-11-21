@@ -2,6 +2,7 @@ using System.ComponentModel.DataAnnotations;
 using System.IdentityModel.Tokens.Jwt;
 using EVChargeSwap.Data;
 using EVChargeSwap.Features.Authorization;
+using EVChargeSwap.Features.Locations.Services;
 using EVChargeSwap.Features.Reservations.Entities;
 using EVChargeSwap.Features.Reservations.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -14,11 +15,14 @@ public sealed record HoldRequest(Guid LocationId, [EnumDataType(typeof(Reservati
 public sealed record CheckInRequest(Guid LocationId, [Required, StringLength(32, MinimumLength = 32)] string Code);
 public sealed record ReservationResponse(Guid Id, Guid LocationId, Guid? ChargingBayId, Guid? BatteryId,
     string Status, string? Code, DateTimeOffset ExpiresAtUtc, DateTimeOffset? CheckedInAtUtc, string? ClosingReason,
-    DateTimeOffset? VehicleArrivedAtUtc, DateTimeOffset? VehicleDepartedAtUtc, DateTimeOffset? NoChargeConfirmedAtUtc);
+    DateTimeOffset? VehicleArrivedAtUtc, DateTimeOffset? VehicleDepartedAtUtc, DateTimeOffset? NoChargeConfirmedAtUtc,
+    string? ResourceCode = null, DateTimeOffset? ChargingStartedAtUtc = null, DateTimeOffset? ChargingCompletedAtUtc = null,
+    decimal? InvoiceTotalAmount = null, string? InvoiceStatus = null);
 
 [ApiController]
 [Route("api/reservations")]
-public sealed class ReservationsController(AppDbContext db, ReservationService service, TimeProvider clock) : ControllerBase
+public sealed class ReservationsController(AppDbContext db, ReservationService service, TimeProvider clock,
+    IStationNotifier stationNotifier) : ControllerBase
 {
     [HttpPost]
     [Authorize(Roles = AppRoles.Customer)]
@@ -32,9 +36,15 @@ public sealed class ReservationsController(AppDbContext db, ReservationService s
 
         var result = await service.HoldAsync(userId, request.LocationId, request.ServiceType, ct, idempotencyKey);
         if (result.Reservation is { } reservation)
+        {
+            // The reservation is already committed. Signal local clients before the Outbox replay.
+            if (!result.Replayed)
+                await stationNotifier.NotifyStationInventoryChangedAsync(reservation.LocationId, ct);
+            var response = await CustomerResponseAsync(reservation, ct);
             return result.Replayed
-                ? Ok(ToResponse(reservation))
-                : CreatedAtAction(nameof(Get), new { id = reservation.Id }, ToResponse(reservation));
+                ? Ok(response)
+                : CreatedAtAction(nameof(Get), new { id = reservation.Id }, response);
+        }
 
         return result.Conflict is null ? NotFound() : Problem(statusCode: 409, detail: result.Conflict);
     }
@@ -46,7 +56,7 @@ public sealed class ReservationsController(AppDbContext db, ReservationService s
         if (!TryGetUserId(out var userId)) return Unauthorized();
         var reservation = await db.Set<Reservation>().AsNoTracking()
             .SingleOrDefaultAsync(x => x.Id == id && x.CustomerId == userId, ct);
-        return reservation is null ? NotFound() : Ok(ToResponse(reservation));
+        return reservation is null ? NotFound() : Ok(await CustomerResponseAsync(reservation, ct));
     }
 
     [HttpGet("active")]
@@ -58,7 +68,7 @@ public sealed class ReservationsController(AppDbContext db, ReservationService s
         var reservation = await service.Active.AsNoTracking()
             .SingleOrDefaultAsync(x => x.CustomerId == userId &&
                 (x.Status == ReservationStatus.CheckedIn || x.ExpiresAtUtc > now), ct);
-        return reservation is null ? NotFound() : Ok(ToResponse(reservation));
+        return reservation is null ? NotFound() : Ok(await CustomerResponseAsync(reservation, ct));
     }
 
     [HttpPost("{id:guid}/cancel")]
@@ -106,6 +116,29 @@ public sealed class ReservationsController(AppDbContext db, ReservationService s
         return await service.CloseWithoutServiceAsync(locationId, userId, id, ct) == 1
             ? NoContent()
             : Problem(statusCode: 409, detail: "The reservation is not checked in or the bay is still occupied.");
+    }
+
+    private async Task<ReservationResponse> CustomerResponseAsync(Reservation reservation, CancellationToken ct)
+    {
+        var response = ToResponse(reservation);
+        if (reservation.Status is ReservationStatus.CheckedIn or ReservationStatus.Completed)
+        {
+            var invoice = await db.Invoices.AsNoTracking().Where(x => x.ReservationId == reservation.Id)
+                .Select(x => new { x.TotalAmount, x.Status }).SingleOrDefaultAsync(ct);
+            if (invoice is not null)
+                response = response with { InvoiceTotalAmount = invoice.TotalAmount, InvoiceStatus = invoice.Status.ToString() };
+        }
+        if (reservation.ChargingBayId is { } bayId)
+        {
+            var code = await db.ChargingBays.Where(x => x.Id == bayId).Select(x => x.Code).SingleAsync(ct);
+            var session = await db.ChargingSessions.Where(x => x.ReservationId == reservation.Id)
+                .Select(x => new { x.StartedAtUtc, x.CompletedAtUtc }).SingleOrDefaultAsync(ct);
+            return response with { ResourceCode = code, ChargingStartedAtUtc = session?.StartedAtUtc,
+                ChargingCompletedAtUtc = session?.CompletedAtUtc };
+        }
+
+        return response with { ResourceCode = await db.Batteries.Where(x => x.Id == reservation.BatteryId)
+            .Select(x => x.Serial).SingleAsync(ct) };
     }
 
     private ReservationResponse ToResponse(Reservation reservation)

@@ -25,7 +25,7 @@ public sealed record ReplaceHoursRequest([EnumDataType(typeof(ReservationService
 [ApiController]
 [Authorize(Roles = AppRoles.Operator)]
 [Route("api/operator/me")]
-public sealed class OperatorOperationsController(AppDbContext db, TimeProvider clock, ILocationCache cache, IStationNotifier? notifier = null, IOutboxService? outbox = null) : ControllerBase
+public sealed class OperatorOperationsController(AppDbContext db, TimeProvider clock, ILocationCache cache, IStationNotifier? notifier = null, IOutboxService? outbox = null, ReservationService? reservationService = null) : ControllerBase
 {
     [HttpGet("station")]
     public async Task<IActionResult> Station(CancellationToken ct)
@@ -42,12 +42,50 @@ public sealed class OperatorOperationsController(AppDbContext db, TimeProvider c
             .OrderBy(x => x.Serial).ToListAsync(ct);
         var hours = await db.Set<ServiceHours>().AsNoTracking().Where(x => x.LocationId == locationId)
             .OrderBy(x => x.ServiceType).ThenBy(x => x.Day).ThenBy(x => x.OpensAtMinute).ToListAsync(ct);
-        var reservations = await db.Set<Reservation>().AsNoTracking()
-            .Where(x => x.LocationId == locationId &&
-                (x.Status == ReservationStatus.CheckedIn || x.Status == ReservationStatus.Held && x.ExpiresAtUtc > clock.GetUtcNow()))
-            .OrderBy(x => x.ExpiresAtUtc)
-            .Select(x => new { x.Id, x.ChargingBayId, x.BatteryId, x.Status, x.ExpiresAtUtc, x.CheckedInAtUtc })
-            .ToListAsync(ct);
+        var visits = await (from reservation in db.Reservations.AsNoTracking()
+            join customer in db.Users.AsNoTracking() on reservation.CustomerId equals customer.Id into customers
+            from customer in customers.DefaultIfEmpty()
+            join session in db.ChargingSessions.AsNoTracking() on reservation.Id equals session.ReservationId into sessions
+            from session in sessions.DefaultIfEmpty()
+            where reservation.LocationId == locationId &&
+                (reservation.Status == ReservationStatus.Held || reservation.Status == ReservationStatus.CheckedIn)
+            select new
+            {
+                Reservation = reservation,
+                CustomerName = customer != null ? (!string.IsNullOrWhiteSpace(customer.FullName) ? customer.FullName : customer.Email) : null,
+                CustomerPhone = customer != null ? customer.PhoneNumber : null,
+                CustomerEmail = customer != null ? customer.Email : null,
+                Session = session,
+                Incident = db.IncidentReports.AsNoTracking()
+                    .Where(report => report.LocationId == reservation.LocationId &&
+                        report.ReservationId == reservation.Id &&
+                        report.ChargingBayId == reservation.ChargingBayId && report.BatteryId == reservation.BatteryId)
+                    .OrderByDescending(report => report.ReportedAtUtc).ThenByDescending(report => report.Id)
+                    .Select(report => new { report.Id, report.Description, report.Resolution })
+                    .FirstOrDefault()
+            }).ToListAsync(ct);
+        var now = clock.GetUtcNow();
+        var reservations = visits.Where(x => x.Reservation.Status == ReservationStatus.CheckedIn ||
+                x.Reservation.ExpiresAtUtc > now)
+            .OrderBy(x => x.Reservation.ExpiresAtUtc).ThenBy(x => x.Reservation.Id)
+            .Select(x => new
+            {
+                x.Reservation.Id,
+                Code = x.Reservation.Code,
+                x.Reservation.ChargingBayId,
+                x.Reservation.BatteryId,
+                Status = x.Reservation.Status.ToString(),
+                x.Reservation.ExpiresAtUtc,
+                x.Reservation.CheckedInAtUtc,
+                x.Reservation.VehicleArrivedAtUtc,
+                x.Reservation.NoChargeConfirmedAtUtc,
+                x.Reservation.VehicleDepartedAtUtc,
+                CustomerName = x.CustomerName,
+                CustomerPhone = x.CustomerPhone,
+                CustomerEmail = x.CustomerEmail,
+                Session = x.Session is null ? null : ChargingController.ToResponse(x.Session),
+                Incident = x.Incident is { Resolution: null } report ? new { report.Id, report.Description } : null
+            }).ToList();
         return Ok(new { location, bays, batteries, hours, reservations });
     }
 
@@ -57,11 +95,13 @@ public sealed class OperatorOperationsController(AppDbContext db, TimeProvider c
         if (!Enum.IsDefined(request.State)) return BadRequest();
         var locationId = await AssignedLocationAsync(ct);
         if (locationId is null) return NotFound();
+        var now = clock.GetUtcNow();
+        if (request.State == ChargerState.Faulted)
+            await (reservationService ?? new ReservationService(db, clock, outbox)).ExpireAtStationAsync(locationId.Value, ct);
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         if (!await ReservationLocks.LockOperatorStationAsync(db, locationId.Value, UserId(), ct)) return Forbid();
         var bay = await db.Set<ChargingBay>().SingleOrDefaultAsync(x => x.Id == id && x.LocationId == locationId, ct);
         if (bay is null) return NotFound();
-        var now = clock.GetUtcNow();
         if (request.State == ChargerState.Faulted && (bay.EquipmentState != ChargerState.Faulted ||
             !await db.IncidentReports.AnyAsync(x => x.ChargingBayId == id, ct)))
             await IncidentService.RecordFaultAsync(db, outbox, locationId.Value, id, null, UserId(), now,
@@ -83,6 +123,9 @@ public sealed class OperatorOperationsController(AppDbContext db, TimeProvider c
         if (!Enum.IsDefined(request.State)) return BadRequest();
         var locationId = await AssignedLocationAsync(ct);
         if (locationId is null) return NotFound();
+        var now = clock.GetUtcNow();
+        if (request.State == BatteryState.Faulted)
+            await (reservationService ?? new ReservationService(db, clock, outbox)).ExpireAtStationAsync(locationId.Value, ct);
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         if (!await ReservationLocks.LockOperatorStationAsync(db, locationId.Value, UserId(), ct)) return Forbid();
         var battery = await db.Set<Battery>().SingleOrDefaultAsync(x => x.Id == id && x.LocationId == locationId, ct);
@@ -114,7 +157,6 @@ public sealed class OperatorOperationsController(AppDbContext db, TimeProvider c
         if (next != BatteryState.Faulted && await db.Set<Reservation>().AnyAsync(x => x.BatteryId == id &&
             (x.Status == ReservationStatus.Held || x.Status == ReservationStatus.CheckedIn), ct))
             return Conflict("Resolve the existing reservation before changing this battery.");
-        var now = clock.GetUtcNow();
         if (next == BatteryState.Faulted)
             await IncidentService.RecordFaultAsync(db, outbox, locationId.Value, null, id, UserId(), now,
                 FaultDescription(request.Description), ct);

@@ -20,10 +20,17 @@ public sealed class IncidentService(AppDbContext db, TimeProvider clock, IOutbox
         Guid locationId, Guid? bayId, Guid? batteryId, Guid reporterId, DateTimeOffset now,
         string description, CancellationToken ct)
     {
-        var reservationId = await db.Reservations
+        var reservation = await db.Reservations
+            .FromSqlInterpolated($"""
+                SELECT * FROM reservations
+                WHERE "LocationId" = {locationId} AND
+                    "ChargingBayId" IS NOT DISTINCT FROM {bayId} AND "BatteryId" IS NOT DISTINCT FROM {batteryId}
+                FOR UPDATE
+                """)
             .Where(x => x.LocationId == locationId && x.ChargingBayId == bayId && x.BatteryId == batteryId &&
                 (x.Status == ReservationStatus.CheckedIn || x.Status == ReservationStatus.Held && x.ExpiresAtUtc > now))
-            .Select(x => (Guid?)x.Id).SingleOrDefaultAsync(ct);
+            .SingleOrDefaultAsync(ct);
+        var reservationId = reservation?.Id;
         var sessionId = bayId.HasValue && reservationId.HasValue
             ? await db.ChargingSessions.Where(x => x.ReservationId == reservationId)
                 .Select(x => (Guid?)x.Id).SingleOrDefaultAsync(ct)
@@ -40,9 +47,57 @@ public sealed class IncidentService(AppDbContext db, TimeProvider clock, IOutbox
             Action = "IncidentReported", ResourceType = nameof(IncidentReport),
             ResourceId = report.Id.ToString(), ActorId = reporterId, TimestampUtc = now
         });
+        if (reservation is not null && sessionId is null && reservation.VehicleArrivedAtUtc is null &&
+            (bayId == null || await db.ChargingBays.AnyAsync(x => x.Id == bayId &&
+                x.ParkingState == ParkingState.Vacant, ct)))
+        {
+            var candidate = await Candidates(db, report, now).FirstOrDefaultAsync(ct);
+            await ApplyResolutionAsync(db, outbox, report, reservation,
+                candidate is null ? IncidentResolution.Cancelled : IncidentResolution.Reassigned,
+                candidate?.Id, reporterId, now, ct);
+        }
         if (outbox is not null)
             await outbox.EnqueueAsync("IncidentReported", EventRoutingKeys.IncidentReported,
                 new IncidentReportedEvent(report.Id), ct);
+    }
+
+    private static async Task ApplyResolutionAsync(AppDbContext db, IOutboxService? outbox,
+        IncidentReport report, Reservation reservation, IncidentResolution resolution,
+        Guid? replacementId, Guid operatorId, DateTimeOffset now, CancellationToken ct)
+    {
+        if (resolution == IncidentResolution.Reassigned)
+        {
+            if (report.ChargingBayId.HasValue)
+                db.Entry(reservation).Property(x => x.ChargingBayId).CurrentValue = replacementId;
+            else
+                db.Entry(reservation).Property(x => x.BatteryId).CurrentValue = replacementId;
+            await ReservationTransitions.RecordDetailsChangeAsync(outbox, reservation, ct);
+        }
+        else
+        {
+            var entry = db.Entry(reservation);
+            entry.Property(x => x.Status).CurrentValue = ReservationStatus.Cancelled;
+            entry.Property(x => x.ClosedAtUtc).CurrentValue = now;
+            entry.Property(x => x.ClosedById).CurrentValue = operatorId;
+            entry.Property(x => x.ClosingReason).CurrentValue = FaultCancellationReason;
+            await ReservationTransitions.RecordAsync(db, outbox, reservation, ReservationStatus.Cancelled,
+                operatorId, now, ct, FaultCancellationReason);
+            if (outbox is not null)
+                await outbox.EnqueueAsync("IncidentReservationResolved", EventRoutingKeys.IncidentReservationResolved,
+                    new IncidentReservationResolvedEvent(reservation.CustomerId, null), ct);
+        }
+        RecordResolution(db, report, resolution, operatorId, now, replacementId);
+    }
+
+    private static void RecordResolution(AppDbContext db, IncidentReport report, IncidentResolution resolution,
+        Guid operatorId, DateTimeOffset now, Guid? replacementId)
+    {
+        report.Resolve(resolution, operatorId, now, replacementId);
+        db.AuditLogs.Add(new AuditLog
+        {
+            Action = "IncidentResolved", ResourceType = nameof(IncidentReport), ResourceId = report.Id.ToString(),
+            ActorId = operatorId, Details = resolution.ToString(), TimestampUtc = now
+        });
     }
 
     public IQueryable<IncidentReport> ForOperator(Guid operatorId) => db.IncidentReports.AsNoTracking()
@@ -59,7 +114,7 @@ public sealed class IncidentService(AppDbContext db, TimeProvider clock, IOutbox
         var now = clock.GetUtcNow();
         if (report.Resolution.HasValue || !await CanChangeReservationAsync(report, reservation, now, ct))
             return new IncidentOptions(false, []);
-        return new IncidentOptions(true, await Candidates(report, now).Take(50).ToListAsync(ct));
+        return new IncidentOptions(true, await Candidates(db, report, now).Take(50).ToListAsync(ct));
     }
 
     public async Task<(Guid? LocationId, string? Conflict)> ResolveAsync(Guid id, Guid operatorId,
@@ -94,39 +149,17 @@ public sealed class IncidentService(AppDbContext db, TimeProvider clock, IOutbox
             if (!canChange || reservation is null)
                 return (null, "This reservation can no longer be changed through the incident workflow.");
 
-            var options = Candidates(report, now);
-            string? replacementCode = null;
-            if (resolution == IncidentResolution.Reassigned)
-            {
-                var replacement = await options.SingleOrDefaultAsync(x => x.Id == replacementId, ct);
-                if (replacement is null) return (null, "The selected resource is no longer available.");
-                if (report.ChargingBayId.HasValue)
-                    db.Entry(reservation).Property(x => x.ChargingBayId).CurrentValue = replacement.Id;
-                else
-                    db.Entry(reservation).Property(x => x.BatteryId).CurrentValue = replacement.Id;
-                replacementCode = replacement.Code;
-            }
-            else
-            {
-                if (await options.AnyAsync(ct))
-                    return (null, "A replacement is available. Refresh the options and confirm reassignment.");
-                db.Entry(reservation).Property(x => x.Status).CurrentValue = ReservationStatus.Cancelled;
-                db.Entry(reservation).Property(x => x.ClosedAtUtc).CurrentValue = now;
-                db.Entry(reservation).Property(x => x.ClosedById).CurrentValue = operatorId;
-                db.Entry(reservation).Property(x => x.ClosingReason).CurrentValue = FaultCancellationReason;
-                await ReservationTransitions.RecordAsync(db, outbox, reservation, ReservationStatus.Cancelled,
-                    operatorId, now, ct, FaultCancellationReason);
-            }
-            await outbox.EnqueueAsync("IncidentReservationResolved", EventRoutingKeys.IncidentReservationResolved,
-                new IncidentReservationResolvedEvent(reservation.CustomerId, replacementCode), ct);
+            if (resolution == IncidentResolution.Reassigned &&
+                (replacementId is null || !await Candidates(db, report, now, replacementId).AnyAsync(ct)))
+                return (null, "The selected resource is no longer available.");
+            if (resolution == IncidentResolution.Cancelled && await Candidates(db, report, now).AnyAsync(ct))
+                return (null, "A replacement is available. Refresh the options and confirm reassignment.");
+
+            await ApplyResolutionAsync(db, outbox, report, reservation, resolution, replacementId, operatorId, now, ct);
         }
 
-        report.Resolve(resolution, operatorId, now, replacementId);
-        db.AuditLogs.Add(new AuditLog
-        {
-            Action = "IncidentResolved", ResourceType = nameof(IncidentReport), ResourceId = id.ToString(),
-            ActorId = operatorId, Details = resolution.ToString(), TimestampUtc = now
-        });
+        if (resolution == IncidentResolution.Recorded)
+            RecordResolution(db, report, resolution, operatorId, now, replacementId);
 
         try
         {
@@ -167,15 +200,17 @@ public sealed class IncidentService(AppDbContext db, TimeProvider clock, IOutbox
             x.State == BatteryState.Faulted, ct);
     }
 
-    private IQueryable<IncidentCandidate> Candidates(IncidentReport report, DateTimeOffset now)
+    private static IQueryable<IncidentCandidate> Candidates(AppDbContext db, IncidentReport report, DateTimeOffset now, Guid? id = null)
     {
         var active = db.Reservations.Where(x => x.Status == ReservationStatus.CheckedIn ||
             x.Status == ReservationStatus.Held && x.ExpiresAtUtc > now);
         if (report.ChargingBayId.HasValue)
-            return db.ChargingBays.Where(x => x.LocationId == report.LocationId && x.ParkingState == ParkingState.Vacant &&
+            return db.ChargingBays.Where(x => (id == null || x.Id == id) &&
+                    x.LocationId == report.LocationId && x.ParkingState == ParkingState.Vacant &&
                     x.EquipmentState == ChargerState.Active && !active.Any(r => r.ChargingBayId == x.Id))
                 .OrderBy(x => x.Code).Select(x => new IncidentCandidate(x.Id, x.Code));
-        return db.Batteries.Where(x => x.LocationId == report.LocationId && x.State == BatteryState.Ready &&
+        return db.Batteries.Where(x => (id == null || x.Id == id) &&
+                x.LocationId == report.LocationId && x.State == BatteryState.Ready &&
                 !active.Any(r => r.BatteryId == x.Id))
             .OrderBy(x => x.Serial).Select(x => new IncidentCandidate(x.Id, x.Serial));
     }

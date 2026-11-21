@@ -29,6 +29,7 @@ public sealed class Payment
 {
     public Guid Id { get; init; } = Guid.NewGuid();
     public Guid InvoiceId { get; init; }
+    public Guid? CollectedByOperatorId { get; init; }
     public decimal Amount { get; init; }
     public PaymentStatus Status { get; set; } = PaymentStatus.Pending;
     public DateTimeOffset CreatedAtUtc { get; init; }

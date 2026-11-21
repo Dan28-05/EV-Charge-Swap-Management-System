@@ -1,5 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -59,15 +62,35 @@ public sealed class NotificationConsumer : IConsumer
                 var ev = JsonSerializer.Deserialize<ReservationConfirmedEvent>(payload, JsonOptions);
                 if (ev is null) return;
 
+                var customer = await _db.Users.AsNoTracking()
+                    .Where(u => u.Id == ev.CustomerId)
+                    .Select(u => new { u.FullName, u.PhoneNumber, u.Email })
+                    .FirstOrDefaultAsync(ct);
+
+                var customerLabel = customer is not null && !string.IsNullOrWhiteSpace(customer.FullName)
+                    ? customer.FullName
+                    : "Quý khách";
+                var contactInfo = customer is not null
+                    ? (!string.IsNullOrWhiteSpace(customer.PhoneNumber) ? customer.PhoneNumber : customer.Email)
+                    : null;
+                var custSummary = !string.IsNullOrWhiteSpace(contactInfo)
+                    ? $"{customerLabel} ({contactInfo})"
+                    : customerLabel;
+
                 var notification = new Notification
                 {
+                    Id = messageId,
                     UserId = ev.CustomerId,
                     Title = "Xác nhận đặt chỗ thành công",
                     Message = $"Mã đặt chỗ {ev.Code} đã được xác nhận. Hết hạn giữ chỗ lúc {ev.ExpiresAtUtc.ToLocalTime():HH:mm dd/MM/yyyy}.",
                     Type = NotificationType.Info,
                     ActionUrl = "/reservations"
                 };
-                await SaveAndPublishNotificationAsync(notification, ct);
+                await SaveOnceAsync(notification, ct);
+                var service = ev.ServiceType == nameof(ReservationServiceType.Charging) ? "sạc ô tô" : "đổi pin";
+                await NotifyStationOperatorsAsync(ev.LocationId, ev.CreatedAtUtc, messageId,
+                    "Lượt đặt mới", $"Khách hàng {custSummary} đã đặt giữ chỗ {service}. Mã: {ev.Code}. Hạn giữ chỗ: {ev.ExpiresAtUtc.ToLocalTime():HH:mm}.", NotificationType.Info,
+                    $"/operator/dashboard?reservation={ev.ReservationId:D}", ct);
                 _logger.LogInformation("Saved reservation confirmation notification for customer {CustomerId}.", ev.CustomerId);
                 break;
             }
@@ -112,12 +135,51 @@ public sealed class NotificationConsumer : IConsumer
             {
                 var ev = JsonSerializer.Deserialize<PaymentSucceededEvent>(payload, JsonOptions);
                 if (ev is null) return;
-                await SaveIncidentNotificationAsync(new Notification
+
+                var invoiceInfo = await (from invoice in _db.Invoices.AsNoTracking()
+                    join customer in _db.Users.AsNoTracking() on invoice.CustomerId equals customer.Id into customers
+                    from customer in customers.DefaultIfEmpty()
+                    join payment in _db.Payments.AsNoTracking().Where(x => x.Status == PaymentStatus.Succeeded) on invoice.Id equals payment.InvoiceId into payments
+                    from payment in payments.DefaultIfEmpty()
+                    join collector in _db.Users.AsNoTracking() on payment.CollectedByOperatorId equals collector.Id into collectors
+                    from collector in collectors.DefaultIfEmpty()
+                    join reservation in _db.Reservations.AsNoTracking() on invoice.ReservationId equals reservation.Id into reservations
+                    from reservation in reservations.DefaultIfEmpty()
+                    where invoice.Id == ev.InvoiceId
+                    select new
+                    {
+                        CustomerName = customer != null ? customer.FullName : "Quý khách",
+                        CustomerPhone = customer != null ? customer.PhoneNumber : null,
+                        CustomerEmail = customer != null ? customer.Email : null,
+                        CollectorName = collector != null ? collector.FullName : null,
+                        LocationId = reservation != null ? (Guid?)reservation.LocationId : null,
+                        TotalAmount = invoice.TotalAmount,
+                        IsCash = payment != null && payment.CollectedByOperatorId.HasValue,
+                        Method = payment != null && payment.CollectedByOperatorId.HasValue ? "tiền mặt tại quầy" : "chuyển khoản VietQR",
+                        ReservationCode = reservation != null ? reservation.Code : null
+                    }).FirstOrDefaultAsync(ct);
+
+                var collectorSuffix = !string.IsNullOrEmpty(invoiceInfo?.CollectorName)
+                    ? $" Thu ngân: {invoiceInfo.CollectorName}."
+                    : "";
+
+                await SaveOnceAsync(new Notification
                 {
                     Id = messageId, UserId = ev.CustomerId, Title = "Thanh toán thành công",
-                    Message = "Hóa đơn của bạn đã được thanh toán.", ActionUrl = "/invoices",
+                    Message = $"Hóa đơn {(invoiceInfo?.TotalAmount ?? 0):N0} đ đã được thanh toán qua {invoiceInfo?.Method ?? "hệ thống"}.{collectorSuffix} Cảm ơn Quý khách {invoiceInfo?.CustomerName}!",
+                    ActionUrl = "/invoices",
                     Type = NotificationType.Success
                 }, ct);
+
+                if (invoiceInfo?.LocationId is { } locId)
+                {
+                    var custSummary = invoiceInfo.CustomerName + (!string.IsNullOrWhiteSpace(invoiceInfo.CustomerPhone) ? $" ({invoiceInfo.CustomerPhone})" : "");
+                    var title = invoiceInfo.IsCash ? "Thanh toán tiền mặt thành công" : "Khách đã thanh toán QR";
+                    await NotifyStationOperatorsAsync(locId, _clock.GetUtcNow(), messageId,
+                        title,
+                        $"Khách hàng {custSummary} đã thanh toán {(invoiceInfo.TotalAmount):N0} đ qua {invoiceInfo.Method}.{collectorSuffix}",
+                        NotificationType.Success, $"/operator/dashboard?invoice={ev.InvoiceId:D}", ct);
+                }
                 break;
             }
 
@@ -140,7 +202,7 @@ public sealed class NotificationConsumer : IConsumer
                 var ev = JsonSerializer.Deserialize<IncidentReservationResolvedEvent>(payload, JsonOptions);
                 if (ev is null) return;
                 var reassigned = ev.ReplacementCode is not null;
-                await SaveIncidentNotificationAsync(new Notification
+                await SaveOnceAsync(new Notification
                 {
                     Id = messageId,
                     UserId = ev.CustomerId,
@@ -172,24 +234,38 @@ public sealed class NotificationConsumer : IConsumer
                  report.BatteryId != null && _db.Batteries.Any(x => x.Id == report.BatteryId &&
                     x.State == BatteryState.Faulted && x.LocationId == report.LocationId)) &&
                 (reservation.Status == ReservationStatus.Held || reservation.Status == ReservationStatus.CheckedIn)
-            select new { reservation.CustomerId, reservation.Status, reservation.ExpiresAtUtc, report.ChargingBayId })
+            select new { reservation.Id, reservation.Status, reservation.ExpiresAtUtc,
+                report.LocationId, report.ReportedAtUtc })
             .SingleOrDefaultAsync(ct);
         if (affected is null ||
             (affected.Status == ReservationStatus.Held && affected.ExpiresAtUtc <= _clock.GetUtcNow()))
             return;
 
-        await SaveIncidentNotificationAsync(new Notification
-        {
-            Id = messageId,
-            UserId = affected.CustomerId,
-            Title = affected.ChargingBayId.HasValue ? "Trụ sạc đang gặp sự cố" : "Pin giữ chỗ đang gặp sự cố",
-            Message = "Thiết bị trong lượt đặt có sự cố. Vui lòng liên hệ nhân viên tại trạm để được hỗ trợ.",
-            Type = NotificationType.Warning,
-            ActionUrl = "/reservations"
-        }, ct);
+        await NotifyStationOperatorsAsync(affected.LocationId, affected.ReportedAtUtc, messageId,
+            "Lượt đặt bị ảnh hưởng", "Trụ sạc hoặc pin của lượt đặt gặp sự cố.",
+            NotificationType.Warning, $"/operator/dashboard?reservation={affected.Id:D}", ct);
     }
 
-    private async Task SaveIncidentNotificationAsync(Notification notification, CancellationToken ct)
+    private async Task NotifyStationOperatorsAsync(Guid locationId, DateTimeOffset occurredAt, Guid messageId,
+        string title, string message, NotificationType type, string actionUrl, CancellationToken ct)
+    {
+        var recipients = await _db.Set<OperatorAssignment>().AsNoTracking()
+            .Where(x => x.LocationId == locationId && x.EndedAtUtc == null)
+            .Select(x => new { x.OperatorId, x.AssignedAtUtc }).ToListAsync(ct);
+
+        foreach (var recipient in recipients.Where(x => x.AssignedAtUtc == null || x.AssignedAtUtc <= occurredAt))
+        {
+            // Keep one durable notification per event and recipient on RabbitMQ redelivery.
+            var hash = SHA256.HashData(Encoding.UTF8.GetBytes($"operator-notification:{messageId:N}:{recipient.OperatorId:N}"));
+            await SaveOnceAsync(new Notification
+            {
+                Id = new Guid(hash.AsSpan(0, 16)), UserId = recipient.OperatorId,
+                Title = title, Message = message, Type = type, ActionUrl = actionUrl, CreatedAtUtc = occurredAt
+            }, ct);
+        }
+    }
+
+    private async Task SaveOnceAsync(Notification notification, CancellationToken ct)
     {
         if (await _db.Notifications.AnyAsync(x => x.Id == notification.Id, ct)) return;
         try

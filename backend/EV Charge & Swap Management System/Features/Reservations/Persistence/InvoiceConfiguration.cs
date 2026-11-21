@@ -27,5 +27,9 @@ internal sealed class InvoiceConfiguration : IEntityTypeConfiguration<Invoice>
         builder.HasIndex(x => x.ReservationId).IsUnique();
         builder.HasIndex(x => new { x.CustomerId, x.CreatedAtUtc });
         builder.HasIndex(x => x.Status);
+        builder.HasIndex(x => new { x.CustomerId, x.DueAtUtc })
+            .HasFilter(""" "Status" = 'Pending' AND "DueAtUtc" IS NOT NULL """);
+        builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.DeferredByOperatorId)
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }

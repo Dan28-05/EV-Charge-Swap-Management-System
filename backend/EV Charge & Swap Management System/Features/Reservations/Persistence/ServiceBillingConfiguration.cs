@@ -33,6 +33,8 @@ internal sealed class ServiceBillingConfiguration : IEntityTypeConfiguration<Tar
     public void Configure(EntityTypeBuilder<Payment> builder)
     {
         builder.ToTable("payments", table => table.HasCheckConstraint("ck_payments_amount", """ "Amount" >= 0 """));
+        builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.CollectedByOperatorId)
+            .OnDelete(DeleteBehavior.Restrict);
         builder.Property(x => x.Amount).HasPrecision(15, 2);
         builder.Property(x => x.Status).HasConversion<string>().HasMaxLength(12);
         builder.HasIndex(x => x.InvoiceId, "ux_payments_pending").IsUnique().HasFilter(""" "Status" = 'Pending' """);

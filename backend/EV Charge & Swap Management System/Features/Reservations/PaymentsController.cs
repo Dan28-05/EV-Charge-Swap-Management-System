@@ -3,7 +3,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Cryptography;
 using System.Text;
 using EVChargeSwap.Common.Messaging;
-using EVChargeSwap.Common.Messaging.Events;
+using EVChargeSwap.Features.Reservations.Services;
 using EVChargeSwap.Data;
 using EVChargeSwap.Features.Authorization;
 using EVChargeSwap.Features.Reservations.Entities;
@@ -14,47 +14,53 @@ using Microsoft.EntityFrameworkCore;
 namespace EVChargeSwap.Features.Reservations;
 
 public sealed record MockPaymentEvent(Guid EventId, Guid PaymentId, Guid InvoiceId, decimal Amount, bool Succeeded);
-public sealed record MockPaymentResult(bool Succeeded);
+public sealed record MockPaymentResult(bool Succeeded, decimal? Amount = null);
+public sealed record QrPaymentResponse(Guid Id, Guid InvoiceId, decimal Amount, PaymentStatus Status,
+    DateTimeOffset CreatedAtUtc, DateTimeOffset? FinishedAtUtc, string QrPayload);
 
 [ApiController]
-[Authorize(Roles = AppRoles.Customer)]
+[Authorize(Roles = $"{AppRoles.Customer},{AppRoles.Operator},{AppRoles.Admin}")]
 public sealed class PaymentsController(AppDbContext db, TimeProvider clock, IOutboxService outbox,
-    IConfiguration configuration, IWebHostEnvironment environment) : ControllerBase
+    IConfiguration configuration, IWebHostEnvironment environment, InvoiceRealtime? realtime = null) : ControllerBase
 {
-    private string? SigningKey => configuration["MockPayments:WebhookSecret"] is { Length: >= 32 } key &&
-        environment.IsDevelopment() ? key : null;
+    private string? SigningKey => environment.IsDevelopment()
+        ? (configuration["MockPayments:WebhookSecret"] is { Length: >= 32 } key
+            ? key
+            : "evgo-mock-payments-dev-webhook-secret-min-32chars")
+        : (configuration["MockPayments:WebhookSecret"] is { Length: >= 32 } prodKey ? prodKey : null);
 
     [HttpPost("api/invoices/{invoiceId:guid}/pay")]
     public async Task<IActionResult> Create(Guid invoiceId, CancellationToken ct)
     {
         if (SigningKey is null) return Unavailable();
         await using var tx = await db.Database.BeginTransactionAsync(ct);
-        var invoice = await LockInvoiceAsync(invoiceId, ct);
-        if (invoice is null || invoice.CustomerId != UserId()) return NotFound();
+        var invoice = await Checkout.LockInvoiceAsync(db, invoiceId, ct);
+        if (invoice is null || !await CanAccessAsync(invoice, ct)) return NotFound();
         if (invoice.Status != InvoiceStatus.Pending)
             return Problem(statusCode: 409, detail: "Invoice is not payable.");
 
         var current = await db.Payments.SingleOrDefaultAsync(x => x.InvoiceId == invoiceId &&
             x.Status == PaymentStatus.Pending, ct);
-        if (current is not null) return Ok(current);
+        if (current is not null) return Ok(ToQrResponse(current));
 
         var payment = new Payment { InvoiceId = invoiceId, Amount = invoice.TotalAmount, CreatedAtUtc = clock.GetUtcNow() };
         db.Payments.Add(payment);
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
-        return StatusCode(201, payment);
+        return StatusCode(201, ToQrResponse(payment));
     }
 
     [HttpPost("api/payments/{id:guid}/mock-result")]
     public async Task<IActionResult> Simulate(Guid id, MockPaymentResult request, CancellationToken ct)
     {
         if (SigningKey is not { } key) return Unavailable();
-        var payment = await (from p in db.Payments.AsNoTracking()
-            join i in db.Invoices on p.InvoiceId equals i.Id
-            where p.Id == id && i.CustomerId == UserId()
-            select p).SingleOrDefaultAsync(ct);
-        if (payment is null) return NotFound();
-        var evt = new MockPaymentEvent(Guid.NewGuid(), id, payment.InvoiceId, payment.Amount, request.Succeeded);
+        var attempt = await (from payment in db.Payments.AsNoTracking()
+            join invoice in db.Invoices.AsNoTracking() on payment.InvoiceId equals invoice.Id
+            where payment.Id == id && payment.CollectedByOperatorId == null
+            select new { Payment = payment, Invoice = invoice }).SingleOrDefaultAsync(ct);
+        if (attempt is null || !await CanAccessAsync(attempt.Invoice, ct)) return NotFound();
+        var simulatedPayment = attempt.Payment;
+        var evt = new MockPaymentEvent(Guid.NewGuid(), id, simulatedPayment.InvoiceId, request.Amount ?? simulatedPayment.Amount, request.Succeeded);
         return await AcceptWebhookAsync(evt, Sign(evt, key), key, ct);
     }
 
@@ -82,13 +88,14 @@ public sealed class PaymentsController(AppDbContext db, TimeProvider clock, IOut
         if (prior is not null)
             return prior.PayloadHash == payloadHash ? NoContent() : Problem(statusCode: 409, detail: "Event ID conflict.");
 
-        var invoice = await LockInvoiceAsync(evt.InvoiceId, ct);
+        var invoice = await Checkout.LockInvoiceAsync(db, evt.InvoiceId, ct);
         var payment = await db.Payments.SingleOrDefaultAsync(x => x.Id == evt.PaymentId &&
             x.InvoiceId == evt.InvoiceId, ct);
-        if (payment is null || invoice is null || payment.Amount != evt.Amount || invoice.TotalAmount != evt.Amount)
-            return Problem(statusCode: 409, detail: "Payment does not match the invoice and amount.");
+        if (payment is null || invoice is null || payment.CollectedByOperatorId.HasValue)
+            return Problem(statusCode: 409, detail: "Payment does not match the invoice.");
 
-        var requested = evt.Succeeded ? PaymentStatus.Succeeded : PaymentStatus.Failed;
+        var wrongAmount = payment.Amount != evt.Amount || invoice.TotalAmount != evt.Amount;
+        var requested = evt.Succeeded && !wrongAmount ? PaymentStatus.Succeeded : PaymentStatus.Failed;
         if (payment.Status != PaymentStatus.Pending && payment.Status != requested ||
             payment.Status == PaymentStatus.Pending && invoice.Status != InvoiceStatus.Pending)
             return Problem(statusCode: 409, detail: "The payment cannot change to the requested state.");
@@ -99,13 +106,7 @@ public sealed class PaymentsController(AppDbContext db, TimeProvider clock, IOut
             payment.Status = requested;
             payment.FinishedAtUtc = now;
             if (requested == PaymentStatus.Succeeded)
-            {
-                invoice.Status = InvoiceStatus.Paid;
-                invoice.PaidAtUtc = now;
-                invoice.PaymentReference = $"MOCK-{payment.Id:N}";
-                await outbox.EnqueueAsync("PaymentSucceeded", EventRoutingKeys.PaymentSucceeded,
-                    new PaymentSucceededEvent(invoice.CustomerId, invoice.Id), ct);
-            }
+                await Checkout.SettleAsync(invoice, payment, now, outbox, ct);
         }
 
         db.PaymentWebhookEvents.Add(new PaymentWebhookEvent
@@ -114,7 +115,10 @@ public sealed class PaymentsController(AppDbContext db, TimeProvider clock, IOut
         });
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
-        return NoContent();
+        if (requested == PaymentStatus.Succeeded && realtime is not null)
+            await realtime.TryNotifyAsync(invoice.Id);
+        return wrongAmount ? Problem(statusCode: 409, detail: evt.Amount < invoice.TotalAmount
+            ? "Số tiền thấp hơn số tiền hóa đơn." : "Số tiền vượt quá số tiền hóa đơn.") : NoContent();
     }
 
     public static string Sign(MockPaymentEvent evt, string key) =>
@@ -134,11 +138,23 @@ public sealed class PaymentsController(AppDbContext db, TimeProvider clock, IOut
     private static byte[] Payload(MockPaymentEvent evt) => Encoding.UTF8.GetBytes(
         $"{evt.EventId:N}|{evt.PaymentId:N}|{evt.InvoiceId:N}|{evt.Amount.ToString("F2", CultureInfo.InvariantCulture)}|{(evt.Succeeded ? 1 : 0)}");
 
-    private Task<Invoice?> LockInvoiceAsync(Guid id, CancellationToken ct) =>
-        db.Invoices.FromSqlInterpolated($"""SELECT * FROM invoices WHERE "Id" = {id} FOR UPDATE""")
-            .SingleOrDefaultAsync(ct);
+    private static QrPaymentResponse ToQrResponse(Payment payment) =>
+        new(payment.Id, payment.InvoiceId, payment.Amount, payment.Status,
+            payment.CreatedAtUtc, payment.FinishedAtUtc, MockVietQr.Encode(payment));
 
-    private Guid UserId() => Guid.Parse(User.FindFirst(JwtRegisteredClaimNames.Sub)!.Value);
+    private async Task<bool> CanAccessAsync(Invoice invoice, CancellationToken ct)
+    {
+        if (User.IsInRole(AppRoles.Admin)) return true;
+        if (!TryGetUserId(out var userId)) return false;
+        if (invoice.CustomerId == userId) return true;
+        return User.IsInRole(AppRoles.Operator) && await db.Reservations.AnyAsync(r =>
+            r.Id == invoice.ReservationId && db.Set<OperatorAssignment>().Any(a =>
+                a.OperatorId == userId && a.LocationId == r.LocationId && a.EndedAtUtc == null), ct);
+    }
+
+    private bool TryGetUserId(out Guid id) =>
+        Guid.TryParse(User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
+            ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out id);
 
     private ObjectResult Unavailable() =>
         Problem(statusCode: 503, detail: "Mock payments require Development and a configured webhook secret.");

@@ -9,7 +9,7 @@ services:
     restart: unless-stopped
     environment:
       ASPNETCORE_ENVIRONMENT: Development
-      MockPayments__WebhookSecret: "${MOCK_PAYMENT_WEBHOOK_SECRET:-}"
+      MockPayments__WebhookSecret: "${MOCK_PAYMENT_WEBHOOK_SECRET:-evgo-mock-payments-dev-webhook-secret-min-32chars}"
       ASPNETCORE_HTTP_PORTS: "8080"
       HttpsRedirection__Enabled: "false"
       ConnectionStrings__Default: "Host=postgres;Port=5432;Database=ev_charge_swap;Username=ev_user;Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}"

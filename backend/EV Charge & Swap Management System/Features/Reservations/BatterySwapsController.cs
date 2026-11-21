@@ -19,11 +19,20 @@ public sealed record CompleteBatterySwapRequest(
     [Required, StringLength(64)] string IssuedSerial,
     [Required, StringLength(500)] string InspectionResult);
 
+public sealed record BatterySwapCompletionResponse(Guid Id, Guid ReservationId, Guid ReturnedBatteryId,
+    Guid IssuedBatteryId, Guid OperatorId, string InspectionResult, decimal AppliedRate,
+    DateTimeOffset CompletedAtUtc, Invoice Invoice)
+{
+    public static BatterySwapCompletionResponse From(BatterySwap swap, Invoice invoice) =>
+        new(swap.Id, swap.ReservationId, swap.ReturnedBatteryId, swap.IssuedBatteryId, swap.OperatorId,
+            swap.InspectionResult, swap.AppliedRate, swap.CompletedAtUtc, invoice);
+}
+
 [ApiController]
 [Authorize(Roles = AppRoles.Operator)]
 [Route("api/operator/me/battery-swaps")]
 public sealed class BatterySwapsController(AppDbContext db, TimeProvider clock, IOutboxService outbox,
-    IStationNotifier notifier) : ControllerBase
+    IStationNotifier notifier, InvoiceRealtime? realtime = null) : ControllerBase
 {
     [HttpPost("{reservationId:guid}/complete")]
     public async Task<IActionResult> Complete(Guid reservationId, CompleteBatterySwapRequest request, CancellationToken ct)
@@ -42,6 +51,21 @@ public sealed class BatterySwapsController(AppDbContext db, TimeProvider clock, 
             return NotFound();
 
         var reservation = await db.Reservations.AsNoTracking().SingleAsync(x => x.Id == reservationId, ct);
+        if (reservation.Status == ReservationStatus.Completed)
+        {
+            var inspection = request.InspectionResult.Trim();
+            var previous = await (from priorSwap in db.BatterySwaps
+                join returnedBattery in db.Batteries on priorSwap.ReturnedBatteryId equals returnedBattery.Id
+                join issuedBattery in db.Batteries on priorSwap.IssuedBatteryId equals issuedBattery.Id
+                join savedInvoice in db.Invoices on priorSwap.ReservationId equals savedInvoice.ReservationId
+                where priorSwap.ReservationId == reservationId && returnedBattery.Serial == returnedSerial &&
+                    issuedBattery.Serial == issuedSerial && priorSwap.InspectionResult == inspection
+                select new { Swap = priorSwap, Invoice = savedInvoice }).SingleOrDefaultAsync(ct);
+            return previous is null
+                ? Conflict("The completed swap does not match this request.")
+                : Ok(BatterySwapCompletionResponse.From(previous.Swap, previous.Invoice));
+        }
+
         if (reservation.Status != ReservationStatus.CheckedIn)
             return Problem(statusCode: 409, detail: "The battery reservation must be checked in.");
         var issued = await db.Batteries.SingleOrDefaultAsync(x => x.Id == reservation.BatteryId &&
@@ -74,6 +98,12 @@ public sealed class BatterySwapsController(AppDbContext db, TimeProvider clock, 
             IssuedBatteryId = issued.Id, OperatorId = operatorId, InspectionResult = request.InspectionResult.Trim(),
             AppliedRate = rate.Value, CompletedAtUtc = now };
         db.BatterySwaps.Add(swap);
+        var invoice = new Invoice
+        {
+            ReservationId = reservationId, CustomerId = reservation.CustomerId, KwhRate = 0m,
+            SwapRate = rate.Value, TotalAmount = rate.Value, CreatedAtUtc = now
+        };
+        await Checkout.AddInvoiceAsync(db, outbox, invoice, ct);
         await ReservationTransitions.RecordAsync(db, outbox, reservation, ReservationStatus.Completed, operatorId, now, ct);
         await outbox.EnqueueAsync("BatterySwapCompleted", EventRoutingKeys.BatterySwapCompleted,
             new BatterySwapCompletedEvent(reservationId, reservation.CustomerId, rate.Value), ct);
@@ -89,7 +119,8 @@ public sealed class BatterySwapsController(AppDbContext db, TimeProvider clock, 
         }
 
         await notifier.NotifyStationInventoryChangedAsync(id, ct);
-        return Ok(swap);
+        if (realtime is not null) await realtime.TryNotifyAsync(invoice.Id);
+        return Ok(BatterySwapCompletionResponse.From(swap, invoice));
     }
 
     private void UpdateCustody(Battery battery, BatteryState state, Guid? location, Guid? customer,

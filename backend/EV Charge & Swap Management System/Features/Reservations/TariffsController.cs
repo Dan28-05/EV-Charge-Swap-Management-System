@@ -11,12 +11,31 @@ namespace EVChargeSwap.Features.Reservations;
 
 public sealed record CreateTariffRequest(ReservationServiceType ServiceType, decimal UnitPrice,
     DateTimeOffset? EffectiveFromUtc);
+public sealed record CurrentStationTariffsResponse(decimal? Charging, decimal? BatterySwap);
 
 [ApiController]
 [Authorize(Roles = AppRoles.Operator)]
 [Route("api/operator/me/tariffs")]
 public sealed class TariffsController(AppDbContext db, TimeProvider clock) : ControllerBase
 {
+    [HttpGet("current")]
+    public async Task<ActionResult<CurrentStationTariffsResponse>> Current(CancellationToken ct)
+    {
+        var station = await StationAsync(ct);
+        var location = await db.Locations.AsNoTracking().SingleOrDefaultAsync(x => x.Id == station, ct);
+        if (location is null) return NotFound();
+
+        var now = clock.GetUtcNow();
+        decimal? charging = location.OffersCarCharging
+            ? await TariffLookup.FindAsync(db, location.Id, ReservationServiceType.Charging, now, ct)
+                ?? TariffLookup.LegacyChargingRate
+            : null;
+        var batterySwap = location.OffersBatterySwap
+            ? await TariffLookup.FindAsync(db, location.Id, ReservationServiceType.BatterySwap, now, ct)
+            : null;
+        return Ok(new CurrentStationTariffsResponse(charging, batterySwap));
+    }
+
     [HttpGet]
     public async Task<IActionResult> List(CancellationToken ct)
     {

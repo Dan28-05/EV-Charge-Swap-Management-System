@@ -20,7 +20,7 @@ public sealed record ChargingReservationStatusResponse(Guid ReservationId, Guid 
 [ApiController]
 [Authorize(Roles = AppRoles.Operator)]
 [Route("api/operator/me/charging-reservations")]
-public sealed class ChargingController(AppDbContext db, ChargingService service) : ControllerBase
+public sealed class ChargingController(AppDbContext db, ChargingService service, InvoiceRealtime? realtime = null) : ControllerBase
 {
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<ChargingReservationStatusResponse>> Get(Guid id, CancellationToken ct)
@@ -39,7 +39,8 @@ public sealed class ChargingController(AppDbContext db, ChargingService service)
 
     [HttpPost("{id:guid}/vehicle-arrived")]
     public async Task<IActionResult> VehicleArrived(Guid id, CancellationToken ct) =>
-        await service.VehicleArrivedAsync(id, UserId(), ct) ? NoContent() : Conflict("Vehicle arrival cannot be confirmed.");
+        await service.VehicleArrivedAsync(id, UserId(), ct) ? NoContent() :
+            Problem(statusCode: 409, detail: "Lượt đặt hoặc trạng thái chỗ đỗ đã thay đổi. Kiểm tra lại thông tin trên dashboard.");
 
     [HttpPost("{id:guid}/start")]
     public async Task<IActionResult> Start(Guid id, MeterReadingRequest request, CancellationToken ct)
@@ -49,9 +50,15 @@ public sealed class ChargingController(AppDbContext db, ChargingService service)
     }
 
     [HttpPost("{id:guid}/complete")]
-    public async Task<IActionResult> Complete(Guid id, MeterReadingRequest request, CancellationToken ct) =>
-        await service.CompleteAsync(id, UserId(), request.MeterKwh, ct)
-            ? NoContent() : Conflict("Charging cannot be completed for this reservation or meter reading.");
+    public async Task<IActionResult> Complete(Guid id, MeterReadingRequest request, CancellationToken ct)
+    {
+        if (!await service.CompleteAsync(id, UserId(), request.MeterKwh, ct))
+            return Conflict("Charging cannot be completed for this reservation or meter reading.");
+
+        var invoice = await db.Invoices.AsNoTracking().SingleAsync(x => x.ReservationId == id, ct);
+        if (realtime is not null) await realtime.TryNotifyAsync(invoice.Id);
+        return Ok(invoice);
+    }
 
     [HttpPost("{id:guid}/no-charge")]
     public async Task<IActionResult> NoCharge(Guid id, CancellationToken ct) =>

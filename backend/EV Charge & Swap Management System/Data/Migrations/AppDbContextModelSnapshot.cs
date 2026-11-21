@@ -612,6 +612,12 @@ namespace EVChargeSwap.Data.Migrations
                     b.Property<Guid>("CustomerId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("DeferredByOperatorId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("DueAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<decimal>("EnergyAmount")
                         .HasPrecision(15, 2)
                         .HasColumnType("numeric(15,2)");
@@ -649,12 +655,17 @@ namespace EVChargeSwap.Data.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("DeferredByOperatorId");
+
                     b.HasIndex("ReservationId")
                         .IsUnique();
 
                     b.HasIndex("Status");
 
                     b.HasIndex("CustomerId", "CreatedAtUtc");
+
+                    b.HasIndex("CustomerId", "DueAtUtc")
+                        .HasFilter(" \"Status\" = 'Pending' AND \"DueAtUtc\" IS NOT NULL ");
 
                     b.ToTable("invoices", (string)null);
                 });
@@ -705,6 +716,9 @@ namespace EVChargeSwap.Data.Migrations
                         .HasPrecision(15, 2)
                         .HasColumnType("numeric(15,2)");
 
+                    b.Property<Guid?>("CollectedByOperatorId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTimeOffset>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -720,6 +734,8 @@ namespace EVChargeSwap.Data.Migrations
                         .HasColumnType("character varying(12)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("CollectedByOperatorId");
 
                     b.HasIndex(new[] { "InvoiceId" }, "ux_payments_pending")
                         .IsUnique()
@@ -1440,6 +1456,11 @@ namespace EVChargeSwap.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("EVChargeSwap.Features.Users.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("DeferredByOperatorId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("EVChargeSwap.Features.Reservations.Entities.Reservation", null)
                         .WithMany()
                         .HasForeignKey("ReservationId")
@@ -1469,6 +1490,11 @@ namespace EVChargeSwap.Data.Migrations
 
             modelBuilder.Entity("EVChargeSwap.Features.Reservations.Entities.Payment", b =>
                 {
+                    b.HasOne("EVChargeSwap.Features.Users.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("CollectedByOperatorId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("EVChargeSwap.Features.Reservations.Entities.Invoice", null)
                         .WithMany()
                         .HasForeignKey("InvoiceId")

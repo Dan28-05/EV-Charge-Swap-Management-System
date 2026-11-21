@@ -21,4 +21,6 @@ public sealed class Invoice
     public string? PaymentReference { get; set; }
     public DateTimeOffset CreatedAtUtc { get; init; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? PaidAtUtc { get; set; }
+    public DateTimeOffset? DueAtUtc { get; set; }
+    public Guid? DeferredByOperatorId { get; set; }
 }

@@ -121,6 +121,9 @@ builder.Services.AddScoped<IInboxService, InboxService>();
 builder.Services.AddScoped<NotificationConsumer>();
 builder.Services.AddScoped<EmailDeliveryConsumer>();
 builder.Services.AddScoped<BillingConsumer>();
+builder.Services.AddScoped<InvoiceRealtimeConsumer>();
+builder.Services.AddScoped<EVChargeSwap.Features.Reservations.Services.InvoiceRealtime>();
+builder.Services.AddScoped<ReservationRealtimeConsumer>();
 builder.Services.AddHostedService<OutboxPublisherHostedService>();
 builder.Services.AddHostedService<RabbitMqConsumersHostedService>();
 builder.Services.AddIdentityCore<ApplicationUser>(options =>
@@ -159,6 +162,13 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         };
         options.Events = new JwtBearerEvents
         {
+            OnMessageReceived = context =>
+            {
+                if (context.HttpContext.Request.Path == "/hubs/notifications" &&
+                    context.Request.Query.TryGetValue("access_token", out var token) && token.Count == 1)
+                    context.Token = token[0];
+                return Task.CompletedTask;
+            },
             OnTokenValidated = async context =>
             {
                 var subject = context.Principal?.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
@@ -255,7 +265,8 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions
 });
 app.MapControllers();
 app.MapHub<StationHub>("/hubs/stations");
-app.MapHub<EVChargeSwap.Features.Users.Hubs.NotificationHub>("/hubs/notifications");
+app.MapHub<EVChargeSwap.Features.Users.Hubs.NotificationHub>("/hubs/notifications",
+    options => options.CloseOnAuthenticationExpiration = true);
 
 await using (var scope = app.Services.CreateAsyncScope())
 {

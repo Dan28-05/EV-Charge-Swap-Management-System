@@ -8,6 +8,11 @@ namespace EVChargeSwap.Features.Reservations.Services;
 
 internal static class ReservationTransitions
 {
+    public static Task RecordDetailsChangeAsync(IOutboxService? outbox, Reservation reservation, CancellationToken ct) =>
+        outbox?.EnqueueAsync(nameof(ReservationChangedEvent), EventRoutingKeys.ReservationDetailsChanged,
+            new ReservationChangedEvent(reservation.Id, reservation.CustomerId, reservation.LocationId), ct)
+        ?? Task.CompletedTask;
+
     // The caller saves the audit row and outbox message in the transaction that changes the reservation.
     public static async Task RecordAsync(AppDbContext db, IOutboxService? outbox, Reservation reservation,
         ReservationStatus status, Guid? actorId, DateTimeOffset occurredAtUtc, CancellationToken ct,

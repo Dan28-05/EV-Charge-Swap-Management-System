@@ -14,16 +14,20 @@ public sealed class ChargingService(AppDbContext db, TimeProvider clock, IOutbox
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var reservation = await LockedReservationAsync(reservationId, operatorId, ct);
         if (reservation?.ChargingBayId is not { } bayId || reservation.Status != ReservationStatus.CheckedIn ||
-            reservation.VehicleArrivedAtUtc is not null) return false;
+            reservation.VehicleDepartedAtUtc is not null) return false;
 
         var bay = await db.Set<ChargingBay>().SingleAsync(x => x.Id == bayId, ct);
+        if (reservation.VehicleArrivedAtUtc is not null)
+            return bay.ParkingState == ParkingState.Occupied;
         if (bay.ParkingState != ParkingState.Vacant) return false;
 
-        db.Entry(reservation).Property(x => x.VehicleArrivedAtUtc).CurrentValue = clock.GetUtcNow();
+        var now = clock.GetUtcNow();
+        db.Entry(reservation).Property(x => x.VehicleArrivedAtUtc).CurrentValue = now;
         db.Entry(reservation).Property(x => x.VehicleArrivedById).CurrentValue = operatorId;
         db.Entry(bay).Property(x => x.ParkingState).CurrentValue = ParkingState.Occupied;
         bay.StateUpdatedById = operatorId;
-        bay.StateUpdatedAtUtc = clock.GetUtcNow();
+        bay.StateUpdatedAtUtc = now;
+        await ReservationTransitions.RecordDetailsChangeAsync(outbox, reservation, ct);
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         return true;
@@ -50,6 +54,7 @@ public sealed class ChargingService(AppDbContext db, TimeProvider clock, IOutbox
             StartedAtUtc = now, StartMeterKwh = startMeterKwh, AppliedKwhRate = rate ?? TariffLookup.LegacyChargingRate
         };
         db.Add(session);
+        await ReservationTransitions.RecordDetailsChangeAsync(outbox, reservation, ct);
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         return session;
@@ -61,20 +66,30 @@ public sealed class ChargingService(AppDbContext db, TimeProvider clock, IOutbox
             decimal.Round(endMeterKwh, 3) != endMeterKwh) return false;
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var reservation = await LockedReservationAsync(reservationId, operatorId, ct);
-        if (reservation?.ChargingBayId is null || reservation.Status != ReservationStatus.CheckedIn ||
-            reservation.VehicleDepartedAtUtc is not null) return false;
+        if (reservation?.ChargingBayId is null) return false;
 
         var session = await db.Set<ChargingSession>().SingleOrDefaultAsync(x => x.ReservationId == reservationId, ct);
-        if (session is null || session.CompletedAtUtc is not null || endMeterKwh < session.StartMeterKwh) return false;
+        if (session is null) return false;
+        if (session.CompletedAtUtc is not null)
+            return session.EndMeterKwh == endMeterKwh &&
+                await db.Invoices.AnyAsync(x => x.ReservationId == reservationId, ct);
+        if (reservation.Status != ReservationStatus.CheckedIn || reservation.VehicleDepartedAtUtc is not null ||
+            endMeterKwh < session.StartMeterKwh) return false;
 
         var completedAt = clock.GetUtcNow();
         db.Entry(session).Property(x => x.CompletedAtUtc).CurrentValue = completedAt;
         db.Entry(session).Property(x => x.CompletedById).CurrentValue = operatorId;
         db.Entry(session).Property(x => x.EndMeterKwh).CurrentValue = endMeterKwh;
+        await ReservationTransitions.RecordDetailsChangeAsync(outbox, reservation, ct);
 
-        if (outbox is not null && reservation.ChargingBayId.HasValue)
+        var totalKwh = endMeterKwh - session.StartMeterKwh;
+        var invoice = Checkout.Charging(reservation, totalKwh,
+            session.AppliedKwhRate ?? TariffLookup.LegacyChargingRate, completedAt);
+        if (invoice.TotalAmount >= 10_000_000_000_000m) return false;
+        await Checkout.AddInvoiceAsync(db, outbox, invoice, ct);
+
+        if (outbox is not null)
         {
-            var totalKwh = endMeterKwh - session.StartMeterKwh;
             await outbox.EnqueueAsync(
                 "ChargingSessionCompleted",
                 EventRoutingKeys.ChargingSessionCompleted,
@@ -109,6 +124,7 @@ public sealed class ChargingService(AppDbContext db, TimeProvider clock, IOutbox
 
         db.Entry(reservation).Property(x => x.NoChargeConfirmedAtUtc).CurrentValue = clock.GetUtcNow();
         db.Entry(reservation).Property(x => x.NoChargeConfirmedById).CurrentValue = operatorId;
+        await ReservationTransitions.RecordDetailsChangeAsync(outbox, reservation, ct);
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         return true;

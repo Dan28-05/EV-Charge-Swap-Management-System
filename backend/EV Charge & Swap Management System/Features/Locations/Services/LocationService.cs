@@ -180,6 +180,18 @@ public sealed class LocationService(AppDbContext db, ILocationCache? cache = nul
             x.OffersCarCharging, x.OffersBatterySwap, x.OperatingStatus,
             x.IsOpen24Hours, x.ChargingPowerKw, x.BatteryCapacityKwh, x.AvailableBatteries, x.AvailableChargingBays);
 
+    public async Task<IReadOnlyList<StationInventoryUpdatedEvent>> GetInventorySnapshotAsync(
+        Guid[] locationIds, CancellationToken ct)
+    {
+        if (locationIds.Length == 0) return [];
+        var locations = await db.Locations.AsNoTracking().Where(x => x.IsActive && locationIds.Contains(x.Id))
+            .ToListAsync(ct);
+        var inventory = await WithLiveCountsAsync(locations.Select(ToResponse).ToList(), ct);
+        var now = DateTimeOffset.UtcNow;
+        return inventory.Select(x => new StationInventoryUpdatedEvent(
+            x.Id, x.AvailableChargingBays, x.AvailableBatteries, now)).ToList();
+    }
+
     private async Task<List<LocationResponse>> WithLiveCountsAsync(List<LocationResponse> locations, CancellationToken ct)
     {
         if (locations.Count == 0) return locations;

@@ -9,6 +9,7 @@ public static class EventRoutingKeys
     public const string ReservationExpired = "reservation.expired";
     public const string CustomerCheckedIn = "reservation.checked-in";
     public const string ReservationCompleted = "reservation.completed";
+    public const string ReservationDetailsChanged = "reservation.details.changed";
     public const string ChargingSessionCompleted = "charging.session.completed";
     public const string BatterySwapCompleted = "battery.swap.completed";
     public const string PaymentSucceeded = "payment.succeeded";
@@ -41,6 +42,7 @@ public sealed record ChargingSessionCompletedEvent(
 
 public sealed record BatterySwapCompletedEvent(Guid ReservationId, Guid CustomerId, decimal AppliedRate);
 public sealed record PaymentSucceededEvent(Guid CustomerId, Guid InvoiceId);
+public sealed record ReservationChangedEvent(Guid ReservationId, Guid CustomerId, Guid LocationId);
 
 public sealed record ReservationTransitionEvent(
     Guid ReservationId,

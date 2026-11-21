@@ -15,6 +15,8 @@ export const routes: Routes = [
     ],
   },
   { path: 'profile', loadComponent: () => import('./features/auth/profile/profile.component').then(m => m.ProfileComponent), title: 'Hồ sơ cá nhân — EVGo' },
+  { path: 'notifications', loadComponent: () => import('./features/notifications/notifications.component').then(m => m.NotificationsComponent), title: 'Thông báo — EVGo' },
+  { path: 'invoices', loadComponent: () => import('./features/invoices/invoices.component').then(m => m.InvoicesComponent), title: 'Hóa đơn — EVGo' },
   {
     path: 'operator/dashboard',
     loadComponent: () =>

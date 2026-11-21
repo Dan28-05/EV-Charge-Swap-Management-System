@@ -45,6 +45,8 @@
     @if (currentUser()) { <span class="nav-coming" title="Lịch sử sử dụng đang được phát triển">Lịch sử · Sắp có</span> }
 
     @if (currentUser(); as user) {
+      <a class="nav-item" routerLink="/notifications">Thông báo</a>
+      <a class="nav-item" routerLink="/invoices">Hóa đơn</a>
       <div class="user-pill">
         <span class="user-avatar" aria-hidden="true">{{
           user.fullName.charAt(0).toUpperCase()

@@ -72,6 +72,7 @@ Candidate integration events:
 - `ReservationCancelled`
 - `ReservationExpired`
 - `CustomerCheckedIn`
+- `ReservationCompleted`
 - `ChargingSessionCompleted`
 - `BatterySwapCompleted`
 - `InvoiceCreated`
@@ -168,6 +169,7 @@ Location operating status is a manually updated, public field (`Unknown`, `Open`
 
 1. Fifteen-minute holds for a specific resource.
 2. Database-enforced concurrency and one-active-reservation-per-customer rule.
+   Reservation creation also supports customer-scoped idempotency keys. Reservation status changes write the audit record and Outbox event in the same database transaction. PostgreSQL checks that a bay belongs to the reservation's station and that a battery belongs to that station while its reservation is active.
 3. Idempotent expiry job.
 4. Check-in, charging session, vehicle departure, and no-charge flow.
    The backend records Operator-confirmed vehicle arrival separately from check-in, permits one meter-backed charging session per reservation, and holds the bay until departure is confirmed. Customer and Operator UI for this flow is pending.
@@ -179,6 +181,8 @@ Location operating status is a manually updated, public field (`Unknown`, `Open`
 2. RabbitMQ topology.
 3. Notification Worker.
 4. Idempotent consumers, retry, and DLQ.
+
+Charging bay and battery faults create an [incident report](incident-report-erd.md) with an Outbox event in the equipment update transaction. The notification consumer informs affected customers. Operator commands revalidate the reservation and the candidate resource under the same station lock used by booking and charging. Incident changes, audit records and resolution events commit together.
 
 ### Phase 4 — Redis
 
@@ -196,7 +200,9 @@ Location operating status is a manually updated, public field (`Unknown`, `Open`
 ### Phase 6 — Billing and observability completion
 
 1. Tariffs, immutable applied prices, invoices, and payments.
+   Operators publish effective-dated tariffs at their assigned station. Charging snapshots the tariff at start and retains the demo rate as a fallback at stations without a charging tariff. Swap snapshots the tariff at handover and requires a configured rate. See the [service billing ERD](swap-billing-payment-erd.md).
 2. Verified idempotent payment webhooks.
+   Development mock callbacks use HMAC-SHA256 and persist the provider event ID alongside the payment and invoice update. PostgreSQL serializes each invoice's attempts and allows one successful payment per invoice.
 3. OpenTelemetry traces and business/infrastructure metrics.
 4. Demonstrable failure and recovery scenarios.
 

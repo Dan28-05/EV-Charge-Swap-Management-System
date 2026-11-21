@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using EVChargeSwap.Common.Messaging;
 using EVChargeSwap.Data;
 using EVChargeSwap.Features.Locations.Entities;
 using EVChargeSwap.Features.Reservations.Entities;
@@ -8,8 +9,9 @@ using Npgsql;
 
 namespace EVChargeSwap.Features.Reservations.Services;
 
-public sealed class ReservationService(AppDbContext db, TimeProvider clock)
+public sealed class ReservationService(AppDbContext db, TimeProvider clock, IOutboxService? outbox = null)
 {
+    private const int ExpiryBatchSize = 100;
     private static readonly TimeSpan VietnamOffset = TimeSpan.FromHours(7);
 
     public IQueryable<Reservation> Active => db.Set<Reservation>()
@@ -17,19 +19,44 @@ public sealed class ReservationService(AppDbContext db, TimeProvider clock)
 
     public Task<int> ExpireAsync(CancellationToken ct) => ExpireAsync(db.Set<Reservation>(), ct);
 
-    public async Task<(Reservation? Reservation, string? Conflict)> HoldAsync(
-        Guid customerId, Guid locationId, ReservationServiceType serviceType, CancellationToken ct)
+    internal Task<int> ExpireAtStationAsync(Guid locationId, CancellationToken ct) =>
+        ExpireAsync(db.Reservations.Where(x => x.LocationId == locationId), ct);
+
+    public async Task<(Reservation? Reservation, string? Conflict, bool Replayed)> HoldAsync(
+        Guid customerId, Guid locationId, ReservationServiceType serviceType, CancellationToken ct,
+        Guid? idempotencyKey = null)
     {
+        if (!Enum.IsDefined(serviceType) || idempotencyKey == Guid.Empty)
+            throw new ArgumentException("Invalid reservation service or idempotency key.");
+
         // Process elapsed holds even when the periodic job is delayed.
         await ExpireAsync(db.Set<Reservation>().Where(x => x.CustomerId == customerId || x.LocationId == locationId), ct);
 
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        if (idempotencyKey is { } key)
+        {
+            // Serialize retries for this key even if the requests name different stations.
+            var lockKey = $"reservation:{customerId:N}:{key:N}";
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT pg_advisory_xact_lock(hashtextextended({lockKey}, 0))", ct);
+            var existing = await db.Reservations.AsNoTracking()
+                .SingleOrDefaultAsync(x => x.CustomerId == customerId && x.IdempotencyKey == key, ct);
+            if (existing is not null)
+            {
+                var existingService = existing.ChargingBayId.HasValue
+                    ? ReservationServiceType.Charging : ReservationServiceType.BatterySwap;
+                return existing.LocationId == locationId && existingService == serviceType
+                    ? (existing, null, true)
+                    : (null, "Idempotency-Key was already used for a different reservation request.", false);
+            }
+        }
+
         var location = await db.Locations
             .FromSqlInterpolated($"SELECT * FROM locations WHERE id = {locationId} FOR UPDATE")
             .AsNoTracking().SingleOrDefaultAsync(ct);
 
         if (location is null || !location.IsActive)
-            return (null, null);
+            return (null, null, false);
 
         var now = clock.GetUtcNow();
         var local = now.ToOffset(VietnamOffset);
@@ -42,10 +69,10 @@ public sealed class ReservationService(AppDbContext db, TimeProvider clock)
             !await db.Set<ServiceHours>().AnyAsync(x => x.LocationId == locationId &&
                 x.ServiceType == serviceType && x.Day == local.DayOfWeek &&
                 x.OpensAtMinute <= minute && minute < x.ClosesAtMinute, ct))
-            return (null, "The requested service is not open for booking.");
+            return (null, "The requested service is not open for booking.", false);
 
         if (await Active.AnyAsync(x => x.CustomerId == customerId, ct))
-            return (null, "You already have an active reservation.");
+            return (null, "You already have an active reservation.", false);
 
         Guid? bayId = null;
         Guid? batteryId = null;
@@ -65,11 +92,12 @@ public sealed class ReservationService(AppDbContext db, TimeProvider clock)
         }
 
         if (bayId is null && batteryId is null)
-            return (null, "No resource is available for the requested service.");
+            return (null, "No resource is available for the requested service.", false);
 
         var reservation = new Reservation
         {
             CustomerId = customerId,
+            IdempotencyKey = idempotencyKey,
             LocationId = locationId,
             ChargingBayId = bayId,
             BatteryId = batteryId,
@@ -79,11 +107,13 @@ public sealed class ReservationService(AppDbContext db, TimeProvider clock)
         };
 
         db.Add(reservation);
+        await ReservationTransitions.RecordAsync(db, outbox, reservation, ReservationStatus.Held, customerId, now, ct);
+
         try
         {
             await db.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
-            return (reservation, null);
+            return (reservation, null, false);
         }
         catch (DbUpdateException ex) when (ex.InnerException is PostgresException
         {
@@ -92,40 +122,57 @@ public sealed class ReservationService(AppDbContext db, TimeProvider clock)
                 ReservationConfiguration.BayHoldIndex or ReservationConfiguration.BatteryHoldIndex
         })
         {
-            return (null, "An active reservation already holds the customer or resource.");
+            return (null, "An active reservation already holds the customer or resource.", false);
         }
     }
 
-    public Task<int> CancelAsync(Guid customerId, Guid id, CancellationToken ct)
+    public async Task<int> CancelAsync(Guid customerId, Guid id, CancellationToken ct)
     {
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
         var now = clock.GetUtcNow();
-        return db.Set<Reservation>().Where(x => x.Id == id && x.CustomerId == customerId &&
+        var updated = await db.Reservations.Where(x => x.Id == id && x.CustomerId == customerId &&
                 x.Status == ReservationStatus.Held && x.ExpiresAtUtc > now)
-            .ExecuteUpdateAsync(update => update.SetProperty(x => x.Status, ReservationStatus.Cancelled), ct);
+            .ExecuteUpdateAsync(update => update
+                .SetProperty(x => x.Status, ReservationStatus.Cancelled)
+                .SetProperty(x => x.ClosedAtUtc, now)
+                .SetProperty(x => x.ClosedById, customerId), ct);
+        if (updated == 0) return 0;
+        await RecordTransitionAsync(id, ReservationStatus.Cancelled, customerId, now, ct);
+        await tx.CommitAsync(ct);
+        return updated;
     }
 
-    public Task<int> CheckInAsync(Guid locationId, Guid operatorId, string code, CancellationToken ct)
+    public async Task<int> CheckInAsync(Guid locationId, Guid operatorId, string code, CancellationToken ct)
     {
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        if (!await ReservationLocks.LockOperatorStationAsync(db, locationId, operatorId, ct)) return 0;
         var now = clock.GetUtcNow();
-        return db.Set<Reservation>().Where(x => x.LocationId == locationId && x.Code == code &&
+        var reservationId = await db.Reservations.Where(x => x.LocationId == locationId && x.Code == code)
+            .Select(x => (Guid?)x.Id).SingleOrDefaultAsync(ct);
+        if (reservationId is not { } id) return 0;
+        var updated = await db.Reservations.Where(x => x.Id == id &&
                 x.Status == ReservationStatus.Held && x.ExpiresAtUtc > now &&
                 (x.ChargingBayId != null && db.Set<ChargingBay>().Any(b => b.Id == x.ChargingBayId &&
-                    b.EquipmentState == ChargerState.Active) ||
-                 x.BatteryId != null && db.Set<Battery>().Any(b => b.Id == x.BatteryId && b.State == BatteryState.Ready)) &&
-                db.Set<OperatorAssignment>().Any(a => a.LocationId == locationId && a.OperatorId == operatorId && a.EndedAtUtc == null))
+                    b.EquipmentState == ChargerState.Active && b.ParkingState == ParkingState.Vacant) ||
+                 x.BatteryId != null && db.Set<Battery>().Any(b => b.Id == x.BatteryId && b.State == BatteryState.Ready)))
             .ExecuteUpdateAsync(update => update
                 .SetProperty(x => x.Status, ReservationStatus.CheckedIn)
                 .SetProperty(x => x.CheckedInAtUtc, now)
                 .SetProperty(x => x.CheckedInById, operatorId), ct);
+        if (updated == 0) return 0;
+        await RecordTransitionAsync(id, ReservationStatus.CheckedIn, operatorId, now, ct);
+        await tx.CommitAsync(ct);
+        return updated;
     }
 
     // Called only after the operator confirms there was no service and the bay is clear.
-    public Task<int> CloseWithoutServiceAsync(Guid locationId, Guid operatorId, Guid reservationId, CancellationToken ct)
+    public async Task<int> CloseWithoutServiceAsync(Guid locationId, Guid operatorId, Guid reservationId, CancellationToken ct)
     {
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        if (!await ReservationLocks.LockOperatorStationAsync(db, locationId, operatorId, ct)) return 0;
         var now = clock.GetUtcNow();
-        return db.Set<Reservation>().Where(x => x.Id == reservationId && x.LocationId == locationId &&
+        var updated = await db.Reservations.Where(x => x.Id == reservationId && x.LocationId == locationId &&
                 x.Status == ReservationStatus.CheckedIn &&
-                db.Set<OperatorAssignment>().Any(a => a.LocationId == locationId && a.OperatorId == operatorId && a.EndedAtUtc == null) &&
                 (x.ChargingBayId == null || x.VehicleArrivedAtUtc == null &&
                     !db.Set<ChargingSession>().Any(s => s.ReservationId == x.Id) &&
                     db.Set<ChargingBay>().Any(b => b.Id == x.ChargingBayId &&
@@ -135,12 +182,44 @@ public sealed class ReservationService(AppDbContext db, TimeProvider clock)
                 .SetProperty(x => x.ClosingReason, x => x.ChargingBayId != null ? "DID_NOT_CHARGE" : "DID_NOT_SWAP")
                 .SetProperty(x => x.ClosedById, operatorId)
                 .SetProperty(x => x.ClosedAtUtc, now), ct);
+        if (updated == 0) return 0;
+        await RecordTransitionAsync(reservationId, ReservationStatus.Completed, operatorId, now, ct);
+        await tx.CommitAsync(ct);
+        return updated;
     }
 
-    private Task<int> ExpireAsync(IQueryable<Reservation> query, CancellationToken ct)
+    private async Task<int> ExpireAsync(IQueryable<Reservation> query, CancellationToken ct)
     {
         var now = clock.GetUtcNow();
-        return query.Where(x => x.Status == ReservationStatus.Held && x.ExpiresAtUtc <= now)
-            .ExecuteUpdateAsync(update => update.SetProperty(x => x.Status, ReservationStatus.Expired), ct);
+        var due = query.Where(x => x.Status == ReservationStatus.Held && x.ExpiresAtUtc <= now);
+        var total = 0;
+        while (true)
+        {
+            await using var tx = await db.Database.BeginTransactionAsync(ct);
+            var batch = await due.AsNoTracking().OrderBy(x => x.Id).Take(ExpiryBatchSize).ToListAsync(ct);
+            foreach (var reservation in batch)
+            {
+                // The status predicate is rechecked after concurrent writes to the row.
+                var updated = await due.Where(x => x.Id == reservation.Id).ExecuteUpdateAsync(update => update
+                    .SetProperty(x => x.Status, ReservationStatus.Expired)
+                    .SetProperty(x => x.ClosedAtUtc, now), ct);
+                if (updated == 0) continue;
+                await ReservationTransitions.RecordAsync(db, outbox, reservation, ReservationStatus.Expired, null, now, ct);
+                total++;
+            }
+
+            if (batch.Count == 0) return total;
+            await db.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
+            if (batch.Count < ExpiryBatchSize) return total;
+        }
+    }
+
+    private async Task RecordTransitionAsync(Guid id, ReservationStatus status, Guid actorId,
+        DateTimeOffset now, CancellationToken ct)
+    {
+        var reservation = await db.Reservations.AsNoTracking().SingleAsync(x => x.Id == id, ct);
+        await ReservationTransitions.RecordAsync(db, outbox, reservation, status, actorId, now, ct, reservation.ClosingReason);
+        await db.SaveChangesAsync(ct);
     }
 }

@@ -22,12 +22,19 @@ public sealed class ReservationsController(AppDbContext db, ReservationService s
 {
     [HttpPost]
     [Authorize(Roles = AppRoles.Customer)]
-    public async Task<ActionResult<ReservationResponse>> Hold(HoldRequest request, CancellationToken ct)
+    public async Task<ActionResult<ReservationResponse>> Hold(HoldRequest request,
+        [FromHeader(Name = "Idempotency-Key")] Guid? idempotencyKey, CancellationToken ct)
     {
         if (!TryGetUserId(out var userId)) return Unauthorized();
-        var result = await service.HoldAsync(userId, request.LocationId, request.ServiceType, ct);
+        if (idempotencyKey == Guid.Empty || Request.Headers["Idempotency-Key"].Count > 1 ||
+            (idempotencyKey is null && Request.Headers.ContainsKey("Idempotency-Key")))
+            return Problem(statusCode: 400, detail: "Idempotency-Key must be a single non-empty UUID.");
+
+        var result = await service.HoldAsync(userId, request.LocationId, request.ServiceType, ct, idempotencyKey);
         if (result.Reservation is { } reservation)
-            return CreatedAtAction(nameof(Get), new { id = reservation.Id }, ToResponse(reservation));
+            return result.Replayed
+                ? Ok(ToResponse(reservation))
+                : CreatedAtAction(nameof(Get), new { id = reservation.Id }, ToResponse(reservation));
 
         return result.Conflict is null ? NotFound() : Problem(statusCode: 409, detail: result.Conflict);
     }

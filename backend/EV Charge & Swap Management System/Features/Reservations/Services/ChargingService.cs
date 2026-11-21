@@ -1,3 +1,5 @@
+using EVChargeSwap.Common.Messaging;
+using EVChargeSwap.Common.Messaging.Events;
 using EVChargeSwap.Data;
 using EVChargeSwap.Features.Reservations.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -5,7 +7,7 @@ using Microsoft.EntityFrameworkCore;
 namespace EVChargeSwap.Features.Reservations.Services;
 
 // Every physical transition is initiated by an assigned Operator and serialized with booking at the station.
-public sealed class ChargingService(AppDbContext db, TimeProvider clock)
+public sealed class ChargingService(AppDbContext db, TimeProvider clock, IOutboxService? outbox = null)
 {
     public async Task<bool> VehicleArrivedAsync(Guid reservationId, Guid operatorId, CancellationToken ct)
     {
@@ -40,10 +42,12 @@ public sealed class ChargingService(AppDbContext db, TimeProvider clock)
         var bay = await db.Set<ChargingBay>().SingleAsync(x => x.Id == bayId, ct);
         if (bay.ParkingState != ParkingState.Occupied || bay.EquipmentState != ChargerState.Active) return null;
 
+        var now = clock.GetUtcNow();
+        var rate = await TariffLookup.FindAsync(db, reservation.LocationId, ReservationServiceType.Charging, now, ct);
         var session = new ChargingSession
         {
             ReservationId = reservationId, ChargingBayId = bayId, StartedById = operatorId,
-            StartedAtUtc = clock.GetUtcNow(), StartMeterKwh = startMeterKwh
+            StartedAtUtc = now, StartMeterKwh = startMeterKwh, AppliedKwhRate = rate ?? TariffLookup.LegacyChargingRate
         };
         db.Add(session);
         await db.SaveChangesAsync(ct);
@@ -63,9 +67,31 @@ public sealed class ChargingService(AppDbContext db, TimeProvider clock)
         var session = await db.Set<ChargingSession>().SingleOrDefaultAsync(x => x.ReservationId == reservationId, ct);
         if (session is null || session.CompletedAtUtc is not null || endMeterKwh < session.StartMeterKwh) return false;
 
-        db.Entry(session).Property(x => x.CompletedAtUtc).CurrentValue = clock.GetUtcNow();
+        var completedAt = clock.GetUtcNow();
+        db.Entry(session).Property(x => x.CompletedAtUtc).CurrentValue = completedAt;
         db.Entry(session).Property(x => x.CompletedById).CurrentValue = operatorId;
         db.Entry(session).Property(x => x.EndMeterKwh).CurrentValue = endMeterKwh;
+
+        if (outbox is not null && reservation.ChargingBayId.HasValue)
+        {
+            var totalKwh = endMeterKwh - session.StartMeterKwh;
+            await outbox.EnqueueAsync(
+                "ChargingSessionCompleted",
+                EventRoutingKeys.ChargingSessionCompleted,
+                new ChargingSessionCompletedEvent(
+                    session.Id,
+                    reservation.Id,
+                    reservation.CustomerId,
+                    reservation.ChargingBayId.Value,
+                    session.StartMeterKwh,
+                    endMeterKwh,
+                    totalKwh,
+                    session.StartedAtUtc,
+                    completedAt,
+                    session.AppliedKwhRate),
+                ct);
+        }
+
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         return true;
@@ -112,6 +138,8 @@ public sealed class ChargingService(AppDbContext db, TimeProvider clock)
         db.Entry(bay).Property(x => x.ParkingState).CurrentValue = ParkingState.Vacant;
         bay.StateUpdatedById = operatorId;
         bay.StateUpdatedAtUtc = now;
+        await ReservationTransitions.RecordAsync(db, outbox, reservation, ReservationStatus.Completed,
+            operatorId, now, ct, reservation.ClosingReason);
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         return true;
@@ -122,12 +150,7 @@ public sealed class ChargingService(AppDbContext db, TimeProvider clock)
         var locationId = await db.Set<Reservation>().AsNoTracking().Where(x => x.Id == id)
             .Select(x => (Guid?)x.LocationId).SingleOrDefaultAsync(ct);
         if (locationId is null) return null;
-        await db.Locations.FromSqlInterpolated($"SELECT * FROM locations WHERE id = {locationId.Value} FOR UPDATE")
-            .AsNoTracking().SingleAsync(ct);
-        var assignment = await db.Set<OperatorAssignment>()
-            .FromSqlInterpolated($"SELECT * FROM operator_assignments WHERE \"OperatorId\" = {operatorId} AND \"LocationId\" = {locationId.Value} AND \"EndedAtUtc\" IS NULL FOR UPDATE")
-            .AsNoTracking().SingleOrDefaultAsync(ct);
-        if (assignment is null) return null;
+        if (!await ReservationLocks.LockOperatorStationAsync(db, locationId.Value, operatorId, ct)) return null;
         return await db.Set<Reservation>().SingleAsync(x => x.Id == id, ct);
     }
 }

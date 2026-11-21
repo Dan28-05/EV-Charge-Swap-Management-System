@@ -24,7 +24,7 @@ Customer registration collects full name, email, Vietnamese mobile number, and p
 | Role | Primary permissions |
 | --- | --- |
 | **Customer** | Find locations, reserve/cancel, view history and invoices, and pay |
-| **Operator** | At assigned locations, edit per-service hours, update charging bay and battery states, confirm customers, operate charging/swaps, and report incidents |
+| **Operator** | At assigned locations, edit per-service hours, update charging bay and battery states, confirm customers, operate charging/swaps, report incidents, and manage charging tariffs when tariff management is available |
 | **Admin** | Manage location records and resource inventory, set initial service hours, assign Operators, manage pricing, and review reports |
 
 Unauthenticated users may view public information. The backend must enforce both role and location assignment on every relevant API. Hiding an Angular button is not authorization.
@@ -68,6 +68,7 @@ Version one supports **reserve to arrive now**, not future time-slot booking.
 - A Customer holds one specific charging bay or one specific battery for 15 minutes.
 - A Customer can have at most one active reservation.
 - Concurrent requests cannot both reserve the same bay or battery.
+- Clients can send a UUID in `Idempotency-Key` when creating a reservation. Repeating a successful request for the same customer, location and service returns the original reservation in its current state. Reusing the key for a different location or service returns a conflict.
 - A Customer can cancel before check-in.
 - A scheduled job expires `HELD` reservations older than 15 minutes. Repeated or delayed execution must not expire a checked-in reservation.
 - Every reservation has a single-use reservation code/QR for operator lookup.
@@ -88,6 +89,7 @@ Version one supports **reserve to arrive now**, not future time-slot booking.
 - A completed swap receives exactly one old battery and issues exactly one ready battery.
 - Only a `READY` battery at the correct location and not held by another reservation can be issued.
 - The swap records the responsible Operator and timestamps.
+- The Operator may receive a serial that is new to the system and register it in `INSPECTION` during the handover. An existing serial can be returned only when recorded in the current customer's custody. The issued battery must be the currently reserved battery.
 
 ### 3.7. Incidents
 
@@ -95,16 +97,20 @@ Version one supports **reserve to arrive now**, not future time-slot booking.
 - When a resource is faulted after being held, keep the reservation for incident resolution. New reservations exclude faulted resources. Changes to service hours apply to new reservations and do not revoke checked-in visits.
 - Public available-resource counts come from individual bays, batteries, and active reservations in PostgreSQL.
 - If a resource fails after reservation but before use, the system finds an alternative of the same service at the same location; the Operator confirms reassignment. If none exists, the reservation is cancelled with an incident reason and the Customer is notified.
+- Fault notifications inform affected customers. Reassignment or cancellation requires an Operator action.
 - `IncidentReport` links the resource, related usage when applicable, reporter, and resolution.
+- Reassignment preserves the original reservation code, status and expiry. A charging bay with a parked vehicle or a started charging session is handled through the existing charging workflow. The Operator can close its incident report independently.
 - Usage history supports investigation. The system must **not automatically conclude customer liability or create compensation charges**.
 
 ### 3.8. Pricing, invoices, and payments
 
-- Charging price is `(ending kWh − starting kWh) × unit price per kWh`.
+- A charging invoice contains only the cost of electricity, calculated as `(ending kWh − starting kWh) × unit price per kWh`.
+- When tariff management is available, Operators can record effective-dated charging tariffs for their assigned location. Every change records the Operator and timestamp.
 - Battery swap price is per battery/swap.
 - Snapshot the applied unit price on the session, swap, or invoice. Later tariff changes must not alter historical invoices.
 - Create an invoice after service completion and show its calculation to the Customer.
 - Use a sandbox or mock payment provider with a webhook flow.
+- The mock provider is enabled only in Development with a configured signing secret. Payment attempts stay pending until the authenticated callback. A failed attempt leaves the invoice payable.
 - The backend verifies webhook authenticity, invoice, and amount. Duplicate or concurrent valid webhooks record payment exactly once. Failed payments can be retried.
 
 ### 3.9. Notifications and reports

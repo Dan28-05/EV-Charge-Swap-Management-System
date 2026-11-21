@@ -7,6 +7,8 @@ using EVChargeSwap.Features.Locations.Services;
 using EVChargeSwap.Features.Users.Entities;
 using EVChargeSwap.Features.Users.Services;
 using EVChargeSwap.Common.Errors;
+using EVChargeSwap.Common.Messaging;
+using EVChargeSwap.Common.Messaging.Consumers;
 using EVChargeSwap.Health;
 using EVChargeSwap.Middleware;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -109,6 +111,18 @@ builder.Services.AddScoped<EVChargeSwap.Features.Reservations.Services.Reservati
 builder.Services.AddScoped<EVChargeSwap.Features.Reservations.Services.ChargingService>();
 builder.Services.AddScoped<EVChargeSwap.Features.Reservations.Services.OperatorAssignmentService>();
 builder.Services.AddHostedService<EVChargeSwap.Features.Reservations.Services.ReservationExpiryJob>();
+
+builder.Services.Configure<RabbitMqOptions>(
+    builder.Configuration.GetSection(RabbitMqOptions.SectionName));
+builder.Services.AddSingleton<IRabbitMqConnectionProvider, RabbitMqConnectionProvider>();
+builder.Services.AddScoped<IOutboxService, OutboxService>();
+builder.Services.AddScoped<EVChargeSwap.Features.Reservations.Services.IncidentService>();
+builder.Services.AddScoped<IInboxService, InboxService>();
+builder.Services.AddScoped<NotificationConsumer>();
+builder.Services.AddScoped<EmailDeliveryConsumer>();
+builder.Services.AddScoped<BillingConsumer>();
+builder.Services.AddHostedService<OutboxPublisherHostedService>();
+builder.Services.AddHostedService<RabbitMqConsumersHostedService>();
 builder.Services.AddIdentityCore<ApplicationUser>(options =>
     {
         options.User.RequireUniqueEmail = true;
@@ -241,6 +255,7 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions
 });
 app.MapControllers();
 app.MapHub<StationHub>("/hubs/stations");
+app.MapHub<EVChargeSwap.Features.Users.Hubs.NotificationHub>("/hubs/notifications");
 
 await using (var scope = app.Services.CreateAsyncScope())
 {

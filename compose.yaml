@@ -9,6 +9,7 @@ services:
     restart: unless-stopped
     environment:
       ASPNETCORE_ENVIRONMENT: Development
+      MockPayments__WebhookSecret: "${MOCK_PAYMENT_WEBHOOK_SECRET:-}"
       ASPNETCORE_HTTP_PORTS: "8080"
       HttpsRedirection__Enabled: "false"
       ConnectionStrings__Default: "Host=postgres;Port=5432;Database=ev_charge_swap;Username=ev_user;Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}"
@@ -22,12 +23,19 @@ services:
       BootstrapAdmin__Email: "${ADMIN_BOOTSTRAP_EMAIL:-}"
       BootstrapAdmin__FullName: "${ADMIN_BOOTSTRAP_FULL_NAME:-}"
       BootstrapAdmin__Password: "${ADMIN_BOOTSTRAP_PASSWORD:-}"
+      RabbitMq__Host: "${RABBITMQ_HOST:-rabbitmq}"
+      RabbitMq__Port: "${RABBITMQ_PORT:-5672}"
+      RabbitMq__Username: "${RABBITMQ_USER:-guest}"
+      RabbitMq__Password: "${RABBITMQ_PASSWORD:-guest}"
+      RabbitMq__VirtualHost: "${RABBITMQ_VHOST:-/}"
     ports:
       - "127.0.0.1:8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
@@ -90,6 +98,25 @@ services:
       timeout: 3s
       retries: 5
 
+  rabbitmq:
+    container_name: ev-charge-swap-rabbitmq-dev
+    image: rabbitmq:3-management-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+    ports:
+      - "127.0.0.1:5672:5672"
+      - "127.0.0.1:15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 volumes:
   postgres_data:
   redis_data:
+  rabbitmq_data:

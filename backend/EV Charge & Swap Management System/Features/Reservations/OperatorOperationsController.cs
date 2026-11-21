@@ -1,18 +1,22 @@
 using System.ComponentModel.DataAnnotations;
 using System.IdentityModel.Tokens.Jwt;
+using EVChargeSwap.Common.Messaging;
 using EVChargeSwap.Data;
 using EVChargeSwap.Features.Authorization;
 using EVChargeSwap.Features.Locations.Caching;
 using EVChargeSwap.Features.Locations.Services;
 using EVChargeSwap.Features.Reservations.Entities;
+using EVChargeSwap.Features.Reservations.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
 namespace EVChargeSwap.Features.Reservations;
 
-public sealed record ChangeBayStateRequest([EnumDataType(typeof(ChargerState))] ChargerState State);
-public sealed record ChangeBatteryStateRequest([EnumDataType(typeof(BatteryState))] BatteryState State);
+public sealed record ChangeBayStateRequest([EnumDataType(typeof(ChargerState))] ChargerState State,
+    [StringLength(500)] string? Description = null);
+public sealed record ChangeBatteryStateRequest([EnumDataType(typeof(BatteryState))] BatteryState State,
+    [StringLength(500)] string? Description = null);
 public sealed record ServiceIntervalRequest([Range(0, 1439)] int OpensAtMinute,
     [Range(1, 1440)] int ClosesAtMinute);
 public sealed record ReplaceHoursRequest([EnumDataType(typeof(ReservationServiceType))] ReservationServiceType ServiceType,
@@ -21,7 +25,7 @@ public sealed record ReplaceHoursRequest([EnumDataType(typeof(ReservationService
 [ApiController]
 [Authorize(Roles = AppRoles.Operator)]
 [Route("api/operator/me")]
-public sealed class OperatorOperationsController(AppDbContext db, TimeProvider clock, ILocationCache cache, IStationNotifier? notifier = null) : ControllerBase
+public sealed class OperatorOperationsController(AppDbContext db, TimeProvider clock, ILocationCache cache, IStationNotifier? notifier = null, IOutboxService? outbox = null) : ControllerBase
 {
     [HttpGet("station")]
     public async Task<IActionResult> Station(CancellationToken ct)
@@ -54,13 +58,18 @@ public sealed class OperatorOperationsController(AppDbContext db, TimeProvider c
         var locationId = await AssignedLocationAsync(ct);
         if (locationId is null) return NotFound();
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        await LockLocationAsync(locationId.Value, ct);
-        if (!await StillAssignedAsync(locationId.Value, ct)) return Forbid();
+        if (!await ReservationLocks.LockOperatorStationAsync(db, locationId.Value, UserId(), ct)) return Forbid();
         var bay = await db.Set<ChargingBay>().SingleOrDefaultAsync(x => x.Id == id && x.LocationId == locationId, ct);
         if (bay is null) return NotFound();
+        var now = clock.GetUtcNow();
+        if (request.State == ChargerState.Faulted && (bay.EquipmentState != ChargerState.Faulted ||
+            !await db.IncidentReports.AnyAsync(x => x.ChargingBayId == id, ct)))
+            await IncidentService.RecordFaultAsync(db, outbox, locationId.Value, id, null, UserId(), now,
+                FaultDescription(request.Description), ct);
         db.Entry(bay).Property(x => x.EquipmentState).CurrentValue = request.State;
         bay.StateUpdatedById = UserId();
-        bay.StateUpdatedAtUtc = clock.GetUtcNow();
+        bay.StateUpdatedAtUtc = now;
+
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
         await cache.InvalidateLocationAsync(locationId.Value, ct);
@@ -75,30 +84,43 @@ public sealed class OperatorOperationsController(AppDbContext db, TimeProvider c
         var locationId = await AssignedLocationAsync(ct);
         if (locationId is null) return NotFound();
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        await LockLocationAsync(locationId.Value, ct);
-        if (!await StillAssignedAsync(locationId.Value, ct)) return Forbid();
+        if (!await ReservationLocks.LockOperatorStationAsync(db, locationId.Value, UserId(), ct)) return Forbid();
         var battery = await db.Set<Battery>().SingleOrDefaultAsync(x => x.Id == id && x.LocationId == locationId, ct);
         if (battery is null) return NotFound();
         var next = request.State;
-        if (battery.State == next) return NoContent();
+        if (battery.State == next)
+        {
+            if (next == BatteryState.Faulted && !await db.IncidentReports.AnyAsync(x => x.BatteryId == id, ct))
+            {
+                await IncidentService.RecordFaultAsync(db, outbox, locationId.Value, null, id, UserId(),
+                    clock.GetUtcNow(), FaultDescription(request.Description), ct);
+                await db.SaveChangesAsync(ct);
+                await transaction.CommitAsync(ct);
+            }
+            return NoContent();
+        }
         if (battery.State == BatteryState.WithCustomer || next == BatteryState.WithCustomer)
             return Conflict("Customer battery assignments must be processed via the swap workflow.");
 
         var allowed = (battery.State, next) switch
         {
             (BatteryState.Ready, BatteryState.Charging or BatteryState.Inspection or BatteryState.Faulted) => true,
-            (BatteryState.Inspection, BatteryState.Charging or BatteryState.Ready or BatteryState.Faulted) => true,
+            (BatteryState.Inspection, BatteryState.Charging or BatteryState.Faulted) => true,
             (BatteryState.Charging, BatteryState.Ready or BatteryState.Inspection or BatteryState.Faulted) => true,
-            (BatteryState.Faulted, BatteryState.Inspection or BatteryState.Charging or BatteryState.Ready) => true,
+            (BatteryState.Faulted, BatteryState.Inspection) => true,
             _ => false
         };
         if (!allowed) return Conflict("This battery transition requires a service or inspection workflow.");
         if (next != BatteryState.Faulted && await db.Set<Reservation>().AnyAsync(x => x.BatteryId == id &&
             (x.Status == ReservationStatus.Held || x.Status == ReservationStatus.CheckedIn), ct))
             return Conflict("Resolve the existing reservation before changing this battery.");
+        var now = clock.GetUtcNow();
+        if (next == BatteryState.Faulted)
+            await IncidentService.RecordFaultAsync(db, outbox, locationId.Value, null, id, UserId(), now,
+                FaultDescription(request.Description), ct);
         db.Entry(battery).Property(x => x.State).CurrentValue = next;
         battery.StateUpdatedById = UserId();
-        battery.StateUpdatedAtUtc = clock.GetUtcNow();
+        battery.StateUpdatedAtUtc = now;
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
         await cache.InvalidateLocationAsync(locationId.Value, ct);
@@ -148,6 +170,9 @@ public sealed class OperatorOperationsController(AppDbContext db, TimeProvider c
         if (notifier is not null) await notifier.NotifyStationInventoryChangedAsync(locationId.Value, ct);
         return NoContent();
     }
+
+    private static string FaultDescription(string? description) =>
+        string.IsNullOrWhiteSpace(description) ? "Operator reported an equipment fault." : description.Trim();
 
     private Guid UserId() => Guid.Parse(User.FindFirst(JwtRegisteredClaimNames.Sub)!.Value);
 

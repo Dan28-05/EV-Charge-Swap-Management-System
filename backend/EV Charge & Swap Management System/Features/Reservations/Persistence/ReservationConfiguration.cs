@@ -24,6 +24,23 @@ internal sealed class ReservationConfiguration :
             table.HasCheckConstraint("ck_reservations_resource",
                 """("ChargingBayId" IS NULL) <> ("BatteryId" IS NULL)""");
             table.HasCheckConstraint("ck_reservations_expiry", """ "ExpiresAtUtc" > "CreatedAtUtc" """);
+            table.HasCheckConstraint("ck_reservations_lifecycle", """
+                (("CheckedInAtUtc" IS NULL) = ("CheckedInById" IS NULL))
+                AND (("VehicleArrivedAtUtc" IS NULL) = ("VehicleArrivedById" IS NULL))
+                AND (("VehicleDepartedAtUtc" IS NULL) = ("VehicleDepartedById" IS NULL))
+                AND (("NoChargeConfirmedAtUtc" IS NULL) = ("NoChargeConfirmedById" IS NULL))
+                AND ("VehicleArrivedAtUtc" IS NULL OR ("ChargingBayId" IS NOT NULL AND "CheckedInAtUtc" IS NOT NULL))
+                AND ("VehicleDepartedAtUtc" IS NULL OR ("VehicleArrivedAtUtc" IS NOT NULL AND "Status" = 'Completed'))
+                AND ("NoChargeConfirmedAtUtc" IS NULL OR "VehicleArrivedAtUtc" IS NOT NULL)
+                AND CASE "Status"
+                    WHEN 'Held' THEN "CheckedInAtUtc" IS NULL AND "ClosedAtUtc" IS NULL AND "ClosedById" IS NULL
+                    WHEN 'CheckedIn' THEN "CheckedInAtUtc" IS NOT NULL AND "ClosedAtUtc" IS NULL AND "ClosedById" IS NULL
+                    WHEN 'Completed' THEN "CheckedInAtUtc" IS NOT NULL AND "ClosedAtUtc" IS NOT NULL AND "ClosedById" IS NOT NULL
+                    WHEN 'Cancelled' THEN "ClosedAtUtc" IS NOT NULL AND "ClosedById" IS NOT NULL
+                    WHEN 'Expired' THEN "CheckedInAtUtc" IS NULL AND "ClosedAtUtc" IS NOT NULL AND "ClosedById" IS NULL
+                    ELSE FALSE
+                END
+                """);
         });
         builder.HasOne<Location>().WithMany().HasForeignKey(x => x.LocationId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.CustomerId).OnDelete(DeleteBehavior.Restrict);
@@ -38,6 +55,8 @@ internal sealed class ReservationConfiguration :
         builder.Property(x => x.Code).HasMaxLength(32);
         builder.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
         builder.HasIndex(x => x.Code).IsUnique();
+        builder.HasIndex(x => new { x.CustomerId, x.IdempotencyKey }, "ux_reservations_customer_request")
+            .IsUnique().HasFilter(""" "IdempotencyKey" IS NOT NULL """);
         builder.HasIndex(x => new { x.Status, x.ExpiresAtUtc });
         const string active = """ "Status" IN ('Held', 'CheckedIn') """;
         builder.HasIndex(x => x.CustomerId, CustomerHoldIndex).IsUnique().HasFilter(active);
@@ -62,6 +81,7 @@ internal sealed class ReservationConfiguration :
         builder.HasOne<Location>().WithMany().HasForeignKey(x => x.LocationId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.StateUpdatedById).OnDelete(DeleteBehavior.Restrict);
         builder.Property(x => x.Serial).HasMaxLength(64);
+        builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.CustodianCustomerId).OnDelete(DeleteBehavior.Restrict);
         builder.HasIndex(x => x.Serial).IsUnique();
     }
 
@@ -106,6 +126,7 @@ internal sealed class ChargingSessionConfiguration : IEntityTypeConfiguration<Ch
         builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.StartedById).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.CompletedById).OnDelete(DeleteBehavior.Restrict);
         builder.Property(x => x.StartMeterKwh).HasPrecision(12, 3);
+        builder.Property(x => x.AppliedKwhRate).HasPrecision(8, 2);
         builder.Property(x => x.EndMeterKwh).HasPrecision(12, 3);
         builder.HasIndex(x => x.ReservationId).IsUnique();
     }

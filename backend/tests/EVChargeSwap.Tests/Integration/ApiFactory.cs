@@ -22,6 +22,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Development");
+        builder.UseSetting("RabbitMq:Enabled", "false");
         builder.UseSetting("ConnectionStrings:Default", "Host=localhost;Database=unused_by_tests;Username=test");
         builder.UseSetting("Jwt:Issuer", "EVChargeSwap.Tests");
         builder.UseSetting("Jwt:Audience", "EVChargeSwap.Tests.Client");

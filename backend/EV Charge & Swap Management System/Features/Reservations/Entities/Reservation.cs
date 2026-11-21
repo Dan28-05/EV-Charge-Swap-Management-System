@@ -23,6 +23,7 @@ public sealed class Battery
     public Guid Id { get; init; } = Guid.NewGuid();
     public Guid? LocationId { get; init; }
     public string Serial { get; init; } = string.Empty;
+    public Guid? CustodianCustomerId { get; set; }
     public BatteryState State { get; init; } = BatteryState.Inspection;
     public Guid? StateUpdatedById { get; set; }
     public DateTimeOffset? StateUpdatedAtUtc { get; set; }
@@ -60,6 +61,7 @@ public sealed class Reservation
     public Guid? BatteryId { get; init; }
     public string Code { get; init; } = string.Empty;
     public DateTimeOffset CreatedAtUtc { get; init; }
+    public Guid? IdempotencyKey { get; init; }
     public DateTimeOffset ExpiresAtUtc { get; init; }
     public ReservationStatus Status { get; private set; } = ReservationStatus.Held;
     public DateTimeOffset? CheckedInAtUtc { get; private set; }
@@ -83,6 +85,7 @@ public sealed class ChargingSession
     public Guid StartedById { get; init; }
     public DateTimeOffset StartedAtUtc { get; init; }
     public decimal StartMeterKwh { get; init; }
+    public decimal? AppliedKwhRate { get; init; }
     public Guid? CompletedById { get; private set; }
     public DateTimeOffset? CompletedAtUtc { get; private set; }
     public decimal? EndMeterKwh { get; private set; }

@@ -1,4 +1,6 @@
 using EVChargeSwap.Data;
+using EVChargeSwap.Common.Messaging;
+using EVChargeSwap.Common.Messaging.Events;
 using EVChargeSwap.Features.Locations.Entities;
 using EVChargeSwap.Features.Reservations.Entities;
 using EVChargeSwap.Features.Reservations.Services;
@@ -10,6 +12,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging.Abstractions;
+using Npgsql;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using Xunit;
@@ -27,6 +31,96 @@ public sealed class ReservationPostgresFactAttribute : FactAttribute
 
 public sealed class ReservationsPostgresTests
 {
+    [ReservationPostgresFact]
+    public async Task Keyed_holds_and_transitions_commit_one_audit_and_outbox_per_change()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseNpgsql(Environment.GetEnvironmentVariable("EV_RESERVATIONS_TEST_DATABASE")).Options;
+        var clock = new BookingClock(new DateTimeOffset(2026, 11, 16, 2, 0, 0, TimeSpan.Zero));
+        await using var setup = new AppDbContext(options);
+        await setup.Database.MigrateAsync();
+        var station = new Location("Idempotency test", "Test address", 10, 106, true, true);
+        station.SetOperatingStatus(LocationOperatingStatus.Open);
+        var customer = NewUser();
+        var operatorUser = NewUser();
+        var bay = new ChargingBay { LocationId = station.Id, Code = "A01", PowerKw = 60 };
+        setup.AddRange(station, customer, operatorUser, bay,
+            new OperatorAssignment { LocationId = station.Id, OperatorId = operatorUser.Id },
+            new ServiceHours { LocationId = station.Id, Day = DayOfWeek.Monday,
+                ServiceType = ReservationServiceType.Charging, OpensAtMinute = 480, ClosesAtMinute = 1200 });
+        await setup.SaveChangesAsync();
+
+        async Task<T> Run<T>(Func<ReservationService, Task<T>> action)
+        {
+            await using var db = new AppDbContext(options);
+            var outbox = new OutboxService(db, NullLogger<OutboxService>.Instance);
+            return await action(new ReservationService(db, clock, outbox));
+        }
+
+        var key = Guid.NewGuid();
+        Task<(Reservation? Reservation, string? Conflict, bool Replayed)> Hold(
+            Guid requestKey, ReservationServiceType serviceType = ReservationServiceType.Charging) =>
+            Run(service => service.HoldAsync(customer.Id, station.Id, serviceType, default, requestKey));
+
+        var results = await Task.WhenAll(Hold(key), Hold(key));
+        var created = Assert.Single(results, x => !x.Replayed);
+        var held = Assert.IsType<Reservation>(created.Reservation);
+        Assert.Equal(held.Id, Assert.Single(results, x => x.Replayed).Reservation?.Id);
+        Assert.NotNull((await Hold(key, ReservationServiceType.BatterySwap)).Conflict);
+        Assert.Equal(1, await Run(service => service.CancelAsync(customer.Id, held.Id, default)));
+        Assert.Equal(0, await Run(service => service.CancelAsync(customer.Id, held.Id, default)));
+        Assert.Equal(ReservationStatus.Cancelled, (await Hold(key)).Reservation?.Status);
+
+        var next = Assert.IsType<Reservation>((await Hold(Guid.NewGuid())).Reservation);
+        var checkIns = await Task.WhenAll(
+            Run(service => service.CheckInAsync(station.Id, operatorUser.Id, next.Code, default)),
+            Run(service => service.CheckInAsync(station.Id, operatorUser.Id, next.Code, default)));
+        Assert.Equal(1, checkIns.Sum());
+        Assert.Equal(1, await Run(service => service.CloseWithoutServiceAsync(station.Id, operatorUser.Id, next.Id, default)));
+
+        var last = Assert.IsType<Reservation>((await Hold(Guid.NewGuid())).Reservation);
+        clock.Now = last.ExpiresAtUtc;
+        await Task.WhenAll(Run(service => service.ExpireAsync(default)), Run(service => service.ExpireAsync(default)));
+        Assert.Equal(ReservationStatus.Expired, (await setup.Reservations.AsNoTracking().SingleAsync(x => x.Id == last.Id)).Status);
+
+        foreach (var (reservation, routingKeys) in new[]
+        {
+            (held, new[] { EventRoutingKeys.ReservationConfirmed, EventRoutingKeys.ReservationCancelled }),
+            (next, new[] { EventRoutingKeys.ReservationConfirmed, EventRoutingKeys.CustomerCheckedIn, EventRoutingKeys.ReservationCompleted }),
+            (last, new[] { EventRoutingKeys.ReservationConfirmed, EventRoutingKeys.ReservationExpired })
+        })
+        {
+            var id = reservation.Id.ToString();
+            var audit = await setup.AuditLogs.AsNoTracking().Where(x => x.ResourceId == id).ToListAsync();
+            var outbox = await setup.OutboxMessages.AsNoTracking().Where(x => x.Payload.Contains(id))
+                .Select(x => x.RoutingKey).ToListAsync();
+            Assert.Equal(routingKeys.Length, audit.Count);
+            Assert.Equal(routingKeys.OrderBy(x => x), outbox.OrderBy(x => x));
+        }
+
+        var invalid = await Assert.ThrowsAsync<PostgresException>(() => setup.Database.ExecuteSqlInterpolatedAsync(
+            $"UPDATE reservations SET \"ClosedAtUtc\" = NULL WHERE \"Id\" = {last.Id}"));
+        Assert.Equal("ck_reservations_lifecycle", invalid.ConstraintName);
+        var otherStation = new Location("Other station", "Test address", 10, 106, true, true);
+        setup.Locations.Add(otherStation);
+        await setup.SaveChangesAsync();
+        var wrongStation = await Assert.ThrowsAsync<PostgresException>(() => setup.Database.ExecuteSqlInterpolatedAsync(
+            $"UPDATE reservations SET \"LocationId\" = {otherStation.Id} WHERE \"Id\" = {held.Id}"));
+        Assert.Equal("fk_reservations_bay_station", wrongStation.ConstraintName);
+
+        var battery = new Battery { LocationId = station.Id, Serial = Guid.NewGuid().ToString(), State = BatteryState.Ready };
+        setup.AddRange(battery, new ServiceHours { LocationId = station.Id, Day = DayOfWeek.Monday,
+            ServiceType = ReservationServiceType.BatterySwap, OpensAtMinute = 480, ClosesAtMinute = 1200 });
+        await setup.SaveChangesAsync();
+        var swapHold = Assert.IsType<Reservation>((await Hold(Guid.NewGuid(), ReservationServiceType.BatterySwap)).Reservation);
+        var heldBatteryMove = await Assert.ThrowsAsync<PostgresException>(() => setup.Database.ExecuteSqlInterpolatedAsync(
+            $"UPDATE batteries SET \"LocationId\" = {otherStation.Id} WHERE \"Id\" = {battery.Id}"));
+        Assert.Equal("ck_reservations_battery_station", heldBatteryMove.ConstraintName);
+        Assert.Equal(1, await Run(service => service.CancelAsync(customer.Id, swapHold.Id, default)));
+        Assert.Equal(1, await setup.Database.ExecuteSqlInterpolatedAsync(
+            $"UPDATE batteries SET \"LocationId\" = {otherStation.Id} WHERE \"Id\" = {battery.Id}"));
+    }
+
     [ReservationPostgresFact]
     public async Task Charging_lifecycle_keeps_bay_occupied_until_operator_confirms_departure()
     {
@@ -161,7 +255,7 @@ public sealed class ReservationsPostgresTests
         db.UserRoles.Add(new IdentityUserRole<Guid> { UserId = operatorUser.Id, RoleId = AppRoles.OperatorId });
         await db.SaveChangesAsync();
 
-        async Task<(Reservation? Reservation, string? Conflict)> Hold(Guid userId, Guid stationId, ReservationServiceType type)
+        async Task<(Reservation? Reservation, string? Conflict, bool Replayed)> Hold(Guid userId, Guid stationId, ReservationServiceType type)
         {
             await using var requestDb = new AppDbContext(options);
             return await new ReservationService(requestDb, clock).HoldAsync(userId, stationId, type, default);
@@ -229,6 +323,10 @@ public sealed class ReservationsPostgresTests
             .Where(x => x.Id == bay.Id).Select(x => x.StateUpdatedById).SingleAsync());
         Assert.IsType<NoContentResult>(await operations.ChangeBattery(newBatteryHold.BatteryId!.Value,
             new ChangeBatteryStateRequest(BatteryState.Faulted), default));
+        Assert.Equal(0, await service.CheckInAsync(location.Id, operatorUser.Id, newBatteryHold.Code, default));
+        Assert.IsType<ConflictObjectResult>(await operations.ChangeBattery(newBatteryHold.BatteryId!.Value,
+            new ChangeBatteryStateRequest(BatteryState.Inspection), default));
+        Assert.Equal(1, await service.CancelAsync(newBatteryHold.CustomerId, newBatteryHold.Id, default));
         // Verify warehouse transitions without roundabout faulting
         Assert.IsType<NoContentResult>(await operations.ChangeBattery(newBatteryHold.BatteryId!.Value,
             new ChangeBatteryStateRequest(BatteryState.Inspection), default));
@@ -241,7 +339,6 @@ public sealed class ReservationsPostgresTests
         // Put back to faulted so check-in assertion below remains valid
         Assert.IsType<NoContentResult>(await operations.ChangeBattery(newBatteryHold.BatteryId!.Value,
             new ChangeBatteryStateRequest(BatteryState.Faulted), default));
-        Assert.Equal(0, await service.CheckInAsync(location.Id, operatorUser.Id, newBatteryHold.Code, default));
         Assert.IsType<BadRequestObjectResult>(await operations.ReplaceHours(new ReplaceHoursRequest(
             ReservationServiceType.Charging, DayOfWeek.Monday,
             [new ServiceIntervalRequest(480, 700), new ServiceIntervalRequest(600, 800)]), default));

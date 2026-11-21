@@ -22,14 +22,15 @@ Tài liệu nguồn của dự án:
 | Middleware | Ghi method/path/status/thời gian xử lý và request ID; không ghi body, query string hoặc thông tin đăng nhập |
 | Health | Liveness của API và readiness kiểm tra kết nối database |
 | Tests | Unit test và HTTP integration test; integration dùng SQLite trong bộ nhớ |
-| GitHub Actions | Chỉ có thư mục giữ chỗ; chưa có workflow CI/CD |
+| GitHub Actions | Workflow backend chạy test với PostgreSQL riêng trên CI |
 | Users/JWT/RBAC | Đã có Identity, đăng ký Customer, JWT, refresh rotation/reuse detection, logout, xem/sửa họ tên hồ sơ, xác thực riêng email/số điện thoại, đổi và khôi phục mật khẩu, bootstrap Admin và Admin tạo Operator |
 | ChargingBays, Batteries, Reservations | Có API khai báo và cập nhật tài nguyên, sửa giờ phục vụ, giữ chỗ, hủy, hết hạn và check-in theo trạm; đồng bộ SignalR thời gian thực |
 | Operator Dashboard & Realtime | Giao diện Operator (`/operator/dashboard`) quản lý trụ sạc, pin, giờ phục vụ, check-in mã giữ chỗ; tự động đồng bộ thời gian thực sang bản đồ khách hàng |
 | ChargingSessions | Đã có backend: Operator xác nhận xe đỗ, bắt đầu/kết thúc phiên với chỉ số công tơ, xác nhận xe rời hoặc không sạc |
-| BatterySwaps, Invoice, Payment | Chưa triển khai |
+| Invoice | Hóa đơn điện theo đơn giá chốt lúc bắt đầu và hóa đơn đổi pin theo đơn giá lúc giao nhận |
+| BatterySwaps, Payment | Operator ghi nhận giao nhận pin. Customer xem hóa đơn và thử thanh toán qua webhook mock |
 | Angular / Station Finder | Trang công khai `/`: danh sách phân trang, bản đồ, chi tiết và chỉ đường; có giao diện desktop/mobile |
-| Thông báo nghiệp vụ | Chưa triển khai |
+| Thông báo nghiệp vụ | Có thông báo trong app cho lượt giữ, kết thúc sạc, hóa đơn và báo cáo hoặc xử lý sự cố ảnh hưởng lượt đặt |
 
 Các phần nghiệp vụ bên dưới là mục tiêu phát triển, không phải tính năng đã hoàn thành.
 
@@ -48,7 +49,7 @@ Các phần nghiệp vụ bên dưới là mục tiêu phát triển, không ph�
 | Vai trò | Quyền dự kiến |
 | --- | --- |
 | Customer | Tìm địa điểm, đặt/hủy, xem lịch sử và thanh toán |
-| Operator | Tại trạm được phân công, sửa giờ phục vụ, cập nhật trạng thái cổng sạc và pin, xác nhận khách đến, ghi nhận sử dụng và báo sự cố |
+| Operator | Tại trạm được phân công, sửa giờ phục vụ, cập nhật trạng thái cổng sạc và pin, xác nhận khách đến, ghi nhận sử dụng, báo sự cố và sau này nhập đơn giá sạc |
 | Admin | Quản lý trạm và danh mục tài nguyên, thiết lập lịch ban đầu, phân công nhân viên, quản lý giá và xem báo cáo |
 
 ### Đặt chỗ và xác nhận thực tế
@@ -65,9 +66,9 @@ Các phần nghiệp vụ bên dưới là mục tiêu phát triển, không ph�
 
 ### Tính phí và trách nhiệm
 
-- Ô tô: `(kWh cuối - kWh đầu) × đơn giá/kWh`. Chỉ số cuối không được nhỏ hơn chỉ số đầu.
+- Hóa đơn sạc chỉ tính tiền điện theo `(kWh cuối - kWh đầu) × đơn giá/kWh`. Chỉ số cuối phải lớn hơn hoặc bằng chỉ số đầu.
 - Đổi pin: giá một pin/lượt.
-- Lưu đơn giá áp dụng tại thời điểm sử dụng; đổi bảng giá không sửa hóa đơn cũ.
+- Hiện hóa đơn lưu đơn giá demo. Ở mốc bảng giá, Operator nhập đơn giá có thời điểm hiệu lực cho trạm được phân công. Phiên sạc lưu giá áp dụng khi bắt đầu.
 - Thanh toán dự kiến dùng sandbox/mock provider với webhook được xác minh và xử lý idempotency.
 - Lịch sử sử dụng và báo cáo sự cố dùng để truy vết. Không tự kết luận khách làm hỏng thiết bị hoặc tự tính bồi thường.
 
@@ -385,8 +386,11 @@ Backend hỗ trợ giữ chỗ sạc ô tô và giữ một pin xe máy trong 15
 | Admin | `GET /api/operators/{operatorId}/assignments` | Xem lịch sử phân công |
 | Operator | `GET /api/operators/me/location` | Xem trạm hiện đang phụ trách |
 | Operator | `GET /api/operator/me/station` | Xem cổng sạc, pin, giờ phục vụ và lượt đặt hiện tại của trạm |
-| Operator | `PATCH /api/operator/me/charging-bays/{id}/equipment-state` | `{ "state": 2 }` để báo cổng lỗi; 1 Active, 2 Faulted, 3 Maintenance |
-| Operator | `PATCH /api/operator/me/batteries/{id}/state` | `{ "state": 5 }` để báo pin lỗi; chuyển trạng thái theo quy tắc pin |
+| Operator | `PATCH /api/operator/me/charging-bays/{id}/equipment-state` | `{ "state": 2, "description": "Mất nguồn" }` để báo cổng lỗi; 1 Active, 2 Faulted, 3 Maintenance |
+| Operator | `PATCH /api/operator/me/batteries/{id}/state` | `{ "state": 5, "description": "Pin lỗi" }` để báo pin lỗi |
+| Operator | `GET /api/operator/me/incidents?page=1` | Tối đa 50 báo cáo chưa xử lý của trạm |
+| Operator | `GET /api/operator/me/incidents/{id}/options` | Kiểm tra lượt còn được xử lý và xem tài nguyên thay thế |
+| Operator | `POST /api/operator/me/incidents/{id}/resolve` | `resolution` là 1 để chuyển (kèm `replacementId`), 2 để hủy khi hết tài nguyên, 3 để đóng báo cáo và giữ nguyên lượt |
 | Operator | `PUT /api/operator/me/service-hours` | `{ "serviceType": 1, "day": 1, "intervals": [{ "opensAtMinute": 480, "closesAtMinute": 1200 }] }` |
 | Customer | `POST /api/reservations` | `{ "locationId": "<id>", "serviceType": 1 }` |
 | Customer | `GET /api/reservations/active` hoặc `GET /api/reservations/{id}` | Xem lượt của chính mình |
@@ -404,13 +408,30 @@ Backend hỗ trợ giữ chỗ sạc ô tô và giữ một pin xe máy trong 15
 `serviceType` là `1` cho sạc ô tô và `2` cho đổi pin. `day` dùng `0` cho Chủ nhật, `1` cho Thứ hai đến `6` cho Thứ bảy. Giờ phục vụ tính theo phút từ 00:00 theo giờ Việt Nam. Ví dụ `480–1200` là 08:00–20:00, còn `0–1440` là cả ngày. Tạo lịch riêng cho từng dịch vụ và từng ngày. Lịch qua đêm được nhập thành hai khoảng ở hai ngày.
 
 API chọn tài nguyên trong transaction PostgreSQL. Mỗi khách và mỗi tài nguyên chỉ có tối đa một lượt `Held` hoặc `CheckedIn`. Nếu trạm ngừng nhận đặt, khách đang có lượt hiệu lực hoặc tài nguyên đã hết, API trả `409`. Job chỉ chuyển lượt `Held` quá hạn sang `Expired`. Thời điểm hết hạn được kiểm tra khi hủy hoặc check-in, kể cả khi job chưa chạy.
+
+`POST /api/reservations` nhận header `Idempotency-Key` tùy chọn với một UUID khác rỗng. Lần tạo thành công trả `201`. Gửi lại cùng khóa, cùng trạm và dịch vụ trả `200` với đúng lượt cũ và trạng thái hiện tại. Khóa dùng lại cho trạm hoặc dịch vụ khác trả `409`. Khi khách chủ động bắt đầu lượt đặt mới, client dùng UUID mới.
+
+Các chuyển trạng thái `Held`, `Cancelled`, `Expired`, `CheckedIn` và `Completed` ghi audit và Outbox trong cùng transaction. Migration `HardenReservationLifecycle` kiểm tra metadata trạng thái trên dữ liệu mới hoặc được cập nhật. Hóa đơn và lượt cũ giữ nguyên dữ liệu lịch sử, kể cả lượt từng hủy hoặc hết hạn mà chưa có thời điểm đóng. Trụ phải thuộc đúng trạm, còn pin phải ở đúng trạm trong thời gian lượt đặt còn hiệu lực.
 API công khai hiện tính số cổng và pin khả dụng từ bảng tài nguyên cùng lượt giữ đang hoạt động. Các giá trị `available_charging_bays` và `available_batteries` cũ trong bảng `locations` không còn quyết định số hiển thị; dữ liệu seed chỉ có Location sẽ hiển thị 0 cho đến khi Admin khai báo cổng và pin. `OperatorResourceUpdates` thêm thông tin người và thời điểm cập nhật. Lượt đã giữ vẫn tồn tại khi Operator báo lỗi tài nguyên; xử lý chuyển hoặc hủy lượt đó thuộc luồng sự cố tiếp theo. Việc đổi giờ chỉ ảnh hưởng lượt mới.
+
+Dashboard Operator có mục **Sự cố chờ xử lý**. Khi báo trụ hoặc pin lỗi, API ghi mô tả, người báo và thời điểm. Báo cáo liên kết lượt đặt và phiên sạc nếu có. Việc xác nhận chuyển giữ nguyên mã và thời hạn đặt. Nếu trạm hết tài nguyên thay thế, Operator xác nhận hủy và hệ thống lưu lý do `RESOURCE_FAULT`. Khách xem kết quả chuyển hoặc hủy tại mục **Thông báo**. Với xe đã đỗ hoặc đang sạc, Operator tiếp tục xử lý trong mục phiên sạc. Áp dụng migration `AddIncidentReports` trước khi sử dụng.
 
 Quan hệ dữ liệu gồm một `Location` có nhiều `ChargingBay`, `Battery` và `ServiceHours`. Mỗi Operator có tối đa một `OperatorAssignment` đang hoạt động, còn một trạm có thể có nhiều Operator. Các bản ghi phân công đã kết thúc được giữ làm lịch sử. Mỗi `Reservation` trỏ tới một Customer, một Location và đúng một trong hai tài nguyên.
 
 `AddReservations` tạo các bảng backend. `OperatorAssignmentHistory` bổ sung lịch sử và ràng buộc mỗi Operator chỉ có một phân công đang hoạt động. `ChargingLifecycle` thêm mốc xe đến/rời, xác nhận không sạc và bảng `charging_sessions`; các cột mới trên reservation đều nullable để giữ dữ liệu cũ. Mỗi reservation có tối đa một phiên sạc, công tơ kết thúc phải lớn hơn hoặc bằng công tơ đầu. Chạy migration theo mục 6 trước khi gọi API. Để chạy test migration và tranh chỗ, đặt biến `EV_RESERVATIONS_TEST_DATABASE` thành connection string của **database PostgreSQL riêng cho test**, rồi chạy lệnh ở mục 9. Test này tự áp dụng migration.
 
-Frontend cho phiên sạc, giao nhận pin thực tế, tính phí và thanh toán thuộc các bước triển khai tiếp theo.
+### Đổi pin, bảng giá và thanh toán thử
+
+Áp dụng migration `AddSwapsTariffsAndPayments` trước khi chạy phiên bản mới. Trong dashboard Operator, đặt giá tại mục **Bảng giá tại trạm**. API `GET/POST /api/operator/me/tariffs` hỗ trợ giá theo dịch vụ và thời điểm hiệu lực tương lai. Bỏ `effectiveFromUtc` để áp dụng ngay. Trạm chưa có đơn giá sạc dùng giá demo 3.858 đ/kWh, còn đổi pin cần bảng giá trước khi giao nhận.
+
+Sau check-in, Operator chọn **Giao nhận pin** và nhập serial pin trả, serial pin đã giao cùng kết quả kiểm tra. API `POST /api/operator/me/battery-swaps/{reservationId}/complete` hoàn tất lượt và ghi nhận tồn kho trong một transaction. Pin trả vào `Inspection`, qua `Charging` trước khi trở lại `Ready`. Pin giao chuyển `WithCustomer` và lưu người đang giữ.
+
+Customer xem kết quả tại **Hóa đơn**. RabbitMQ xử lý hóa đơn từ sự kiện kết thúc sạc hoặc giao nhận. Để chạy thanh toán giả lập, cấu hình `MOCK_PAYMENT_WEBHOOK_SECRET` trong `.env` khi chạy Compose, hoặc đặt `MockPayments:WebhookSecret` trong user-secrets khi chạy API trên host. Dùng bí mật cục bộ ngẫu nhiên tối thiểu 32 ký tự. Mock hoạt động trong Development.
+
+- `POST /api/invoices/{invoiceId}/pay` tạo hoặc trả lượt thanh toán đang chờ của Customer.
+- `POST /api/payments/{id}/mock-result` mô phỏng kết quả bằng `{ "succeeded": true }` hoặc `false` và chạy cùng bộ xác minh webhook.
+- `POST /api/payments/mock/webhook` nhận `eventId`, `paymentId`, `invoiceId`, `amount`, `succeeded`. Header `X-EVGo-Signature` là hex HMAC-SHA256 của chuỗi UTF-8 `eventId|paymentId|invoiceId|amount|succeeded`. UUID viết dạng 32 ký tự hex thường, amount có hai chữ số thập phân và dùng dấu chấm, kết quả là `1` hoặc `0`.
+- Webhook thành công ghi nhận thanh toán một lần. Webhook thất bại kết thúc lượt thử hiện tại và giữ hóa đơn ở trạng thái chờ để khách thử lại.
 
 ## 8. Dữ liệu demo
 
@@ -451,13 +472,13 @@ dotnet ef migrations script --idempotent --project $apiProject --startup-project
 
 Review migration và SQL trước khi áp dụng. Không dùng `EnsureCreated()` cho PostgreSQL ứng dụng.
 
+`RemoveInvoiceParkingFees` giữ nguyên số tiền hóa đơn đã lưu và bỏ các cột phí đỗ. Migration dừng nếu phát hiện hóa đơn cũ đã ghi nhận thời gian hoặc tiền đỗ, để có thể rà soát dữ liệu trước khi nâng cấp. Dừng phiên bản consumer cũ trước khi chạy migration và khởi động lại API cùng consumer bằng phiên bản mới.
+
 Mỗi feature giữ entity, DTO, service, controller và mapping gần nhau. Controller chỉ điều phối HTTP, service xử lý use case, entity giữ điều kiện nghiệp vụ. Chỉ thêm abstraction, Common helper hoặc middleware khi có nhu cầu cụ thể; không tạo file rỗng để đủ tầng. Cấu hình CORS local hiện cho phép Angular tại `http://localhost:4200`.
 
 ## 11. GitHub CI/CD
 
-`.github/workflows/.gitkeep` chỉ để Git lưu thư mục. **Chưa có file YAML, pipeline, deploy hoặc secret GitHub nào được tạo.**
-
-Khi tự viết CI, có thể đặt workflow build/test trong thư mục này; CD sẽ phụ thuộc môi trường triển khai bạn chọn. Giữ secret bằng GitHub Secrets/environment của nơi deploy, không ghi vào YAML.
+`.github/workflows/backend-tests.yml` chạy bộ test backend trên push và pull request có thay đổi backend. Workflow tạo PostgreSQL dành riêng cho từng lần chạy và truyền `EV_RESERVATIONS_TEST_DATABASE` để chạy migration cùng các test tranh chỗ. Workflow này phục vụ CI kiểm thử.
 
 ## 12. ERD và lộ trình tiếp theo
 

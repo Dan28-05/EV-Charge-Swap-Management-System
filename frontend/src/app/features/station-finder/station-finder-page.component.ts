@@ -458,9 +458,6 @@ export class StationFinderPageComponent implements OnInit {
   }
 
   logout() {
-    this.authService.logout().subscribe({
-      next: () => this.currentUser.set(null),
-      error: () => this.currentUser.set(null),
-    });
+    this.authService.logout().subscribe();
   }
 }

@@ -100,7 +100,9 @@ describe('AuthService - Refresh Token & Session Management', () => {
 
     let errorMessage = '';
     service.refreshToken().subscribe({
-      next: () => fail('Should have failed'),
+      next: () => {
+        throw new Error('Should have failed');
+      },
       error: (err) => {
         errorMessage = err.statusText || 'Error';
       },
@@ -110,7 +112,7 @@ describe('AuthService - Refresh Token & Session Management', () => {
     req.flush({ title: 'Invalid Token' }, { status: 401, statusText: 'Unauthorized' });
 
     expect(service.session()).toBeNull();
-    expect(service.isAuthenticated()).toBeFalse();
+    expect(service.isAuthenticated()).toBe(false);
     expect(localStorage.getItem('evgo.auth')).toBeNull();
   });
 
@@ -119,14 +121,16 @@ describe('AuthService - Refresh Token & Session Management', () => {
 
     let errorThrown = false;
     service.refreshToken().subscribe({
-      next: () => fail('Should not succeed'),
+      next: () => {
+        throw new Error('Should not succeed');
+      },
       error: () => {
         errorThrown = true;
       },
     });
 
     httpMock.expectNone('/api/auth/refresh');
-    expect(errorThrown).toBeTrue();
+    expect(errorThrown).toBe(true);
   });
 
   it('should call server logout endpoint with refresh token and clear local session', () => {
@@ -143,9 +147,9 @@ describe('AuthService - Refresh Token & Session Management', () => {
 
     req.flush(null, { status: 204, statusText: 'No Content' });
 
-    expect(loggedOut).toBeTrue();
+    expect(loggedOut).toBe(true);
     expect(service.session()).toBeNull();
-    expect(service.isAuthenticated()).toBeFalse();
+    expect(service.isAuthenticated()).toBe(false);
     expect(localStorage.getItem('evgo.auth')).toBeNull();
   });
 });

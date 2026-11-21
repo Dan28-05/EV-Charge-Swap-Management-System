@@ -1,6 +1,6 @@
 # Architecture and Technology Roadmap
 
-Last updated: 2026-11-15
+Last updated: 2026-11-21
 
 This document records the intended architecture and the approved use of portfolio technologies. Technology is introduced to solve a concrete problem, not to increase the tool count.
 
@@ -89,6 +89,14 @@ Required reliability patterns:
 5. Record processed message IDs in an Inbox/consumer table when the side effect is not naturally idempotent.
 6. Use bounded retry for transient errors and a dead-letter queue for poison messages.
 7. Expose outbox backlog, retry, and DLQ metrics.
+
+The reservation realtime consumer handles committed reservation events through the Outbox. The authenticated notification hub sends the reservation ID only to the owning customer, while the public station hub publishes current availability. Clients read the authorized reservation API after an event or reconnect and keep periodic reconciliation as a fallback.
+
+Operators currently assigned to the station receive a private dashboard refresh signal. Public map subscriptions are bounded and return an availability snapshot when the connection is restored.
+
+The notification consumer stores Operator inbox items for new holds, incidents affecting a visit, and successful QR payments. It selects current station assignees whose assignment had begun when the event occurred, and uses a deterministic notification ID per event and recipient. SignalR tells the dashboard to refresh the inbox after the notification is saved.
+
+For a new hold, the API sends the station refresh signal immediately after the transaction commits. The Outbox remains available for delayed delivery, and duplicate refresh signals are safe because clients read current state.
 
 Failure demonstration required for the portfolio:
 
@@ -182,7 +190,7 @@ Location operating status is a manually updated, public field (`Unknown`, `Open`
 3. Notification Worker.
 4. Idempotent consumers, retry, and DLQ.
 
-Charging bay and battery faults create an [incident report](incident-report-erd.md) with an Outbox event in the equipment update transaction. The notification consumer informs affected customers. Operator commands revalidate the reservation and the candidate resource under the same station lock used by booking and charging. Incident changes, audit records and resolution events commit together.
+Charging bay and battery faults create an [incident report](incident-report-erd.md) with an Outbox event in the equipment update transaction. The Operator fault command reassigns or cancels an affected unused reservation under the same station lock used by booking and charging. Customer inbox notifications are created for fault cancellations. Reassignments publish a reservation refresh. Incident changes, audit records and resolution events commit together.
 
 ### Phase 4 — Redis
 
@@ -205,6 +213,13 @@ Charging bay and battery faults create an [incident report](incident-report-erd.
    Development mock callbacks use HMAC-SHA256 and persist the provider event ID alongside the payment and invoice update. PostgreSQL serializes each invoice's attempts and allows one successful payment per invoice.
 3. OpenTelemetry traces and business/infrastructure metrics.
 4. Demonstrable failure and recovery scenarios.
+
+#### V1 counter checkout
+
+- Create the invoice and its Outbox event in the same PostgreSQL transaction as service completion. Return the persisted invoice in the completion response. During the transition, handle already queued completion events idempotently and review completed legacy services that still lack invoices.
+- Use the existing payment model and invoice serialization for cash and QR. Enforce one successful payment per invoice in PostgreSQL. Store a nullable `CollectedByOperatorId` foreign key for new cash receipts and preserve legacy payment records. Persist the pay-later approval and UTC due time. Check for any pending invoice for the customer in the PostgreSQL reservation-creation transaction, after resolving any idempotent replay.
+- Pin the QR reference to [EMV QRCPS Merchant-Presented Mode v1.1, 27 November 2020](https://www.emvco.com/documents-search/?post_id=12643&type=specifications) for the dynamic payload structure. Use [NAPAS's VietQR announcement](https://napas.com.vn/napas-va-cac-ngan-hang-chinh-thuc-ra-mat-thuong-hieu-vietqr-va-dich-vu-chuyen-tien-nhanh-napas247-bang-ma-qr-182755.htm) for the Vietnam profile reference, which cites the State Bank's Decision 1928/QĐ-NHNN. The Development mock uses test-only recipient data, VND, the full invoice amount, a unique attempt reference and a valid payload checksum. Acceptance uses a decoder and a signed mock webhook, without bank routing or a claim of bank interoperability.
+- Commit the successful payment, invoice change and `PaymentSucceeded` Outbox event together. After commit, SignalR sends a refresh signal only to the owning customer and Operators currently assigned to the invoice's station. Reuse Outbox delivery for recovery. The clients reread authorized invoice state after a signal or reconnect and render the green check from the saved status.
 
 ## 7. Portfolio quality bar
 

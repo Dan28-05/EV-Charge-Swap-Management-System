@@ -69,7 +69,7 @@ Các phần nghiệp vụ bên dưới là mục tiêu phát triển, không ph�
 - Hóa đơn sạc chỉ tính tiền điện theo `(kWh cuối - kWh đầu) × đơn giá/kWh`. Chỉ số cuối phải lớn hơn hoặc bằng chỉ số đầu.
 - Đổi pin: giá một pin/lượt.
 - Hiện hóa đơn lưu đơn giá demo. Ở mốc bảng giá, Operator nhập đơn giá có thời điểm hiệu lực cho trạm được phân công. Phiên sạc lưu giá áp dụng khi bắt đầu.
-- Thanh toán dự kiến dùng sandbox/mock provider với webhook được xác minh và xử lý idempotency.
+- [Đặc tả thanh toán V1](docs/requirements.md#38-pricing-invoices-and-payments) đã chốt thu tiền mặt có lưu người thu, Mock Dynamic VietQR trong Development, trả sau 7 ngày và cập nhật lịch sử của khách lẫn Operator qua SignalR. Mục **Đổi pin, bảng giá và thanh toán thử** mô tả luồng hiện có.
 - Lịch sử sử dụng và báo cáo sự cố dùng để truy vết. Không tự kết luận khách làm hỏng thiết bị hoặc tự tính bồi thường.
 
 ## 3. Cấu trúc mã nguồn
@@ -287,10 +287,10 @@ npm ci
 npm start
 ```
 
-Mở **http://localhost:4200/**. Không cần đăng nhập để xem trạm. Nếu frontend Docker đang chiếm cổng 4200, dùng `npm start -- --port 4300` và mở http://localhost:4300/.
+Mở **http://localhost:4200/**. Không cần đăng nhập để xem trạm. Tài khoản Operator đã đăng nhập mở trang này sẽ được chuyển thẳng đến `/operator/dashboard`. Nếu frontend Docker đang chiếm cổng 4200, dùng `npm start -- --port 4300` và mở http://localhost:4300/.
 
 - Cấu hình URL API và tile map: `frontend/src/app/features/station-finder/station-finder.config.ts`. Mặc định API là `/api`.
-- Khi chạy Angular local, `frontend/proxy.conf.json` chuyển `/api/**` sang `http://localhost:8080`. Nếu chạy API bằng Visual Studio, đổi target theo cổng của API.
+- Khi chạy Angular local, `frontend/proxy.conf.json` chuyển cả `/api/**` và `/hubs/**` sang `http://localhost:8080`. Nếu chạy API bằng Visual Studio, đổi cả hai target theo cổng của API rồi khởi động lại Angular. Nếu cả `GET /api/operator/me/incidents` và `POST /hubs/notifications/negotiate?negotiateVersion=1` trả 404 khi gọi trực tiếp cổng 8080, kiểm tra phiên bản API và chạy lại `docker compose up -d --build postgres migrate api`. Hai đường dẫn này trả 401 khi gọi đúng API mà chưa đăng nhập.
 - Khi chạy Docker Compose, Nginx chuyển `/api/` sang `api:8080`; đường dẫn SPA vẫn trả về `index.html`. Build frontend dùng `npm ci` và output Angular `dist/*/browser`.
 - Nạp seed demo theo mục 8: 10 trạm trọng điểm mẫu hoặc 100 trạm sạc & đổi pin thực tế trải khắp các đô thị toàn quốc (TP.HCM, Hà Nội, Đà Nẵng, Quy Nhơn, Hải Phòng, Bình Dương, Cần Thơ, Nha Trang, Vũng Tàu...). Sau đó tải lại dashboard; nút **Tải thêm địa điểm** lấy 20 trạm mỗi lần. Danh sách và marker luôn dùng chung tập dữ liệu, loại trùng theo ID.
 - Feature nằm trong `features/station-finder/`: page điều phối trạng thái, `station-list/` hiển thị danh sách, `station-map/` quản lý Leaflet, `services/` gọi API và `models/` định nghĩa DTO. Chọn thẻ hoặc marker mở chi tiết từ API; Chỉ đường mở Google Maps bằng tọa độ đích.
@@ -373,6 +373,12 @@ Các response lỗi dùng Problem Details. Middleware thêm header `X-Request-ID
 
 ## Đặt chỗ qua API
 
+Customer và Operator dùng chung trang lịch sử thông báo. Từ chuông Operator, chọn **Xem tất cả thông báo**. API `GET /api/notifications?page=1&category=all` trả tối đa 20 tin mỗi trang theo tài khoản, cùng số tin chưa đọc và tổng số tin trong bộ lọc.
+
+Khách đã đăng nhập trên trang tìm trạm có chuông và thanh Dynamic Island cho thông báo mới. Thanh thu về chuông sau vài giây. Tin đặt chỗ mở phiếu hiện tại nếu còn hiển thị, tin hóa đơn mở lịch sử hóa đơn.
+
+Chuông trên dashboard Operator hiển thị số thông báo chưa đọc. RabbitMQ chuyển sự kiện lượt đặt mới, sự cố ảnh hưởng lượt đặt và thanh toán QR thành công đến bộ xử lý lưu thông báo cho nhân viên trạm. SignalR cập nhật chuông và hiển thị tin mới trong thanh Dynamic Island. Thanh tự thu về chuông sau vài giây, vẫn giữ tin chưa đọc cho đến khi Operator mở tin.
+
 Backend hỗ trợ giữ chỗ sạc ô tô và giữ một pin xe máy trong 15 phút. Seed địa điểm phục vụ demo bản đồ. Để đặt được tại một trạm, Admin cần đặt trạng thái vận hành `Open` và tạo tài nguyên cùng giờ phục vụ ban đầu cho dịch vụ tương ứng. Operator được phân công có thể sửa giờ phục vụ và cập nhật trạng thái từng cổng hoặc pin.
 
 | Vai trò | Endpoint | Body hoặc tham số |
@@ -397,7 +403,7 @@ Backend hỗ trợ giữ chỗ sạc ô tô và giữ một pin xe máy trong 15
 | Customer | `POST /api/reservations/{id}/cancel` | Hủy lượt còn hạn và chưa check-in |
 | Operator | `POST /api/reservations/check-in` | `{ "locationId": "<id>", "code": "<mã từ lượt đặt>" }` |
 | Operator | `POST /api/reservations/{id}/close-without-service?locationId=<id>` | Xác nhận khách không sử dụng dịch vụ và chỗ đỗ đã trống nếu là lượt sạc |
-| Operator | `POST /api/operator/me/charging-reservations/{id}/vehicle-arrived` | Xác nhận xe đã đỗ, chuyển bay sang `Occupied` |
+| Operator | `POST /api/operator/me/charging-reservations/{id}/vehicle-arrived` | Xác nhận xe đã đỗ. Gửi lại trong cùng lượt còn đang đỗ trả 204 và giữ nguyên lần xác nhận ban đầu |
 | Operator | `GET /api/operator/me/charging-reservations/{id}` | Xem trạng thái xe và phiên sạc của lượt tại trạm được phân công |
 | Operator | `POST /api/operator/me/charging-reservations/{id}/start` | `{ "meterKwh": 120.5 }` chỉ số công tơ bắt đầu |
 | Operator | `POST /api/operator/me/charging-reservations/{id}/complete` | `{ "meterKwh": 135.7 }` chỉ số kết thúc, bay vẫn `Occupied` |
@@ -411,10 +417,14 @@ API chọn tài nguyên trong transaction PostgreSQL. Mỗi khách và mỗi tà
 
 `POST /api/reservations` nhận header `Idempotency-Key` tùy chọn với một UUID khác rỗng. Lần tạo thành công trả `201`. Gửi lại cùng khóa, cùng trạm và dịch vụ trả `200` với đúng lượt cũ và trạng thái hiện tại. Khóa dùng lại cho trạm hoặc dịch vụ khác trả `409`. Khi khách chủ động bắt đầu lượt đặt mới, client dùng UUID mới.
 
-Các chuyển trạng thái `Held`, `Cancelled`, `Expired`, `CheckedIn` và `Completed` ghi audit và Outbox trong cùng transaction. Migration `HardenReservationLifecycle` kiểm tra metadata trạng thái trên dữ liệu mới hoặc được cập nhật. Hóa đơn và lượt cũ giữ nguyên dữ liệu lịch sử, kể cả lượt từng hủy hoặc hết hạn mà chưa có thời điểm đóng. Trụ phải thuộc đúng trạm, còn pin phải ở đúng trạm trong thời gian lượt đặt còn hiệu lực.
-API công khai hiện tính số cổng và pin khả dụng từ bảng tài nguyên cùng lượt giữ đang hoạt động. Các giá trị `available_charging_bays` và `available_batteries` cũ trong bảng `locations` không còn quyết định số hiển thị; dữ liệu seed chỉ có Location sẽ hiển thị 0 cho đến khi Admin khai báo cổng và pin. `OperatorResourceUpdates` thêm thông tin người và thời điểm cập nhật. Lượt đã giữ vẫn tồn tại khi Operator báo lỗi tài nguyên; xử lý chuyển hoặc hủy lượt đó thuộc luồng sự cố tiếp theo. Việc đổi giờ chỉ ảnh hưởng lượt mới.
+Phiếu đặt chỗ nhận tín hiệu cập nhật qua hub riêng `/hubs/notifications` khi lượt đổi trạng thái, chuyển tài nguyên hoặc cập nhật phiên sạc. Angular tải lại dữ liệu từ API sau tín hiệu và khi kết nối lại. Tồn kho công khai tiếp tục dùng `/hubs/stations`. Khi RabbitMQ hoặc SignalR tạm gián đoạn, phiếu còn hiệu lực vẫn được đồng bộ định kỳ qua API.
 
-Dashboard Operator có mục **Sự cố chờ xử lý**. Khi báo trụ hoặc pin lỗi, API ghi mô tả, người báo và thời điểm. Báo cáo liên kết lượt đặt và phiên sạc nếu có. Việc xác nhận chuyển giữ nguyên mã và thời hạn đặt. Nếu trạm hết tài nguyên thay thế, Operator xác nhận hủy và hệ thống lưu lý do `RESOURCE_FAULT`. Khách xem kết quả chuyển hoặc hủy tại mục **Thông báo**. Với xe đã đỗ hoặc đang sạc, Operator tiếp tục xử lý trong mục phiên sạc. Áp dụng migration `AddIncidentReports` trước khi sử dụng.
+Dashboard gửi yêu cầu tải lại khi Operator được phân công nhận tín hiệu thay đổi của trạm. Một lượt giữ mới phát tín hiệu trực tiếp sau khi PostgreSQL ghi nhận, đồng thời giữ sự kiện Outbox để chuyển tiếp qua RabbitMQ. API dashboard trả phiên sạc cùng danh sách lượt đang mở. Bản đồ đăng ký các trạm đã tải và nhận số chỗ hiện tại khi kết nối lại. Chỗ sạc bị giữ không còn đặt được từ lúc tạo lượt, chuyển sang có xe khi Operator xác nhận vào bãi và chỉ trở lại khả dụng sau khi xác nhận rời bãi, nếu thiết bị vẫn hoạt động.
+
+Các chuyển trạng thái `Held`, `Cancelled`, `Expired`, `CheckedIn` và `Completed` ghi audit và Outbox trong cùng transaction. Migration `HardenReservationLifecycle` kiểm tra metadata trạng thái trên dữ liệu mới hoặc được cập nhật. Hóa đơn và lượt cũ giữ nguyên dữ liệu lịch sử, kể cả lượt từng hủy hoặc hết hạn mà chưa có thời điểm đóng. Trụ phải thuộc đúng trạm, còn pin phải ở đúng trạm trong thời gian lượt đặt còn hiệu lực.
+API công khai hiện tính số cổng và pin khả dụng từ bảng tài nguyên cùng lượt giữ đang hoạt động. Các giá trị `available_charging_bays` và `available_batteries` cũ trong bảng `locations` không còn quyết định số hiển thị; dữ liệu seed chỉ có Location sẽ hiển thị 0 cho đến khi Admin khai báo cổng và pin. `OperatorResourceUpdates` thêm thông tin người và thời điểm cập nhật. Khi Operator báo hỏng trước lúc sử dụng, hệ thống tự chuyển lượt sang tài nguyên còn trống cùng trạm hoặc hủy nếu hết phương án. Việc đổi giờ chỉ ảnh hưởng lượt mới.
+
+Dashboard Operator cho phép báo lỗi từ danh sách trụ hoặc pin. API sự cố ghi mô tả, người báo, thời điểm và liên kết lượt đặt hoặc phiên sạc nếu có. Trước lúc sử dụng, báo hỏng sẽ tự chuyển lượt sang tài nguyên cùng loại còn trống và giữ nguyên mã cùng hạn đặt. Khi hết phương án, lượt tự hủy với lý do `RESOURCE_FAULT` và khách nhận thông báo. Với lượt đã vào bãi hoặc bắt đầu sạc, Operator tiếp tục xử lý phiên sạc và có thể đóng báo cáo. Khách xem kết quả tại mục **Thông báo**. Áp dụng migration `AddIncidentReports` trước khi sử dụng.
 
 Quan hệ dữ liệu gồm một `Location` có nhiều `ChargingBay`, `Battery` và `ServiceHours`. Mỗi Operator có tối đa một `OperatorAssignment` đang hoạt động, còn một trạm có thể có nhiều Operator. Các bản ghi phân công đã kết thúc được giữ làm lịch sử. Mỗi `Reservation` trỏ tới một Customer, một Location và đúng một trong hai tài nguyên.
 
@@ -422,13 +432,15 @@ Quan hệ dữ liệu gồm một `Location` có nhiều `ChargingBay`, `Battery
 
 ### Đổi pin, bảng giá và thanh toán thử
 
-Áp dụng migration `AddSwapsTariffsAndPayments` trước khi chạy phiên bản mới. Trong dashboard Operator, đặt giá tại mục **Bảng giá tại trạm**. API `GET/POST /api/operator/me/tariffs` hỗ trợ giá theo dịch vụ và thời điểm hiệu lực tương lai. Bỏ `effectiveFromUtc` để áp dụng ngay. Trạm chưa có đơn giá sạc dùng giá demo 3.858 đ/kWh, còn đổi pin cần bảng giá trước khi giao nhận.
+Áp dụng migration `AddSwapsTariffsAndPayments` trước khi chạy phiên bản mới. Ô **Giá tại trạm** trên header Operator hiển thị đơn giá đang áp dụng và mở bảng chỉnh giá khi bấm. API `GET /api/operator/me/tariffs/current` trả đơn giá hiện hành của từng dịch vụ. API `GET/POST /api/operator/me/tariffs` hỗ trợ giá theo dịch vụ và thời điểm hiệu lực tương lai. Bỏ `effectiveFromUtc` để áp dụng ngay. Trạm chưa có đơn giá sạc dùng giá demo 3.858 đ/kWh, còn đổi pin cần bảng giá trước khi giao nhận.
 
 Sau check-in, Operator chọn **Giao nhận pin** và nhập serial pin trả, serial pin đã giao cùng kết quả kiểm tra. API `POST /api/operator/me/battery-swaps/{reservationId}/complete` hoàn tất lượt và ghi nhận tồn kho trong một transaction. Pin trả vào `Inspection`, qua `Charging` trước khi trở lại `Ready`. Pin giao chuyển `WithCustomer` và lưu người đang giữ.
 
-Customer xem kết quả tại **Hóa đơn**. RabbitMQ xử lý hóa đơn từ sự kiện kết thúc sạc hoặc giao nhận. Để chạy thanh toán giả lập, cấu hình `MOCK_PAYMENT_WEBHOOK_SECRET` trong `.env` khi chạy Compose, hoặc đặt `MockPayments:WebhookSecret` trong user-secrets khi chạy API trên host. Dùng bí mật cục bộ ngẫu nhiên tối thiểu 32 ký tự. Mock hoạt động trong Development.
+Áp dụng migration `AddCounterCheckout` để dùng thanh toán tại quầy. Migration bổ sung hóa đơn còn thiếu cho các lượt đã hoàn tất và giữ nguyên các hóa đơn đã có. Operator kết thúc sạc hoặc giao nhận pin và thấy số tiền trong tab **Thanh toán**. Hóa đơn được ghi cùng giao dịch hoàn tất dịch vụ. Tại quầy, Operator xác nhận đã nhận đủ tiền mặt, hiển thị QR mô phỏng hoặc cho khách trả sau 7 ngày. Khách xem hạn trả và mở lại QR tại **Lịch sử hóa đơn**. Còn bất kỳ hóa đơn chưa thanh toán nào thì khách bị chặn đặt chỗ mới, kể cả khi chưa có hạn trả hoặc vẫn trong hạn 7 ngày. Thanh toán hết hóa đơn sẽ mở lại quyền đặt chỗ. SignalR yêu cầu hai màn hình tải lại sau khi thanh toán được ghi nhận. Để chạy thanh toán giả lập, cấu hình `MOCK_PAYMENT_WEBHOOK_SECRET` trong `.env` khi chạy Compose, hoặc đặt `MockPayments:WebhookSecret` trong user-secrets khi chạy API trên host. Dùng bí mật cục bộ ngẫu nhiên tối thiểu 32 ký tự. Mock hoạt động trong Development.
 
-- `POST /api/invoices/{invoiceId}/pay` tạo hoặc trả lượt thanh toán đang chờ của Customer.
+- `GET /api/invoices?page=1` trả lịch sử của khách hoặc của trạm được phân công.
+- `POST /api/operator/me/invoices/{invoiceId}/cash` ghi nhận thu đủ tiền mặt và lưu Operator. `POST /api/operator/me/invoices/{invoiceId}/defer` cho trả sau và giữ nguyên hạn nếu gửi lại.
+- `POST /api/invoices/{invoiceId}/pay` trả lượt đang chờ cùng payload QR cho khách sở hữu hóa đơn hoặc Operator tại trạm. QR dùng người nhận thử nghiệm và không chuyển tiền thật.
 - `POST /api/payments/{id}/mock-result` mô phỏng kết quả bằng `{ "succeeded": true }` hoặc `false` và chạy cùng bộ xác minh webhook.
 - `POST /api/payments/mock/webhook` nhận `eventId`, `paymentId`, `invoiceId`, `amount`, `succeeded`. Header `X-EVGo-Signature` là hex HMAC-SHA256 của chuỗi UTF-8 `eventId|paymentId|invoiceId|amount|succeeded`. UUID viết dạng 32 ký tự hex thường, amount có hai chữ số thập phân và dùng dấu chấm, kết quả là `1` hoặc `0`.
 - Webhook thành công ghi nhận thanh toán một lần. Webhook thất bại kết thúc lượt thử hiện tại và giữ hóa đơn ở trạng thái chờ để khách thử lại.

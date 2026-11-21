@@ -1,6 +1,6 @@
 # EV Charge & Swap Management System — Product Requirements
 
-Last updated: 2026-11-15
+Last updated: 2026-11-21
 
 This document is the product source of truth. The most important operating rule is: **operators at a location confirm events that happen in the physical world; scheduled jobs only process time-based events**.
 
@@ -76,7 +76,7 @@ Version one supports **reserve to arrive now**, not future time-slot booking.
 ### 3.5. Check-in and car charging
 
 - The Operator verifies the reservation code and changes the reservation to `CHECKED_IN`. **Check-in is not charging start.**
-- The Operator separately confirms that the car occupies the bay before a charging session can start.
+- The Operator separately confirms that the car occupies the bay before a charging session can start. Retrying this confirmation for the same checked-in visit while the car is still parked preserves the original time and Operator.
 - When the vehicle is parked and charging begins, the Operator creates a `ChargingSession` with start time and starting kWh reading.
 - At charging completion, the Operator records end time and ending kWh. Ending kWh cannot be below starting kWh.
 - **Charging completion does not mean vehicle departure.** The bay remains `OCCUPIED` and unavailable until the Operator confirms departure and changes it to `VACANT`.
@@ -94,10 +94,10 @@ Version one supports **reserve to arrive now**, not future time-slot booking.
 ### 3.7. Incidents
 
 - Operators can report a charging bay or battery fault with description and timestamp.
-- When a resource is faulted after being held, keep the reservation for incident resolution. New reservations exclude faulted resources. Changes to service hours apply to new reservations and do not revoke checked-in visits.
+- New reservations exclude faulted resources. Changes to service hours apply to new reservations and do not revoke checked-in visits.
 - Public available-resource counts come from individual bays, batteries, and active reservations in PostgreSQL.
-- If a resource fails after reservation but before use, the system finds an alternative of the same service at the same location; the Operator confirms reassignment. If none exists, the reservation is cancelled with an incident reason and the Customer is notified.
-- Fault notifications inform affected customers. Reassignment or cancellation requires an Operator action.
+- When an Operator reports a fault before the reserved resource is in use, the system immediately reassigns the visit to an available resource for the same service at the same station. The reservation view updates to show the replacement without creating a customer inbox notification.
+- If no replacement exists, the system cancels the visit with the incident reason and notifies the Customer. A report for an occupied bay or started session leaves the visit in the operational workflow.
 - `IncidentReport` links the resource, related usage when applicable, reporter, and resolution.
 - Reassignment preserves the original reservation code, status and expiry. A charging bay with a parked vehicle or a started charging session is handled through the existing charging workflow. The Operator can close its incident report independently.
 - Usage history supports investigation. The system must **not automatically conclude customer liability or create compensation charges**.
@@ -108,14 +108,19 @@ Version one supports **reserve to arrive now**, not future time-slot booking.
 - When tariff management is available, Operators can record effective-dated charging tariffs for their assigned location. Every change records the Operator and timestamp.
 - Battery swap price is per battery/swap.
 - Snapshot the applied unit price on the session, swap, or invoice. Later tariff changes must not alter historical invoices.
-- Create an invoice after service completion and show its calculation to the Customer.
-- Use a sandbox or mock payment provider with a webhook flow.
-- The mock provider is enabled only in Development with a configured signing secret. Payment attempts stay pending until the authenticated callback. A failed attempt leaves the invoice payable.
-- The backend verifies webhook authenticity, invoice, and amount. Duplicate or concurrent valid webhooks record payment exactly once. Failed payments can be retried.
+- Create one invoice for each completed charge or swap. Show the amount and calculation to the Customer and Operator in the completion flow using the saved invoice.
+- Offer cash at the counter, Mock Dynamic VietQR in Development, and pay later with Operator approval. These choices settle the same invoice. Payment and vehicle departure are independent actions.
+- For cash, an Operator currently assigned to the invoice's station confirms receipt of the full amount. Record the authenticated actor as `CollectedByOperatorId`, along with the amount, method and receipt timestamp.
+- For QR, display the amount due and a unique payment reference in a code labeled **Simulation**. Use test-only recipient data and the QR references in the [architecture roadmap](architecture-roadmap.md#phase-6--billing-and-observability-completion). Scanning the code does not settle the invoice.
+- The mock provider requires a configured signing secret. Verify the callback signature, payment attempt, invoice and amount before settlement. An authenticated callback for a failed, underpaid or overpaid attempt leaves the invoice payable and reports the reason. A failed attempt can be retried. Duplicate callbacks and concurrent cash/QR confirmations can produce at most one successful payment for an invoice.
+- An assigned Operator can grant pay later on an unpaid invoice. The due time is seven days after approval, stored in UTC and displayed in Vietnam local time. Repeating the approval preserves the original deadline. Customers can reopen the invoice from history and pay after the deadline.
+- Any pending invoice blocks new bookings for that customer across the network, including invoices with no due date and pay-later invoices still within their term. The seven-day deadline records when payment is due. Existing bookings remain valid. Settling all pending invoices removes the payment block immediately. An idempotent replay of an existing booking still returns that booking.
+- Customer history shows owned invoices, amount, due time when applicable, status, and successful payment method and time. Operator history shows the same payment state for invoices at the assigned station and identifies the cash collector when applicable. Both screens refresh from the API on a private realtime signal.
 
 ### 3.9. Notifications and reports
 
 - In-app notifications cover reservation creation, approaching expiry, incident cancellation, invoice creation, and successful payment.
+- Operators have a dashboard inbox with an unread count. An assigned Operator receives a notification for a new reservation, an incident affecting a reservation, or a successful QR payment at the station. Opening an item marks it read and links to the relevant visit or invoice.
 - Admin reports include charging-session count, total kWh, battery-swap count, paid revenue, charging-bay utilization, and incidents by location and time range.
 
 ## 4. State rules
@@ -169,6 +174,11 @@ Minimum tests:
 8. A resource fails after reservation; valid reassignment occurs or cancellation stores a reason.
 9. Tariff changes do not alter the amount of a completed usage.
 10. Invalid webhooks are rejected; duplicate valid webhooks record payment once.
+11. Service completion returns the invoice despite RabbitMQ downtime; a retry returns the same invoice and amount.
+12. An Operator from another station cannot collect cash, approve a deferral, or read the invoice. Cash collection records the authenticated Operator. Concurrent cash and QR confirmations settle the invoice once.
+13. Mock QR decoding returns the exact invoice amount and payment reference. An underpayment or overpayment leaves it unpaid and retryable.
+14. New bookings are rejected while an invoice is pending, before deferral, during the payment term, and at or after the due date. Settling all pending invoices removes the payment block. Existing bookings and their idempotent replays are unaffected.
+15. Both authorized views refresh after settlement and converge after reconnect. Other customers and stations receive no invoice refresh signal.
 
 ## 7. Out of scope for version one
 
@@ -180,6 +190,7 @@ Minimum tests:
 - Automatic customer liability or compensation charges.
 - Real charger/battery-cabinet integration.
 - Unattended operation.
+- Live QR settlement, sandbox provider integration, partial payments, overpayment reconciliation, debt reminders, and shift cash reconciliation.
 
 Version one focuses on a correct and testable flow:
 

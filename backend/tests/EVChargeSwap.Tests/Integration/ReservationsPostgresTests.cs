@@ -156,8 +156,17 @@ public sealed class ReservationsPostgresTests
             .VehicleArrivedAsync(held.Id, wrongOp.Id, default)));
         Assert.Null(await WithDb(db => new ChargingService(db, clock)
             .StartAsync(held.Id, op.Id, 10m, default)));
+        var arrivalTime = clock.GetUtcNow();
+        var arrivals = await Task.WhenAll(Enumerable.Range(0, 2).Select(_ =>
+            WithDb(db => new ChargingService(db, clock).VehicleArrivedAsync(held.Id, op.Id, default))));
+        Assert.All(arrivals, accepted => Assert.True(accepted));
+        clock.Now = clock.Now.AddMinutes(1);
         Assert.True(await WithDb(db => new ChargingService(db, clock)
             .VehicleArrivedAsync(held.Id, op.Id, default)));
+        Assert.False(await WithDb(db => new ChargingService(db, clock)
+            .VehicleArrivedAsync(held.Id, wrongOp.Id, default)));
+        Assert.Equal(arrivalTime, await WithDb(db => db.Reservations
+            .Where(x => x.Id == held.Id).Select(x => x.VehicleArrivedAtUtc).SingleAsync()));
         Assert.Equal(ParkingState.Occupied, await WithDb(db => db.Set<ChargingBay>()
             .Where(x => x.Id == bay.Id).Select(x => x.ParkingState).SingleAsync()));
         Assert.Equal(0, await WithDb(db => new ReservationService(db, clock)
@@ -199,6 +208,7 @@ public sealed class ReservationsPostgresTests
         Assert.Null((await WithDb(db => new ReservationService(db, clock)
             .HoldAsync(nextCustomer.Id, location.Id, ReservationServiceType.Charging, default))).Reservation);
         Assert.True(await WithDb(db => new ChargingService(db, clock).VehicleDepartedAsync(held.Id, op.Id, default)));
+        Assert.False(await WithDb(db => new ChargingService(db, clock).VehicleArrivedAsync(held.Id, op.Id, default)));
         Assert.False(await WithDb(db => new ChargingService(db, clock).VehicleDepartedAsync(held.Id, op.Id, default)));
         Assert.Equal(ParkingState.Vacant, await WithDb(db => db.Set<ChargingBay>()
             .Where(x => x.Id == bay.Id).Select(x => x.ParkingState).SingleAsync()));
@@ -324,9 +334,8 @@ public sealed class ReservationsPostgresTests
         Assert.IsType<NoContentResult>(await operations.ChangeBattery(newBatteryHold.BatteryId!.Value,
             new ChangeBatteryStateRequest(BatteryState.Faulted), default));
         Assert.Equal(0, await service.CheckInAsync(location.Id, operatorUser.Id, newBatteryHold.Code, default));
-        Assert.IsType<ConflictObjectResult>(await operations.ChangeBattery(newBatteryHold.BatteryId!.Value,
-            new ChangeBatteryStateRequest(BatteryState.Inspection), default));
-        Assert.Equal(1, await service.CancelAsync(newBatteryHold.CustomerId, newBatteryHold.Id, default));
+        Assert.Equal(ReservationStatus.Cancelled, await db.Reservations.AsNoTracking()
+            .Where(x => x.Id == newBatteryHold.Id).Select(x => x.Status).SingleAsync());
         // Verify warehouse transitions without roundabout faulting
         Assert.IsType<NoContentResult>(await operations.ChangeBattery(newBatteryHold.BatteryId!.Value,
             new ChangeBatteryStateRequest(BatteryState.Inspection), default));

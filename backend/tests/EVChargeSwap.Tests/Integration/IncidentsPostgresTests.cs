@@ -1,5 +1,7 @@
 using System.Security.Claims;
+using System.Text.Json;
 using EVChargeSwap.Common.Messaging;
+using EVChargeSwap.Common.Messaging.Consumers;
 using EVChargeSwap.Common.Messaging.Events;
 using EVChargeSwap.Data;
 using EVChargeSwap.Features.Locations.Caching;
@@ -64,28 +66,20 @@ public sealed class IncidentsPostgresTests
             new ChangeBayStateRequest(ChargerState.Faulted, "Mất nguồn"), default));
         var incident = await db.IncidentReports.AsNoTracking().SingleAsync(x => x.ReservationId == held.Id);
         Assert.Equal("Mất nguồn", incident.Description);
-        Assert.Equal(originalBay.Id, (await db.Reservations.AsNoTracking().SingleAsync(x => x.Id == held.Id)).ChargingBayId);
+        async Task<JsonElement> DashboardIncident()
+        {
+            var result = Assert.IsType<OkObjectResult>(await operations.Station(default));
+            return JsonSerializer.SerializeToElement(result.Value).GetProperty("reservations")
+                .EnumerateArray().Single(row => row.GetProperty("Id").GetGuid() == held.Id)
+                .GetProperty("Incident");
+        }
+        Assert.Equal(IncidentResolution.Reassigned, incident.Resolution);
+        Assert.Equal(spareBay.Id, incident.ReplacementChargingBayId);
         Assert.Null(await incidents.GetOptionsAsync(incident.Id, otherOperator.Id, default));
-        Assert.Null((await incidents.ResolveAsync(incident.Id, otherOperator.Id,
-            IncidentResolution.Reassigned, spareBay.Id, default)).LocationId);
-        var choice = Assert.Single((await incidents.GetOptionsAsync(incident.Id, operatorUser.Id, default))!.Candidates);
-        Assert.Equal(spareBay.Id, choice.Id);
-        Assert.NotNull((await incidents.ResolveAsync(incident.Id, operatorUser.Id,
-            IncidentResolution.Cancelled, null, default)).Conflict);
-
-        var competingHold = (await holds.HoldAsync(competingCustomer.Id, station.Id,
-            ReservationServiceType.Charging, default)).Reservation!;
-        Assert.Equal(spareBay.Id, competingHold.ChargingBayId);
-        Assert.NotNull((await incidents.ResolveAsync(incident.Id, operatorUser.Id,
-            IncidentResolution.Reassigned, spareBay.Id, default)).Conflict);
-        Assert.Equal(1, await holds.CancelAsync(competingCustomer.Id, competingHold.Id, default));
-
-        db.ChangeTracker.Clear();
-        Assert.Equal(station.Id, (await incidents.ResolveAsync(incident.Id, operatorUser.Id,
-            IncidentResolution.Reassigned, spareBay.Id, default)).LocationId);
         Assert.Equal(station.Id, (await incidents.ResolveAsync(incident.Id, operatorUser.Id,
             IncidentResolution.Reassigned, spareBay.Id, default)).LocationId);
         var moved = await db.Reservations.AsNoTracking().SingleAsync(x => x.Id == held.Id);
+        Assert.Equal(JsonValueKind.Null, (await DashboardIncident()).ValueKind);
         Assert.Equal(spareBay.Id, moved.ChargingBayId);
         Assert.Equal(held.ExpiresAtUtc, moved.ExpiresAtUtc);
         Assert.Equal(held.Code, moved.Code);
@@ -107,21 +101,23 @@ public sealed class IncidentsPostgresTests
         Assert.True(await charging.CompleteAsync(held.Id, operatorUser.Id, 11m, default));
         Assert.True(await charging.VehicleDepartedAsync(held.Id, operatorUser.Id, default));
 
-        var swap = (await holds.HoldAsync(customer.Id, station.Id, ReservationServiceType.BatterySwap, default)).Reservation!;
+        var swap = Assert.IsType<Reservation>((await holds.HoldAsync(
+            competingCustomer.Id, station.Id, ReservationServiceType.BatterySwap, default)).Reservation);
         Assert.IsType<NoContentResult>(await operations.ChangeBattery(battery.Id,
             new ChangeBatteryStateRequest(BatteryState.Faulted, "Pin không đạt kiểm tra"), default));
         var batteryIncident = await db.IncidentReports.AsNoTracking().SingleAsync(x => x.ReservationId == swap.Id);
-        var unavailable = await incidents.GetOptionsAsync(batteryIncident.Id, operatorUser.Id, default);
-        Assert.True(unavailable!.CanChangeReservation);
-        Assert.Empty(unavailable.Candidates);
-        Assert.Equal(station.Id, (await incidents.ResolveAsync(batteryIncident.Id, operatorUser.Id,
-            IncidentResolution.Cancelled, null, default)).LocationId);
+        Assert.Equal(IncidentResolution.Cancelled, batteryIncident.Resolution);
         var cancelled = await db.Reservations.AsNoTracking().SingleAsync(x => x.Id == swap.Id);
         Assert.Equal(ReservationStatus.Cancelled, cancelled.Status);
         Assert.Equal(IncidentService.FaultCancellationReason, cancelled.ClosingReason);
-        var customerId = customer.Id.ToString();
-        Assert.Equal(2, await db.OutboxMessages.CountAsync(x => x.RoutingKey == EventRoutingKeys.IncidentReservationResolved &&
-            x.Payload.Contains(customerId)));
+        var cancellationEvent = await db.OutboxMessages.SingleAsync(x =>
+            x.RoutingKey == EventRoutingKeys.IncidentReservationResolved);
+        var notifications = new NotificationConsumer(db, NullLogger<NotificationConsumer>.Instance, clock);
+        await notifications.HandleAsync(cancellationEvent.EventType, cancellationEvent.RoutingKey,
+            cancellationEvent.Payload, cancellationEvent.Id, default);
+        var notice = Assert.Single(await db.Notifications.ToListAsync());
+        Assert.Equal(competingCustomer.Id, notice.UserId);
+        Assert.Contains("đã hủy", notice.Title);
     }
 
     private static ApplicationUser NewUser()

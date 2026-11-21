@@ -164,31 +164,50 @@ public sealed class ConsumerTests
 
         var customerId = Guid.NewGuid();
         var customer = CreateTestUser(customerId, "notify_test@example.com");
-        db.Users.Add(customer);
+        var operatorId = Guid.NewGuid();
+        var otherOperator = Guid.NewGuid();
+        var laterOperator = Guid.NewGuid();
+        var station = new Location("Notification station", "Test", 10, 106, true, false);
+        var otherStation = new Location("Other station", "Test", 11, 107, true, false);
+        var now = DateTimeOffset.UtcNow;
+        db.AddRange(customer, station, otherStation,
+            CreateTestUser(operatorId, "operator@notice.test"),
+            CreateTestUser(otherOperator, "other@notice.test"),
+            CreateTestUser(laterOperator, "later@notice.test"),
+            new OperatorAssignment { LocationId = station.Id, OperatorId = operatorId, AssignedAtUtc = now.AddHours(-1) },
+            new OperatorAssignment { LocationId = otherStation.Id, OperatorId = otherOperator },
+            new OperatorAssignment { LocationId = station.Id, OperatorId = laterOperator, AssignedAtUtc = now.AddHours(1) });
         await db.SaveChangesAsync();
 
         var confirmedEvent = new ReservationConfirmedEvent(
             ReservationId: Guid.NewGuid(),
             CustomerId: customerId,
-            LocationId: Guid.NewGuid(),
+            LocationId: station.Id,
             Code: "RES-9999",
             ServiceType: "Charging",
-            ExpiresAtUtc: DateTimeOffset.UtcNow.AddMinutes(15),
-            CreatedAtUtc: DateTimeOffset.UtcNow);
+            ExpiresAtUtc: now.AddMinutes(15),
+            CreatedAtUtc: now);
 
         var payload = JsonSerializer.Serialize(confirmedEvent);
+        var eventId = Guid.NewGuid();
         await consumer.HandleAsync(
             "ReservationConfirmed",
             EventRoutingKeys.ReservationConfirmed,
             payload,
-            Guid.NewGuid(),
+            eventId,
             CancellationToken.None);
+        await consumer.HandleAsync("ReservationConfirmed", EventRoutingKeys.ReservationConfirmed,
+            payload, eventId, CancellationToken.None);
 
         var notification = await db.Notifications.SingleOrDefaultAsync(x => x.UserId == customerId);
         Assert.NotNull(notification);
         Assert.Contains("RES-9999", notification.Message);
         Assert.Equal(NotificationType.Info, notification.Type);
         Assert.False(notification.IsRead);
+        var operatorNotice = await db.Notifications.SingleAsync(x => x.UserId == operatorId);
+        Assert.Equal($"/operator/dashboard?reservation={confirmedEvent.ReservationId:D}", operatorNotice.ActionUrl);
+        Assert.False(operatorNotice.IsRead);
+        Assert.Equal(2, await db.Notifications.CountAsync());
     }
 
     [Theory]

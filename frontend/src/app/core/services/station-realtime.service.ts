@@ -20,7 +20,9 @@ export type RealtimeConnectionStatus = 'connected' | 'reconnecting' | 'disconnec
 export class StationRealtimeService {
   private hubConnection: HubConnection | null = null;
   private readonly inventorySubject = new Subject<StationInventoryUpdatedEvent>();
-  private activeStationId: string | null = null;
+  private stationIds: string[] = [];
+  private subscriptionQueue: Promise<void> = Promise.resolve();
+  private reconnectTimer?: ReturnType<typeof setTimeout>;
   private connectingPromise: Promise<void> | null = null;
 
   readonly connectionStatus = signal<RealtimeConnectionStatus>('disconnected');
@@ -67,16 +69,12 @@ export class StationRealtimeService {
       });
 
       this.hubConnection.onreconnected(() => {
-        this.connectionStatus.set('connected');
-        if (this.activeStationId) {
-          this.hubConnection
-            ?.invoke('WatchStation', this.activeStationId)
-            .catch(() => {});
-        }
+        this.syncSubscriptions();
       });
 
       this.hubConnection.onclose(() => {
         this.connectionStatus.set('disconnected');
+        this.scheduleRetry();
       });
     } catch {
       // In non-browser or test runner environments where WebSocket/SignalR cannot start
@@ -98,8 +96,9 @@ export class StationRealtimeService {
           await this.hubConnection.start();
           this.connectionStatus.set('connected');
         }
-      } catch (err) {
+      } catch {
         this.connectionStatus.set('disconnected');
+        this.scheduleRetry();
       } finally {
         this.connectingPromise = null;
       }
@@ -108,30 +107,31 @@ export class StationRealtimeService {
     return this.connectingPromise;
   }
 
-  async watchStation(stationId: string): Promise<void> {
-    this.activeStationId = stationId;
-    await this.ensureConnected();
-
-    if (this.hubConnection?.state === HubConnectionState.Connected) {
-      try {
-        await this.hubConnection.invoke('WatchStation', stationId);
-      } catch {
-        // Fallback or retry will be handled automatically on reconnect
-      }
-    }
+  watchStations(stationIds: string[]): void {
+    const ids = [...new Set(stationIds)].slice(0, 100).sort();
+    if (ids.join(',') === this.stationIds.join(',')) return;
+    this.stationIds = ids;
+    this.syncSubscriptions();
   }
 
-  async unwatchStation(stationId: string): Promise<void> {
-    if (this.activeStationId === stationId) {
-      this.activeStationId = null;
-    }
+  private syncSubscriptions(): void {
+    this.subscriptionQueue = this.subscriptionQueue.then(async () => {
+      if (this.stationIds.length > 0) await this.ensureConnected();
+      if (this.hubConnection?.state !== HubConnectionState.Connected) return;
+      const snapshot = await this.hubConnection.invoke<StationInventoryUpdatedEvent[]>('WatchStations', this.stationIds);
+      snapshot.forEach((item) => this.inventorySubject.next(item));
+      this.connectionStatus.set('connected');
+    }).catch(() => {
+      this.connectionStatus.set('disconnected');
+      this.scheduleRetry();
+    });
+  }
 
-    if (this.hubConnection?.state === HubConnectionState.Connected) {
-      try {
-        await this.hubConnection.invoke('UnwatchStation', stationId);
-      } catch {
-        // Ignore unwatch errors on teardown
-      }
-    }
+  private scheduleRetry(): void {
+    if (this.stationIds.length === 0 || this.reconnectTimer !== undefined) return;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = undefined;
+      this.syncSubscriptions();
+    }, 8000);
   }
 }

@@ -201,36 +201,6 @@ input:focus-visible {
 
 /* Global extensions for Station Finder shell & modal components */
 app-station-finder-page {
-  .logo-frame {
-    display: block;
-    width: 40px;
-    height: 40px;
-    overflow: hidden;
-    border-radius: 8px;
-    background: #fff;
-    position: relative;
-    flex: none;
-  }
-
-  .brand-logo {
-    position: absolute;
-    width: 84px;
-    height: 84px;
-    left: -22px;
-    top: -22px;
-  }
-
-  .header-nav .nav-item {
-    border: 0;
-    background: transparent;
-    cursor: pointer;
-  }
-
-  .nav-coming {
-    font-size: 12px;
-    color: #64748b;
-  }
-
   .collapse-handle-bar {
     position: absolute;
     right: -18px;
@@ -795,10 +765,6 @@ app-station-finder-page {
       right: 14px;
       left: auto;
       max-height: calc(100vh - 40px);
-    }
-
-    .nav-coming {
-      display: none;
     }
   }
 }

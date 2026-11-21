@@ -13,7 +13,10 @@ describe('NotificationsComponent', () => {
         provideHttpClient(),
         provideHttpClientTesting(),
         provideRouter([]),
-        { provide: AuthService, useValue: { isAuthenticated: () => true } },
+        { provide: AuthService, useValue: {
+          isAuthenticated: () => true, currentUser: () => null,
+          home: () => ({ path: '/', label: 'Bản đồ trạm' }),
+        } },
       ],
     }).compileComponents();
 
@@ -21,6 +24,8 @@ describe('NotificationsComponent', () => {
     fixture.detectChanges();
     const http = TestBed.inject(HttpTestingController);
     http.expectOne('/api/notifications').flush({
+      totalCount: 21,
+      pageSize: 20,
       items: [
         {
           id: 'incident-notification',
@@ -34,6 +39,12 @@ describe('NotificationsComponent', () => {
 
     expect(fixture.nativeElement.textContent).toContain('Lượt đặt đã hủy do sự cố');
     expect(fixture.nativeElement.textContent).toContain('Trạm không còn tài nguyên thay thế.');
+    const nextButton = (fixture.nativeElement as HTMLElement)
+      .querySelectorAll<HTMLButtonElement>('.notice-pagination button')[1];
+    nextButton.click();
+    http.expectOne('/api/notifications?page=2').flush({ items: [], totalCount: 21, pageSize: 20 });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Trang 2 / 2');
     http.verify();
   });
 });

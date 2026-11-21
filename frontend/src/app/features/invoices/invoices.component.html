@@ -1,0 +1,507 @@
+<div class="invoices-page-wrapper" [class.station-embedded]="stationMode()">
+  <!-- TOP APP BAR (Only in Customer Standalone Mode) -->
+  @if (!stationMode()) {
+  <header class="app-header">
+    <div class="header-container">
+      <div class="header-left">
+        <a routerLink="/" class="back-btn" title="Quay lại Bản đồ trạm">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <line x1="19" y1="12" x2="5" y2="12"></line>
+            <polyline points="12 19 5 12 12 5"></polyline>
+          </svg>
+          <span>Bản đồ trạm</span>
+        </a>
+        <div class="header-divider"></div>
+        <div class="brand-badge">
+          <span class="brand-name">EVGo</span>
+          <span class="brand-tag">Charge & Swap</span>
+        </div>
+      </div>
+
+      <div class="header-right">
+        <button type="button" class="btn-refresh" [class.spinning]="busy()" (click)="refresh()" title="Làm mới dữ liệu">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+          </svg>
+          <span>Làm mới</span>
+        </button>
+
+        @if (auth.currentUser(); as user) {
+        <div class="user-pill">
+          <span class="user-avatar">{{ user.fullName.charAt(0).toUpperCase() }}</span>
+          <span class="user-name">{{ user.fullName }}</span>
+        </div>
+        }
+      </div>
+    </div>
+  </header>
+  }
+
+  <!-- MAIN CONTAINER -->
+  <main class="content-container">
+    @if (!auth.isAuthenticated()) {
+    <div class="auth-gate-card">
+      <div class="auth-gate-icon">
+        <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+        </svg>
+      </div>
+      <h2>Yêu cầu đăng nhập</h2>
+      <p>Vui lòng đăng nhập tài khoản EVGo để tra cứu lịch sử hóa đơn và thanh toán nạp điện.</p>
+      <a routerLink="/login" class="btn-primary">Đăng nhập ngay</a>
+    </div>
+    } @else {
+    <!-- PAGE TITLE & HERO -->
+    <section class="page-title-banner">
+      <div class="title-text-group">
+        <h1>{{ stationMode() ? 'Quầy Thu Ngân & Hóa Đơn Trạm' : 'Lịch Sử Hóa Đơn & Giao Dịch' }}</h1>
+        <p class="subtitle">
+          {{ stationMode()
+          ? 'Xác nhận thanh toán tiền mặt, mở QR thanh toán hoặc cấp hạn trả sau cho khách hàng tại trạm.'
+          : 'Theo dõi chi tiết chi phí sạc pin, các lượt đổi pin và tình trạng thanh toán của bạn.' }}
+        </p>
+      </div>
+
+      @if (stationMode()) {
+      <div class="station-mode-badge">
+        <span class="status-dot"></span>
+        <span>Chế độ Trực Trạm</span>
+      </div>
+      }
+    </section>
+
+    <!-- KPI METRIC CARDS BANNER -->
+    <section class="kpi-grid">
+      <div class="kpi-card paid-kpi">
+        <div class="kpi-icon-wrap emerald">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+            <polyline points="22 4 12 14.01 9 11.01"></polyline>
+          </svg>
+        </div>
+        <div class="kpi-content">
+          <span class="kpi-label">Tổng đã thanh toán</span>
+          <span class="kpi-value text-emerald">{{ totalPaidAmount() | number }} <small>đ</small></span>
+          <span class="kpi-subtext">{{ paidCount() }} hóa đơn thành công</span>
+        </div>
+      </div>
+
+      <div class="kpi-card pending-kpi">
+        <div class="kpi-icon-wrap amber">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polyline points="12 6 12 12 16 14"></polyline>
+          </svg>
+        </div>
+        <div class="kpi-content">
+          <span class="kpi-label">Chờ thanh toán / Trả sau</span>
+          <span class="kpi-value text-amber">{{ totalPendingAmount() | number }} <small>đ</small></span>
+          <span class="kpi-subtext">{{ pendingCount() }} hóa đơn còn nợ</span>
+        </div>
+      </div>
+
+      <div class="kpi-card energy-kpi">
+        <div class="kpi-icon-wrap blue">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+          </svg>
+        </div>
+        <div class="kpi-content">
+          <span class="kpi-label">Tổng điện năng nạp</span>
+          <span class="kpi-value text-blue">{{ totalKwhCharged() | number:'1.1-2' }} <small>kWh</small></span>
+          <span class="kpi-subtext">Năng lượng xanh sạch</span>
+        </div>
+      </div>
+
+      <div class="kpi-card total-kpi">
+        <div class="kpi-icon-wrap slate">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+            <line x1="16" y1="13" x2="8" y2="13"></line>
+            <line x1="16" y1="17" x2="8" y2="17"></line>
+            <polyline points="10 9 9 9 8 9"></polyline>
+          </svg>
+        </div>
+        <div class="kpi-content">
+          <span class="kpi-label">Tổng giao dịch</span>
+          <span class="kpi-value">{{ invoices().length }} <small>phiếu</small></span>
+          <span class="kpi-subtext">Trang số {{ page() }}</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- NOTICES & ALERTS -->
+    @if (error(); as text) {
+    <div class="alert-banner error" role="alert">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="10"></circle>
+        <line x1="12" y1="8" x2="12" y2="12"></line>
+        <line x1="12" y1="16" x2="12.01" y2="16"></line>
+      </svg>
+      <span>{{ text }}</span>
+      <button type="button" class="btn-close-alert" (click)="error.set(null)">✕</button>
+    </div>
+    }
+    @if (notice(); as text) {
+    <div class="alert-banner success" role="status">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+        <polyline points="22 4 12 14.01 9 11.01"></polyline>
+      </svg>
+      <span>{{ text }}</span>
+      <button type="button" class="btn-close-alert" (click)="notice.set(null)">✕</button>
+    </div>
+    }
+
+    <!-- TOOLBAR: FILTER TABS & SEARCH & PAGINATION -->
+    <section class="toolbar-section">
+      <div class="filter-tabs" role="tablist">
+        <button type="button" class="tab-btn" [class.active]="activeTab() === 'all'" (click)="setFilter('all')">
+          Tất cả
+          <span class="tab-badge">{{ invoices().length }}</span>
+        </button>
+        <button type="button" class="tab-btn" [class.active]="activeTab() === 'pending'" (click)="setFilter('pending')">
+          Chờ thanh toán
+          <span class="tab-badge" [class.badge-pending]="pendingCount() > 0">{{ pendingCount() }}</span>
+        </button>
+        <button type="button" class="tab-btn" [class.active]="activeTab() === 'paid'" (click)="setFilter('paid')">
+          Đã thanh toán
+          <span class="tab-badge badge-paid">{{ paidCount() }}</span>
+        </button>
+      </div>
+
+      <div class="search-and-pagination">
+        <div class="search-input-wrap">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          <input type="text" placeholder="Tìm theo mã đặt chỗ..." [ngModel]="searchQuery()"
+            (ngModelChange)="searchQuery.set($event)" />
+          @if (searchQuery()) {
+          <button type="button" class="btn-clear-search" (click)="searchQuery.set('')">✕</button>
+          }
+        </div>
+
+        <div class="pagination-controls">
+          <button type="button" class="btn-page" [disabled]="page() <= 1" (click)="goToPage(page() - 1)"
+            title="Trang trước">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="15 18 9 12 15 6"></polyline>
+            </svg>
+            <span>Trước</span>
+          </button>
+          <span class="page-indicator">Trang {{ page() }}</span>
+          <button type="button" class="btn-page" [disabled]="invoices().length < 100" (click)="goToPage(page() + 1)"
+            title="Trang sau">
+            <span>Sau</span>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9 18 15 12 9 6"></polyline>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- INVOICE CARDS LIST -->
+    <section class="invoices-list" aria-label="Danh sách hóa đơn">
+      @for (invoice of filteredInvoices(); track invoice.id) {
+      <article class="invoice-card" [class.status-paid]="invoice.status === 'Paid'"
+        [class.status-pending]="invoice.status === 'Pending'" [class.focused]="invoice.id === focusInvoiceId()">
+        <!-- CARD HEADER -->
+        <div class="card-header">
+          <div class="service-info">
+            <span class="service-pill" [class.swap]="invoice.swapRate != null">
+              @if (invoice.swapRate == null) {
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+                <path d="M7 2v11h3v9l7-12h-4l4-8z" />
+              </svg>
+              <span>Sạc ô tô điện</span>
+              } @else {
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
+              </svg>
+              <span>Đổi pin EV</span>
+              }
+            </span>
+
+            @if (invoice.reservationCode) {
+            <div class="code-pill" title="Bấm để sao chép mã" (click)="copyCode(invoice.reservationCode)">
+              <span class="code-label">MÃ:</span>
+              <span class="code-val">{{ invoice.reservationCode }}</span>
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
+              @if (copiedCode() === invoice.reservationCode) {
+              <span class="copy-tooltip">✓ Đã chép</span>
+              }
+            </div>
+            }
+          </div>
+
+          <div class="status-badge-wrap">
+            @if (invoice.status === 'Paid') {
+            <span class="badge badge-success">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+              Đã thanh toán
+            </span>
+            @if (invoice.paymentMethod) {
+            <span class="method-tag">
+              {{ invoice.paymentMethod === 'Cash' ? '💵 Tiền mặt' : '📱 Quét QR' }}
+            </span>
+            }
+            } @else if (invoice.status === 'Pending') {
+            @if (invoice.dueAtUtc) {
+            <span class="badge badge-warning">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <polyline points="12 6 12 12 16 14"></polyline>
+              </svg>
+              Trả sau 7 ngày
+            </span>
+            } @else {
+            <span class="badge badge-pending">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+              </svg>
+              Chờ thanh toán
+            </span>
+            }
+            } @else {
+            <span class="badge badge-neutral">Đã hủy</span>
+            }
+          </div>
+        </div>
+
+        <!-- CARD BODY -->
+        <div class="card-body">
+          <div class="pricing-col">
+            @if (invoice.swapRate == null) {
+            <div class="consumption-text">
+              <strong>{{ invoice.totalKwh | number:'1.0-3' }}</strong> kWh × {{ invoice.kwhRate | number }} đ/kWh
+            </div>
+            } @else {
+            <div class="consumption-text">
+              Gói dịch vụ hoán đổi pin nhanh EV
+            </div>
+            }
+            <div class="total-amount-display">
+              {{ invoice.totalAmount | number }} <span class="currency">đ</span>
+            </div>
+          </div>
+
+          <div class="metadata-col">
+            @if (invoice.customerName || invoice.customerEmail) {
+            <div class="meta-item">
+              <span class="meta-label">Khách hàng:</span>
+              <span class="meta-value font-semibold">
+                {{ invoice.customerName || invoice.customerEmail }}
+                @if (invoice.customerPhone) {
+                  <span class="meta-sub">· {{ invoice.customerPhone }}</span>
+                }
+              </span>
+            </div>
+            }
+            @if (invoice.paidAtUtc) {
+            <div class="meta-item">
+              <span class="meta-label">Thời điểm thanh toán:</span>
+              <span class="meta-value">{{ invoice.paidAtUtc | date:'dd/MM/yyyy HH:mm':'+0700' }}</span>
+            </div>
+            }
+            @if (invoice.dueAtUtc && invoice.status === 'Pending') {
+            <div class="meta-item warning-text">
+              <span class="meta-label">Hạn trả nợ:</span>
+              <span class="meta-value">{{ invoice.dueAtUtc | date:'dd/MM/yyyy HH:mm':'+0700' }}</span>
+            </div>
+            }
+            @if (invoice.status === 'Paid') {
+            <div class="meta-item">
+              <span class="meta-label">Nhân viên thu ngân:</span>
+              <span class="meta-value font-semibold">
+                {{ invoice.collectorName ? invoice.collectorName : (invoice.paymentMethod === 'Cash' ? 'Nhân viên trực quầy EVGo' : 'Cổng tự động VietQR') }}
+              </span>
+            </div>
+            }
+            @if (invoice.paymentReference) {
+            <div class="meta-item">
+              <span class="meta-label">Mã giao dịch:</span>
+              <span class="meta-value font-mono">{{ invoice.paymentReference }}</span>
+            </div>
+            }
+          </div>
+        </div>
+
+        <!-- CARD FOOTER ACTIONS -->
+        @if (invoice.status === 'Pending') {
+        <div class="card-footer-actions">
+          @if (stationMode()) {
+          <button type="button" class="btn-action-cash" [disabled]="busy()" (click)="update(invoice, 'cash')">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="2" y="6" width="20" height="12" rx="2"></rect>
+              <circle cx="12" cy="12" r="2"></circle>
+              <path d="M6 12h.01M18 12h.01"></path>
+            </svg>
+            <span>Đã thu tiền mặt</span>
+          </button>
+
+          @if (!invoice.dueAtUtc) {
+          <button type="button" class="btn-action-defer" [disabled]="busy()" (click)="update(invoice, 'defer')">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <polyline points="12 6 12 12 16 14"></polyline>
+            </svg>
+            <span>Cho trả sau 7 ngày</span>
+          </button>
+          }
+          }
+
+          <button type="button" class="btn-action-qr" [disabled]="busy()" (click)="begin(invoice.id)">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="7" height="7"></rect>
+              <rect x="14" y="3" width="7" height="7"></rect>
+              <rect x="14" y="14" width="7" height="7"></rect>
+              <rect x="3" y="14" width="7" height="7"></rect>
+            </svg>
+            <span>{{ stationMode() ? 'Mở QR cho khách quét' : 'Thanh toán bằng QR' }}</span>
+          </button>
+        </div>
+        }
+      </article>
+      } @empty {
+      @if (loaded() && !error()) {
+      <div class="empty-state-card">
+        <div class="empty-icon-wrap">
+          <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <line x1="16" y1="13" x2="8" y2="13"></line>
+            <line x1="16" y1="17" x2="8" y2="17"></line>
+          </svg>
+        </div>
+        <h3>Không tìm thấy hóa đơn</h3>
+        <p>Chưa có hóa đơn nào khớp với tiêu chí tìm kiếm hoặc trạng thái bạn chọn.</p>
+        @if (searchQuery() || activeTab() !== 'all') {
+        <button type="button" class="btn-reset-filters" (click)="activeTab.set('all'); searchQuery.set('')">
+          Xóa bộ lọc
+        </button>
+        }
+      </div>
+      }
+      }
+    </section>
+    }
+  </main>
+
+  <!-- ENTERPRISE QR PAYMENT MODAL -->
+  @if (attempt(); as qr) {
+  <div class="qr-modal-backdrop" (click)="closeQrModal()">
+    <div class="qr-modal-dialog" (click)="$event.stopPropagation()">
+      <header class="qr-dialog-header">
+        <div class="dialog-title-group">
+          <span class="qr-dialog-badge">Cổng thanh toán EVGo Pay</span>
+          <h3>Thanh toán qua mã QR</h3>
+        </div>
+        <button type="button" class="btn-close-dialog" (click)="closeQrModal()" title="Đóng">✕</button>
+      </header>
+
+      <div class="qr-dialog-body">
+        @if (activeInvoiceForQr(); as inv) {
+        <div class="payment-order-summary">
+          <div class="summary-row">
+            <span class="lbl">Dịch vụ:</span>
+            <span class="val font-semibold">{{ inv.swapRate == null ? 'Sạc ô tô điện' : 'Đổi pin EV' }}</span>
+          </div>
+          @if (inv.customerName) {
+          <div class="summary-row">
+            <span class="lbl">Khách hàng:</span>
+            <span class="val font-semibold">{{ inv.customerName }} {{ inv.customerPhone ? '(' + inv.customerPhone + ')' : '' }}</span>
+          </div>
+          }
+          @if (inv.reservationCode) {
+          <div class="summary-row">
+            <span class="lbl">Mã đặt chỗ:</span>
+            <span class="val font-mono">{{ inv.reservationCode }}</span>
+          </div>
+          }
+          <div class="summary-row total-row">
+            <span class="lbl">Số tiền thanh toán:</span>
+            <span class="val-amount">{{ inv.totalAmount | number }} đ</span>
+          </div>
+        </div>
+        }
+
+        <!-- QR CODE FRAME -->
+        <div class="qr-display-box">
+          <div class="qr-image-frame">
+            <img [src]="qr.image" width="220" height="220" alt="Mã QR thanh toán EVGo">
+            <div class="scan-target-corners"></div>
+          </div>
+          <div class="qr-instruction-guide">
+            <p class="guide-title">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+              </svg>
+              <span>Hỗ trợ VietQR & Tất cả ứng dụng Ngân hàng / Ví điện tử</span>
+            </p>
+            <ol class="guide-steps">
+              <li>Mở app Ngân hàng (VCB, MB, Techcombank...) hoặc Momo, ZaloPay</li>
+              <li>Chọn <strong>Quét mã QR</strong> và quét hình phía trên</li>
+              <li>Hệ thống tự động chốt hóa đơn ngay khi nhận thành công</li>
+            </ol>
+          </div>
+        </div>
+
+        <!-- SANDBOX SIMULATION ACTIONS -->
+        <div class="sandbox-simulation-box">
+          <div class="sandbox-header">
+            <span class="sandbox-tag">Sandbox Testing</span>
+            <span class="sandbox-subtitle">Mô phỏng phản hồi từ cổng thanh toán</span>
+          </div>
+
+          <div class="simulation-actions-row">
+            <button type="button" class="btn-mock-success" [disabled]="busy()" (click)="settle(true)">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+              <span>Giả lập đã nhận tiền</span>
+            </button>
+
+            <button type="button" class="btn-mock-fail" [disabled]="busy()" (click)="settle(false)">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+              <span>Giả lập thất bại</span>
+            </button>
+          </div>
+
+          <details class="sandbox-custom-amount-details">
+            <summary>Thử nghiệm gửi số tiền khác</summary>
+            <div class="custom-amount-input-row">
+              <label>
+                <span>Số tiền mô phỏng (đ)</span>
+                <input #mockAmount type="number" min="0" step="1000" placeholder="Nhập số tiền..." required>
+              </label>
+              <button type="button" class="btn-send-custom" [disabled]="busy()"
+                (click)="mockAmount.reportValidity() && settle(true, mockAmount.valueAsNumber)">
+                Gửi kết quả
+              </button>
+            </div>
+          </details>
+        </div>
+      </div>
+
+      <footer class="qr-dialog-footer">
+        <button type="button" class="btn-cancel-dialog" (click)="closeQrModal()">Đóng cửa sổ</button>
+      </footer>
+    </div>
+  </div>
+  }
+</div>

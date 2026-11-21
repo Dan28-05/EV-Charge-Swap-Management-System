@@ -16,7 +16,7 @@ export type ProfileTab = 'personal' | 'security' | 'mobility';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ProfileComponent implements OnInit {
-  private readonly auth = inject(AuthService);
+  protected readonly auth = inject(AuthService);
   private readonly router = inject(Router);
 
   protected readonly user = signal<AuthenticatedUser | null>(null);

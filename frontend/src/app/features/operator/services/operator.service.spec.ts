@@ -6,6 +6,8 @@ import {
   BatteryLifecycleState,
   ChargerEquipmentState,
   OperatorStationDashboardData,
+  ParkingOccupancyState,
+  countBookableResources,
 } from '../models/operator.models';
 
 describe('OperatorService', () => {
@@ -60,6 +62,23 @@ describe('OperatorService', () => {
     httpMock = TestBed.inject(HttpTestingController);
   });
 
+  it('counts a held or occupied bay only once and releases it when the visit ends', () => {
+    const now = Date.now();
+    const held: OperatorStationDashboardData = { ...mockStationData, reservations: [{
+      id: 'reservation-1', chargingBayId: 'bay-1', batteryId: null, status: 'Held',
+      expiresAtUtc: new Date(now + 60000).toISOString(),
+    }] };
+    const parked: OperatorStationDashboardData = {
+      ...held,
+      reservations: held.reservations.map((r) => ({ ...r, status: 'CheckedIn' })),
+      bays: held.bays.map((b) => ({ ...b, parkingState: ParkingOccupancyState.Occupied })),
+    };
+    expect(countBookableResources(mockStationData, now).bays).toBe(1);
+    expect(countBookableResources(held, now).bays).toBe(0);
+    expect(countBookableResources(parked, now).bays).toBe(0);
+    expect(countBookableResources(mockStationData, now).bays).toBe(1);
+  });
+
   afterEach(() => {
     httpMock.verify();
   });
@@ -83,6 +102,22 @@ describe('OperatorService', () => {
     expect(req.request.method).toBe('PATCH');
     expect(req.request.body).toEqual({ state: ChargerEquipmentState.Faulted });
     req.flush(null);
+  });
+
+  it('loads checked-in visits and their sessions in one dashboard request', () => {
+    const timestamp = new Date().toISOString();
+    service.getStationDashboard(true).subscribe((data) => {
+      expect(data.reservations[0].session?.startMeterKwh).toBe(12);
+    });
+    httpMock.expectOne('/api/operator/me/station').flush({
+      ...mockStationData,
+      reservations: [{
+        id: 'visit', chargingBayId: 'bay-1', status: 'CheckedIn', expiresAtUtc: timestamp,
+        session: { id: 'session', reservationId: 'visit', chargingBayId: 'bay-1',
+          startedAtUtc: timestamp, startMeterKwh: 12, startedById: 'operator' },
+      }],
+    });
+    httpMock.expectNone('/api/operator/me/charging-reservations/visit');
   });
 
   it('should patch battery state', () => {
@@ -144,16 +179,13 @@ describe('OperatorService', () => {
     req2.flush(mockStationData);
   });
 
-  it('should complete charging session with end meter reading and refresh dashboard', () => {
-    service.completeCharging('res-1', 1530.2).subscribe();
+  it('returns the invoice when charging completes', () => {
+    const invoice = { id: 'invoice-1' };
+    service.completeCharging('res-1', 1530.2).subscribe((result) => expect(result).toEqual(invoice));
 
-    const req1 = httpMock.expectOne('/api/operator/me/charging-reservations/res-1/complete');
-    expect(req1.request.method).toBe('POST');
-    expect(req1.request.body).toEqual({ meterKwh: 1530.2 });
-    req1.flush(null);
-
-    const req2 = httpMock.expectOne('/api/operator/me/station');
-    expect(req2.request.method).toBe('GET');
-    req2.flush(mockStationData);
+    const request = httpMock.expectOne('/api/operator/me/charging-reservations/res-1/complete');
+    expect(request.request.method).toBe('POST');
+    expect(request.request.body).toEqual({ meterKwh: 1530.2 });
+    request.flush(invoice);
   });
 });

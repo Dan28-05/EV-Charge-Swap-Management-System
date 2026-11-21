@@ -3,10 +3,15 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { provideHttpClient } from '@angular/common/http';
 import { ReservationService } from './reservation.service';
 import { ReservationResponse, ReservationServiceType } from '../models/reservation.models';
+import { ReservationRealtimeService } from './reservation-realtime.service';
+import { AuthService } from '../../auth/services/auth.service';
+import { Subject } from 'rxjs';
+import { vi } from 'vitest';
 
 describe('ReservationService', () => {
   let service: ReservationService;
   let httpMock: HttpTestingController;
+  let updates: Subject<string | null>;
 
   const mockReservation: ReservationResponse = {
     id: 'res-1111',
@@ -21,9 +26,12 @@ describe('ReservationService', () => {
   };
 
   beforeEach(() => {
+    updates = new Subject<string | null>();
     TestBed.configureTestingModule({
       providers: [
         ReservationService,
+        { provide: AuthService, useValue: { isAuthenticated: () => true, currentUser: () => ({ id: 'customer-1' }) } },
+        { provide: ReservationRealtimeService, useValue: { changed$: updates, connected: () => true } },
         provideHttpClient(),
         provideHttpClientTesting(),
       ],
@@ -35,6 +43,24 @@ describe('ReservationService', () => {
 
   afterEach(() => {
     httpMock.verify();
+  });
+
+  it('refreshes from the API on reconnect and exposes the closed state when the active hold disappears', async () => {
+    vi.useFakeTimers();
+    try {
+      service.setActive(mockReservation);
+      updates.next(null);
+      await vi.advanceTimersByTimeAsync(100);
+      httpMock.expectOne('/api/reservations/active').flush(null, { status: 404, statusText: 'Not Found' });
+      httpMock.expectOne('/api/reservations/res-1111').flush({
+        ...mockReservation, status: 'Cancelled', code: null, closingReason: 'RESOURCE_FAULT',
+      });
+      expect(service.activeReservation()).toBeNull();
+      expect(service.lastClosedReservation()?.closingReason).toBe('RESOURCE_FAULT');
+    } finally {
+      service.setActive(null);
+      vi.useRealTimers();
+    }
   });
 
   it('holds a bay or battery and sets activeReservation signal', () => {
@@ -107,5 +133,26 @@ describe('ReservationService', () => {
     const req = httpMock.expectOne('/api/reservations/res-1111/close-without-service?locationId=loc-2222');
     expect(req.request.method).toBe('POST');
     req.flush(null, { status: 204, statusText: 'No Content' });
+  });
+
+  it('keeps activeReservation and enables polling when reservation is CheckedIn', () => {
+    const checkedInRes: ReservationResponse = {
+      ...mockReservation,
+      status: 'CheckedIn',
+      checkedInAtUtc: new Date().toISOString(),
+    };
+
+    service.setActive(checkedInRes);
+    expect(service.isCheckedIn()).toBe(true);
+    expect(service.hasActiveReservation()).toBe(true);
+
+    // When backend returns 404 (service completed/departed)
+    service.getActive().subscribe();
+    const req = httpMock.expectOne('/api/reservations/active');
+    req.flush({ status: 404, title: 'Not Found' }, { status: 404, statusText: 'Not Found' });
+
+    expect(service.activeReservation()).toBeNull();
+    expect(service.hasActiveReservation()).toBe(false);
+    expect(service.isCheckedIn()).toBe(false);
   });
 });

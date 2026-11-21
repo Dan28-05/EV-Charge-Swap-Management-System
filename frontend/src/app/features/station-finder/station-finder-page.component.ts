@@ -1,7 +1,7 @@
-import { Component, computed, DestroyRef, inject, OnInit, signal } from '@angular/core';
+import { Component, computed, DestroyRef, effect, inject, OnInit, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { Subscription } from 'rxjs';
 import {
   directionsUrl,
@@ -20,6 +20,7 @@ import { CustomerReservationModalComponent } from '../reservations/customer-rese
 import { ReservationService } from '../reservations/services/reservation.service';
 import { ReservationServiceType } from '../reservations/models/reservation.models';
 import { StationRealtimeService } from '../../core/services/station-realtime.service';
+import { NotificationBellComponent } from '../notifications/notification-bell.component';
 
 @Component({
   selector: 'app-station-finder-page',
@@ -29,6 +30,7 @@ import { StationRealtimeService } from '../../core/services/station-realtime.ser
     StationListComponent,
     StationMapComponent,
     CustomerReservationModalComponent,
+    NotificationBellComponent,
   ],
   templateUrl: './station-finder-page.component.html',
   styleUrl: './station-finder-page.component.scss',
@@ -39,6 +41,7 @@ export class StationFinderPageComponent implements OnInit {
   private readonly authService = inject(AuthService);
   private readonly reservationService = inject(ReservationService);
   private readonly realtimeService = inject(StationRealtimeService);
+  private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
   private detailRequest?: Subscription;
   private stationRequest?: Subscription;
@@ -116,6 +119,16 @@ export class StationFinderPageComponent implements OnInit {
     });
   });
 
+  constructor() {
+    effect(() => {
+      const selected = this.selectedId();
+      this.realtimeService.watchStations([
+        ...(selected ? [selected] : []),
+        ...this.stations().map((station) => station.id),
+      ]);
+    });
+  }
+
   ngOnInit() {
     this.autoDetectLocationAndLoad();
     if (this.currentUser()) {
@@ -169,15 +182,15 @@ export class StationFinderPageComponent implements OnInit {
       document.addEventListener('visibilitychange', onVisibilityChange);
       this.destroyRef.onDestroy(() => {
         document.removeEventListener('visibilitychange', onVisibilityChange);
-        const activeId = this.selectedId();
-        if (activeId) {
-          this.realtimeService.unwatchStation(activeId);
-        }
+        this.realtimeService.watchStations([]);
       });
     }
   }
 
   openReservationModal(serviceType?: ReservationServiceType) {
+    if (this.currentUser()) {
+      this.reservationService.getActive().subscribe();
+    }
     if (serviceType) {
       this.modalInitialServiceType.set(serviceType);
     } else {
@@ -188,6 +201,14 @@ export class StationFinderPageComponent implements OnInit {
 
   closeReservationModal() {
     this.showReservationModal.set(false);
+  }
+
+  openNotificationReservation(): void {
+    if (this.activeReservation() || this.reservationService.lastClosedReservation()) {
+      this.openReservationModal();
+    } else {
+      void this.router.navigate(['/notifications']);
+    }
   }
 
   // Tự động xin quyền GPS và tìm trạm xung quanh vị trí của bạn
@@ -388,12 +409,6 @@ export class StationFinderPageComponent implements OnInit {
   }
 
   selectStation(id: string) {
-    const prevId = this.selectedId();
-    if (prevId && prevId !== id) {
-      this.realtimeService.unwatchStation(prevId);
-    }
-    this.realtimeService.watchStation(id);
-
     if (typeof window !== 'undefined' && window.innerWidth < 1050) {
       this.sidebarCollapsed.set(true);
       if (window.innerWidth <= 768) setTimeout(() => this.mobileView.set('map'), 0);
@@ -421,10 +436,6 @@ export class StationFinderPageComponent implements OnInit {
   }
 
   closeDetail() {
-    const prevId = this.selectedId();
-    if (prevId) {
-      this.realtimeService.unwatchStation(prevId);
-    }
     this.detailRequest?.unsubscribe();
     this.selectedId.set(null);
     this.detail.set(null);

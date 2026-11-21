@@ -70,16 +70,21 @@ export interface OperatorChargingSessionInfo {
 
 export interface OperatorActiveReservation {
   id: string;
+  code?: string | null;
   chargingBayId?: string | null;
   batteryId?: string | null;
   status: 'Held' | 'CheckedIn' | 'Completed' | 'Cancelled' | 'Expired';
   expiresAtUtc: string;
   checkedInAtUtc?: string | null;
+  customerName?: string | null;
+  customerPhone?: string | null;
+  customerEmail?: string | null;
   // Live session status details if queried
   vehicleArrivedAtUtc?: string | null;
   noChargeConfirmedAtUtc?: string | null;
   vehicleDepartedAtUtc?: string | null;
   session?: OperatorChargingSessionInfo | null;
+  incident?: { id: string; description: string } | null;
 }
 
 export interface OperatorStationDashboardData {
@@ -99,4 +104,16 @@ export interface ReplaceHoursRequest {
   serviceType: number;
   day: number;
   intervals: ServiceIntervalItem[];
+}
+export function countBookableResources(data: OperatorStationDashboardData | null, now = Date.now()) {
+  const holds = data?.reservations.filter((r) => r.status === 'CheckedIn' ||
+    (r.status === 'Held' && Date.parse(r.expiresAtUtc) > now)) ?? [];
+  const heldBays = new Set(holds.map((r) => r.chargingBayId));
+  const heldBatteries = new Set(holds.map((r) => r.batteryId));
+  return {
+    bays: data?.bays.filter((b) => b.equipmentState === ChargerEquipmentState.Active &&
+      b.parkingState === ParkingOccupancyState.Vacant && !heldBays.has(b.id)).length ?? 0,
+    batteries: data?.batteries.filter((b) => b.state === BatteryLifecycleState.Ready &&
+      !heldBatteries.has(b.id)).length ?? 0,
+  };
 }

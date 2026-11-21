@@ -27,6 +27,7 @@ export class CustomerReservationModalComponent implements OnInit, OnChanges {
 
   readonly currentUser = this.authService.currentUser;
   readonly activeReservation = this.reservationService.activeReservation;
+  readonly lastClosedReservation = this.reservationService.lastClosedReservation;
   readonly stationData = signal<Station | null>(null);
   readonly remainingSeconds = this.reservationService.remainingSeconds;
   readonly formattedCountdown = this.reservationService.formattedCountdown;
@@ -55,6 +56,9 @@ export class CustomerReservationModalComponent implements OnInit, OnChanges {
   });
 
   ngOnInit(): void {
+    if (this.currentUser()) {
+      this.reservationService.getActive().subscribe();
+    }
     this.syncServiceType();
     this.refreshQrCode();
   }
@@ -173,6 +177,17 @@ export class CustomerReservationModalComponent implements OnInit, OnChanges {
         this.errorMessage.set(this.translateBackendError(detail));
         this.showCancelConfirm.set(false);
       },
+    });
+  }
+
+  refreshActiveStatus(): void {
+    this.reservationService.getActive().subscribe({
+      next: (res) => {
+        if (!res) {
+          this.errorMessage.set(null);
+        }
+      },
+      error: () => {},
     });
   }
 

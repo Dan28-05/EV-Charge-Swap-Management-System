@@ -50,6 +50,28 @@
         </div>
       }
 
+      @if (!activeReservation() && lastClosedReservation(); as closed) {
+        <p role="status">
+          @switch (closed.status) {
+            @case ('Expired') { Lượt giữ chỗ đã hết hạn. }
+            @case ('Completed') { Lượt đặt đã hoàn tất. }
+            @case ('Cancelled') {
+              {{ closed.closingReason === 'RESOURCE_FAULT' ? 'Lượt đặt đã hủy do sự cố tại trạm.' : 'Lượt đặt đã hủy.' }}
+            }
+          }
+        </p>
+      }
+
+      @if (activeReservation() || lastClosedReservation(); as visit) {
+        @if (visit.invoiceTotalAmount != null) {
+          <p role="status">
+            <strong>{{ visit.invoiceTotalAmount | number:'1.0-2' }} đ</strong>
+            @if (visit.invoiceStatus === 'Paid') { · ✓ Đã thanh toán }
+            <a routerLink="/invoices">Xem hóa đơn</a>
+          </p>
+        }
+      }
+
       <!-- VIEW 1: ACTIVE RESERVATION TICKET -->
       @if (activeReservation(); as res) {
         <div class="ticket-card">
@@ -69,9 +91,11 @@
             } @else if (isCheckedIn()) {
               <div class="status-left">
                 <span class="status-dot checked-in"></span>
-                <span class="status-text">Đã check-in tại trạm</span>
+                <span class="status-text">{{ res.chargingCompletedAtUtc ? 'Đã kết thúc sạc' : res.chargingStartedAtUtc ? 'Đang sạc' : 'Đã check-in tại trạm' }}</span>
               </div>
-              <span class="status-subtext">Nhân viên đã xác nhận khách đến</span>
+              @if (res.chargingCompletedAtUtc) {
+                <span class="status-subtext">Chờ nhân viên xác nhận xe rời chỗ sạc</span>
+              }
             } @else {
               <div class="status-left">
                 <span class="status-text">{{ res.status }}</span>
@@ -91,6 +115,9 @@
             <div class="station-meta">
               <h3 class="station-title">{{ (stationData() || station)?.name || 'Trạm sạc EVGo' }}</h3>
               <p class="station-address">{{ (stationData() || station)?.address || 'Điểm dịch vụ năng lượng thông minh' }}</p>
+              @if (res.resourceCode) {
+                <p class="station-address">{{ res.chargingBayId ? 'Trụ sạc' : 'Pin' }}: {{ res.resourceCode }}</p>
+              }
             </div>
             <div class="service-type-badge" [class.swap]="res.batteryId != null">
               @if (res.chargingBayId != null) {
@@ -160,6 +187,10 @@
                     Thời gian ghi nhận: {{ res.checkedInAtUtc | date:'HH:mm:ss dd/MM/yyyy' }}
                   </small>
                 }
+                <div class="checkin-live-sync">
+                  <span class="live-dot"></span>
+                  <span>Đang tự động theo dõi tiến trình tại trạm...</span>
+                </div>
               </div>
             }
           </div>
@@ -173,6 +204,15 @@
                 </svg>
                 Chỉ đường trên Google Maps ↗
               </a>
+            }
+
+            @if (isCheckedIn()) {
+              <button type="button" class="btn-ticket-secondary" (click)="refreshActiveStatus()" [disabled]="loading()">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" [class.spinning]="loading()">
+                  <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                </svg>
+                {{ loading() ? 'Đang kiểm tra...' : 'Kiểm tra trạng thái hoàn thành' }}
+              </button>
             }
 
             @if (isHeld()) {

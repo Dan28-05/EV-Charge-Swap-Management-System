@@ -25,4 +25,9 @@ export interface ReservationResponse {
   expiresAtUtc: string;
   checkedInAtUtc: string | null;
   closingReason: string | null;
+  resourceCode?: string | null;
+  chargingStartedAtUtc?: string | null;
+  chargingCompletedAtUtc?: string | null;
+  invoiceTotalAmount?: number | null;
+  invoiceStatus?: string | null;
 }

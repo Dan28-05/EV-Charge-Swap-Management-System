@@ -1,7 +1,8 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, ElementRef, OnInit, computed, inject, signal, viewChild } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
-import { Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import {
   BatteryLifecycleState,
   ChargerEquipmentState,
@@ -9,17 +10,25 @@ import {
   OperatorBattery,
   OperatorChargingBay,
   ParkingOccupancyState,
+  countBookableResources,
 } from '../models/operator.models';
-import { IncidentOptions, IncidentResolution, OperatorService, StationIncident, StationTariff } from '../services/operator.service';
-import { finalize } from 'rxjs';
+import { OperatorService } from '../services/operator.service';
+import { EMPTY, auditTime, catchError, filter, finalize, merge, switchMap, timer } from 'rxjs';
 import { AuthService } from '../../auth/services/auth.service';
+import { ReservationRealtimeService } from '../../reservations/services/reservation-realtime.service';
 
-type DashboardTab = 'operations' | 'bays' | 'batteries' | 'hours';
+import { InvoicesComponent } from '../../invoices/invoices.component';
+import { StationPricingComponent } from './station-pricing.component';
+import { ReservationIncidentDialogComponent } from './reservation-incident-dialog.component';
+import { NotificationBellComponent } from '../../notifications/notification-bell.component';
+
+type DashboardTab = 'operations' | 'bays' | 'batteries' | 'checkout';
 
 @Component({
   selector: 'app-operator-dashboard',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink],
+  imports: [CommonModule, FormsModule, InvoicesComponent, StationPricingComponent,
+    ReservationIncidentDialogComponent, NotificationBellComponent],
   templateUrl: './operator-dashboard.component.html',
   styleUrls: ['./operator-dashboard.component.scss'],
 })
@@ -27,33 +36,34 @@ export class OperatorDashboardComponent implements OnInit {
   private readonly operatorService = inject(OperatorService);
   private readonly authService = inject(AuthService);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
+  private readonly realtime = inject(ReservationRealtimeService);
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly currentTab = signal<DashboardTab>('operations');
+  readonly checkoutInvoiceId = signal<string | null>(null);
+  readonly focusedReservationId = signal<string | null>(null);
+  readonly orderedReservations = computed(() => {
+    const focus = this.focusedReservationId();
+    const visits = this.stationData()?.reservations ?? [];
+    return focus ? [...visits.filter((visit) => visit.id === focus), ...visits.filter((visit) => visit.id !== focus)] : visits;
+  });
   readonly stationData = this.operatorService.stationData;
   readonly loading = this.operatorService.loading;
   readonly error = this.operatorService.error;
   readonly currentUser = this.authService.currentUser;
   readonly swapReservation = signal<OperatorActiveReservation | null>(null);
-  readonly tariffs = signal<StationTariff[]>([]);
   readonly billingError = signal<string | null>(null);
   readonly billingBusy = signal(false);
-  readonly tariffService = signal(1);
-  readonly tariffPrice = signal<number | null>(null);
   readonly returnedSerial = signal('');
   readonly issuedSerial = signal('');
   readonly inspectionResult = signal('');
-  readonly incidentResolution = IncidentResolution;
-  readonly incidents = signal<StationIncident[] | null>(null);
-  readonly incidentPage = signal(1);
-  readonly selectedIncidentId = signal<string | null>(null);
-  readonly incidentOptions = signal<IncidentOptions | null>(null);
-  readonly replacementId = signal('');
-  readonly incidentBusy = signal(false);
-  readonly incidentError = signal<string | null>(null);
   readonly faultTarget = signal<{ kind: 'bay' | 'battery'; id: string; code: string } | null>(null);
   readonly faultDescription = signal('');
   readonly faultBusy = signal(false);
   readonly faultError = signal<string | null>(null);
+  private readonly faultDialog = viewChild.required<ElementRef<HTMLDialogElement>>('faultDialog');
+  readonly incidentNotice = signal<string | null>(null);
 
   // Quick check-in input
   readonly checkinCode = signal<string>('');
@@ -67,6 +77,7 @@ export class OperatorDashboardComponent implements OnInit {
   readonly selectedReservation = signal<OperatorActiveReservation | null>(null);
   readonly meterKwhInput = signal<number | null>(null);
   readonly meterSubmitting = signal<boolean>(false);
+  readonly confirmingArrival = signal<string | null>(null);
   readonly meterError = signal<string | null>(null);
 
   // Battery filter & update state
@@ -75,12 +86,8 @@ export class OperatorDashboardComponent implements OnInit {
 
   // Computed summary metrics
   readonly totalBays = computed(() => this.stationData()?.bays.length ?? 0);
-  readonly availableBays = computed(
-    () =>
-      this.stationData()?.bays.filter(
-        (b) => b.equipmentState === ChargerEquipmentState.Active && b.parkingState === ParkingOccupancyState.Vacant
-      ).length ?? 0
-  );
+  private readonly bookable = computed(() => countBookableResources(this.stationData()));
+  readonly availableBays = computed(() => this.bookable().bays);
   readonly occupiedBays = computed(
     () => this.stationData()?.bays.filter((b) => b.parkingState === ParkingOccupancyState.Occupied).length ?? 0
   );
@@ -89,9 +96,7 @@ export class OperatorDashboardComponent implements OnInit {
   );
 
   readonly totalBatteries = computed(() => this.stationData()?.batteries.length ?? 0);
-  readonly readyBatteries = computed(
-    () => this.stationData()?.batteries.filter((b) => b.state === BatteryLifecycleState.Ready).length ?? 0
-  );
+  readonly readyBatteries = computed(() => this.bookable().batteries);
   readonly chargingBatteries = computed(
     () => this.stationData()?.batteries.filter((b) => b.state === BatteryLifecycleState.Charging).length ?? 0
   );
@@ -116,15 +121,15 @@ export class OperatorDashboardComponent implements OnInit {
     return all.filter((b) => b.state === filter);
   });
 
-  readonly daysOfWeek = [
-    { day: 1, label: 'Thứ Hai' },
-    { day: 2, label: 'Thứ Ba' },
-    { day: 3, label: 'Thứ Tư' },
-    { day: 4, label: 'Thứ Năm' },
-    { day: 5, label: 'Thứ Sáu' },
-    { day: 6, label: 'Thứ Bảy' },
-    { day: 0, label: 'Chủ Nhật' },
-  ];
+  readonly customerBatteries = computed(() => {
+    return (this.stationData()?.batteries || []).filter((b) => b.state === BatteryLifecycleState.WithCustomer);
+  });
+
+  readonly isSerialConflict = computed(() => {
+    const ret = this.returnedSerial().trim();
+    const iss = this.issuedSerial().trim();
+    return ret.length > 0 && iss.length > 0 && ret.toLowerCase() === iss.toLowerCase();
+  });
 
   ngOnInit(): void {
     if (!this.authService.isOperator()) {
@@ -132,111 +137,96 @@ export class OperatorDashboardComponent implements OnInit {
       return;
     }
     this.refresh();
+    this.route.queryParamMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((params) => {
+      const invoice = params.get('invoice');
+      const reservation = params.get('reservation');
+      this.focusedReservationId.set(reservation);
+      if (invoice) this.openCheckout(invoice);
+      else if (reservation) this.currentTab.set('operations');
+    });
+    merge(this.realtime.operatorChanged$, timer(12000, 12000)).pipe(
+      auditTime(150),
+      filter(() => this.authService.isOperator() && !this.loading()),
+      switchMap(() => this.operatorService.getStationDashboard(true).pipe(catchError(() => EMPTY))),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe();
   }
 
   refresh(): void {
     this.operatorService.getStationDashboard().subscribe({
       error: () => {},
     });
-    this.loadIncidents(this.incidentPage());
+  }
+
+  onIncidentResolved(message: string): void {
+    this.incidentNotice.set(message);
+    this.refresh();
+  }
+
+  openCheckout(invoiceId: string | null = null): void {
+    this.checkoutInvoiceId.set(invoiceId);
+    this.currentTab.set('checkout');
   }
 
   openSwap(reservation: OperatorActiveReservation): void {
     this.billingError.set(null);
     this.returnedSerial.set('');
-    this.issuedSerial.set('');
-    this.inspectionResult.set('');
+    const heldSerial = reservation.batteryId ? this.findBatterySerial(reservation.batteryId) : '';
+    this.issuedSerial.set(heldSerial);
+    this.inspectionResult.set('Pin nguyên vẹn, tiếp điểm sạch, sẵn sàng sạc lại');
     this.swapReservation.set(reservation);
+  }
+
+  setInspection(result: string): void {
+    this.inspectionResult.set(result);
   }
 
   completeSwap(): void {
     const reservation = this.swapReservation();
-    const returned = this.returnedSerial().trim();
-    const issued = this.issuedSerial().trim();
+    const returned = this.returnedSerial().trim().toUpperCase();
+    const issued = this.issuedSerial().trim().toUpperCase();
     const inspection = this.inspectionResult().trim();
     if (!reservation || this.billingBusy() || !returned || !issued || !inspection) return;
+    if (returned === issued) {
+      this.billingError.set('Mã pin khách trả và pin trạm giao phải là 2 viên pin khác nhau.');
+      return;
+    }
     this.billingBusy.set(true);
     this.billingError.set(null);
     this.operatorService.completeBatterySwap(reservation.id, returned, issued, inspection)
       .pipe(finalize(() => this.billingBusy.set(false))).subscribe({
-        next: () => { this.swapReservation.set(null); this.refresh(); },
-        error: (err) => this.billingError.set(err.error?.detail || 'Không thể xác nhận giao nhận pin.'),
-      });
-  }
-
-  loadTariffs(): void {
-    this.operatorService.getTariffs().subscribe({
-      next: (rows) => this.tariffs.set(rows),
-      error: () => this.billingError.set('Không tải được bảng giá.'),
-    });
-  }
-
-  publishTariff(): void {
-    const price = this.tariffPrice();
-    if (price === null || this.billingBusy()) return;
-    this.billingBusy.set(true);
-    this.billingError.set(null);
-    this.operatorService.createTariff(this.tariffService(), price)
-      .pipe(finalize(() => this.billingBusy.set(false))).subscribe({
-        next: () => { this.tariffPrice.set(null); this.loadTariffs(); },
-        error: (err) => this.billingError.set(err.error?.detail || 'Không thể lưu đơn giá.'),
-      });
-  }
-
-  loadIncidents(page: number): void {
-    this.incidentError.set(null);
-    this.selectedIncidentId.set(null);
-    this.incidentOptions.set(null);
-    this.incidentPage.set(page);
-    this.incidents.set(null);
-    this.operatorService.getOpenIncidents(page).subscribe({
-      next: (reports) => {
-        if (this.incidentPage() === page) this.incidents.set(reports);
-      },
-      error: () => {
-        if (this.incidentPage() === page) this.incidentError.set('Không tải được danh sách sự cố.');
-      },
-    });
-  }
-
-  openIncident(id: string): void {
-    this.selectedIncidentId.set(id);
-    this.incidentOptions.set(null);
-    this.replacementId.set('');
-    this.incidentError.set(null);
-    this.operatorService.getIncidentOptions(id).subscribe({
-      next: (options) => {
-        if (this.selectedIncidentId() === id) this.incidentOptions.set(options);
-      },
-      error: () => {
-        if (this.selectedIncidentId() === id) this.incidentError.set('Không tải được phương án xử lý.');
-      },
-    });
-  }
-
-  resolveIncident(resolution: IncidentResolution): void {
-    const id = this.selectedIncidentId();
-    const replacementId = resolution === IncidentResolution.Reassigned ? this.replacementId() : undefined;
-    if (!id || this.incidentBusy() || (resolution === IncidentResolution.Reassigned && !replacementId)) return;
-    this.incidentError.set(null);
-    this.incidentBusy.set(true);
-    this.operatorService.resolveIncident(id, resolution, replacementId)
-      .pipe(finalize(() => this.incidentBusy.set(false)))
-      .subscribe({
-        next: () => {
-          this.incidentPage.set(1);
+        next: ({ invoice }) => {
+          this.swapReservation.set(null);
+          this.openCheckout(invoice.id);
           this.refresh();
         },
-        error: (err) => this.incidentError.set(err.status === 409
-          ? 'Phương án đã thay đổi. Chọn lại sự cố để tải thông tin mới.'
-          : 'Không thể xác nhận xử lý sự cố.'),
+        error: (err) => {
+          const detail = err.error?.detail || err.error?.title || '';
+          if (detail.includes('distinct')) {
+            this.billingError.set('Mã pin khách trả và pin trạm giao phải là 2 viên pin khác nhau.');
+          } else if (detail.includes('custody')) {
+            this.billingError.set('Viên pin trả không thuộc quyền sử dụng của khách hàng này.');
+          } else if (detail.includes('ready')) {
+            this.billingError.set('Viên pin trạm giao phải ở trạng thái sẵn sàng trong kho trạm.');
+          } else if (detail.includes('tariff')) {
+            this.billingError.set('Trạm chưa cấu hình biểu giá dịch vụ đổi pin.');
+          } else {
+            this.billingError.set(detail || 'Không thể xác nhận giao nhận pin.');
+          }
+        },
       });
   }
 
   private openFaultForm(kind: 'bay' | 'battery', id: string, code: string): void {
+    this.incidentNotice.set(null);
     this.faultTarget.set({ kind, id, code });
     this.faultError.set(null);
     this.faultDescription.set('');
+    this.faultDialog().nativeElement.showModal();
+  }
+
+  lockFaultDialogWhileSaving(event: Event): void {
+    if (this.faultBusy()) event.preventDefault();
   }
 
   reportFault(): void {
@@ -248,12 +238,19 @@ export class OperatorDashboardComponent implements OnInit {
     const request = target.kind === 'bay'
       ? this.operatorService.updateBayEquipmentState(target.id, ChargerEquipmentState.Faulted, description)
       : this.operatorService.updateBatteryState(target.id, BatteryLifecycleState.Faulted, description);
-    request.pipe(finalize(() => this.faultBusy.set(false))).subscribe({
+    request.pipe(takeUntilDestroyed(this.destroyRef), finalize(() => this.faultBusy.set(false))).subscribe({
       next: () => {
-        this.faultTarget.set(null);
-        this.currentTab.set('operations');
-        this.incidentPage.set(1);
-        this.refresh();
+        this.faultDialog().nativeElement.close();
+        this.incidentNotice.set('Đã gửi báo cáo sự cố.');
+        this.operatorService.getStationDashboard().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+          next: (station) => {
+            if (station.reservations.some((visit) => visit.incident &&
+                (visit.chargingBayId === target.id || visit.batteryId === target.id))) {
+              this.currentTab.set('operations');
+            }
+          },
+          error: () => {},
+        });
       },
       error: () => this.faultError.set('Không thể gửi báo cáo sự cố.'),
     });
@@ -320,9 +317,16 @@ export class OperatorDashboardComponent implements OnInit {
 
   // --- Charging Session Stepper Logic ---
   confirmVehicleArrived(res: OperatorActiveReservation): void {
-    this.operatorService.confirmVehicleArrived(res.id).subscribe({
-      next: () => {},
-      error: (err) => alert(err.error?.detail || 'Không thể xác nhận xe vào bãi.'),
+    if (this.confirmingArrival()) return;
+    this.confirmingArrival.set(res.id);
+    this.operatorService.confirmVehicleArrived(res.id).pipe(
+      takeUntilDestroyed(this.destroyRef),
+      finalize(() => this.confirmingArrival.set(null)),
+    ).subscribe({
+      error: (err) => {
+        if (err.status === 409) this.refresh();
+        alert(err.error?.detail || 'Không thể xác nhận xe vào bãi.');
+      },
     });
   }
 
@@ -380,9 +384,11 @@ export class OperatorDashboardComponent implements OnInit {
       });
     } else {
       this.operatorService.completeCharging(res.id, meter).subscribe({
-        next: () => {
+        next: (invoice) => {
           this.meterSubmitting.set(false);
           this.closeMeterModal();
+          this.openCheckout(invoice.id);
+          this.refresh();
         },
         error: (err: any) => {
           this.meterSubmitting.set(false);
@@ -500,17 +506,4 @@ export class OperatorDashboardComponent implements OnInit {
     return b ? b.serial : batteryId.slice(0, 8);
   }
 
-  formatMinutes(min: number): string {
-    const h = Math.floor(min / 60);
-    const m = min % 60;
-    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
-  }
-
-  getHoursForDay(serviceType: number, day: number): string {
-    const list = (this.stationData()?.hours || []).filter(
-      (h) => h.serviceType === serviceType && h.day === day
-    );
-    if (list.length === 0) return 'Nghỉ';
-    return list.map((h) => `${this.formatMinutes(h.opensAtMinute)} – ${this.formatMinutes(h.closesAtMinute)}`).join(', ');
-  }
 }

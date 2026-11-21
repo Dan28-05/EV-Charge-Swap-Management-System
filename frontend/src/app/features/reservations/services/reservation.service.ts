@@ -1,6 +1,9 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { Injectable, computed, inject, signal } from '@angular/core';
-import { Observable, catchError, map, of, tap, throwError } from 'rxjs';
+import { DestroyRef, Injectable, computed, effect, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { EMPTY, Observable, auditTime, catchError, finalize, map, of, switchMap, tap, throwError } from 'rxjs';
+import { ReservationRealtimeService } from './reservation-realtime.service';
+import { AuthService } from '../../auth/services/auth.service';
 import {
   CheckInRequest,
   HoldRequest,
@@ -10,8 +13,16 @@ import {
 @Injectable({ providedIn: 'root' })
 export class ReservationService {
   private readonly http = inject(HttpClient);
+  private readonly authService = inject(AuthService, { optional: true });
+  private readonly realtime = inject(ReservationRealtimeService);
+  private readonly destroyRef = inject(DestroyRef);
+  private expiryLookupPending = false;
+  private refreshPending = false;
+  private queuedChange: { id: string | null } | null = null;
+  private stateVersion = 0;
 
   readonly activeReservation = signal<ReservationResponse | null>(null);
+  readonly lastClosedReservation = signal<ReservationResponse | null>(null);
   readonly loading = signal<boolean>(false);
   readonly remainingSeconds = signal<number>(0);
 
@@ -32,6 +43,21 @@ export class ReservationService {
 
   constructor() {
     this.startCountdownLoop();
+    this.destroyRef.onDestroy(() => {
+      if (this.countdownTimer) clearInterval(this.countdownTimer);
+      this.stopPolling();
+    });
+    this.realtime.changed$.pipe(auditTime(100), takeUntilDestroyed(this.destroyRef))
+      .subscribe((id) => this.syncActive({ id }));
+
+    if (this.authService) {
+      effect(() => {
+        if (!this.authService?.isAuthenticated()) {
+          this.setActive(null);
+          this.lastClosedReservation.set(null);
+        }
+      });
+    }
   }
 
   hold(request: HoldRequest): Observable<ReservationResponse> {
@@ -49,14 +75,17 @@ export class ReservationService {
   }
 
   getActive(): Observable<ReservationResponse | null> {
+    const version = this.stateVersion;
+    const userId = this.authService?.currentUser()?.id;
+    const isCurrent = () => this.stateVersion === version && this.authService?.currentUser()?.id === userId;
     return this.http.get<ReservationResponse>('/api/reservations/active').pipe(
       map((res) => {
-        this.setActive(res);
+        if (isCurrent()) this.setActive(res);
         return res;
       }),
       catchError((err: HttpErrorResponse) => {
-        if (err.status === 404) {
-          this.setActive(null);
+        if (err.status === 404 || err.status === 401) {
+          if (isCurrent()) this.setActive(null);
           return of(null);
         }
         return throwError(() => err);
@@ -122,10 +151,12 @@ export class ReservationService {
   }
 
   setActive(reservation: ReservationResponse | null): void {
+    this.stateVersion++;
+    if (reservation) this.lastClosedReservation.set(null);
     this.activeReservation.set(reservation);
     this.updateCountdown();
 
-    if (reservation && reservation.status === 'Held') {
+    if (reservation && (reservation.status === 'Held' || reservation.status === 'CheckedIn')) {
       this.startPolling();
     } else {
       this.stopPolling();
@@ -151,21 +182,52 @@ export class ReservationService {
     const diffSeconds = Math.max(0, Math.floor((expiryTime - now) / 1000));
     this.remainingSeconds.set(diffSeconds);
 
-    if (diffSeconds <= 0 && res.status === 'Held') {
-      // Refresh to confirm expired
-      this.getActive().subscribe();
+    if (expiryTime <= now && !this.expiryLookupPending && !this.loading()) {
+      this.expiryLookupPending = true;
+      this.syncActive();
     }
   }
 
   private startPolling(): void {
     if (this.pollTimer) return;
+    let heartbeat = 0;
     this.pollTimer = setInterval(() => {
-      if (this.activeReservation()?.status === 'Held') {
-        this.getActive().subscribe();
+      const current = this.activeReservation();
+      if (current && (current.status === 'Held' || current.status === 'CheckedIn')) {
+        if (!this.realtime.connected() || ++heartbeat % 4 === 0) this.syncActive();
       } else {
         this.stopPolling();
       }
-    }, 8000);
+    }, 4000);
+  }
+
+  private syncActive(change?: { id: string | null }): void {
+    if (this.authService && !this.authService.isAuthenticated()) return;
+    if (this.refreshPending) {
+      if (change) this.queuedChange = change;
+      return;
+    }
+    if (this.loading()) return;
+    const previousId = this.activeReservation()?.id ?? change?.id;
+    const owner = this.authService?.currentUser()?.id;
+    this.refreshPending = true;
+    this.getActive().pipe(
+      switchMap((active) => !active && previousId ? this.getById(previousId) : EMPTY),
+      catchError(() => EMPTY),
+      finalize(() => {
+        this.refreshPending = false;
+        this.expiryLookupPending = false;
+        const queued = this.queuedChange;
+        this.queuedChange = null;
+        if (queued && !this.destroyRef.destroyed) this.syncActive(queued);
+      }),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe((closed) => {
+      if (!this.activeReservation() && this.authService?.currentUser()?.id === owner &&
+          ['Cancelled', 'Completed', 'Expired'].includes(closed.status)) {
+        this.lastClosedReservation.set(closed);
+      }
+    });
   }
 
   private stopPolling(): void {

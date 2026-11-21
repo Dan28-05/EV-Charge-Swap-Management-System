@@ -1,10 +1,9 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Injectable, inject, signal } from '@angular/core';
-import { Observable, catchError, forkJoin, map, of, switchMap, tap, throwError } from 'rxjs';
+import { Observable, catchError, map, switchMap, tap, throwError } from 'rxjs';
 import {
   BatteryLifecycleState,
   ChargerEquipmentState,
-  OperatorActiveReservation,
   OperatorChargingSessionInfo,
   OperatorStationDashboardData,
   ReplaceHoursRequest,
@@ -49,6 +48,11 @@ export interface StationTariff {
   effectiveFromUtc: string;
 }
 
+export interface CurrentStationTariffs {
+  charging: number | null;
+  batterySwap: number | null;
+}
+
 @Injectable({ providedIn: 'root' })
 export class OperatorService {
   private readonly http = inject(HttpClient);
@@ -57,78 +61,31 @@ export class OperatorService {
   readonly loading = signal<boolean>(false);
   readonly error = signal<string | null>(null);
 
-  /**
-   * Load station data including bays, batteries, hours and active reservations.
-   * Also hydrates detailed charging status for checked-in charging reservations.
-   */
-  getStationDashboard(): Observable<OperatorStationDashboardData> {
-    this.loading.set(true);
-    this.error.set(null);
+  /** Load the station and its active visits, including their charging sessions. */
+  getStationDashboard(silent = false): Observable<OperatorStationDashboardData> {
+    if (!silent) {
+      this.loading.set(true);
+      this.error.set(null);
+    }
 
     return this.http.get<OperatorStationDashboardData>('/api/operator/me/station').pipe(
-      switchMap((raw) => {
-        // Normalize status enum to string
-        const normalizedReservations: OperatorActiveReservation[] = (raw.reservations || []).map((r) => {
-          let s: any = r.status;
-          if (s === 1) s = 'Held';
-          else if (s === 2) s = 'CheckedIn';
-          else if (s === 3) s = 'Completed';
-          else if (s === 4) s = 'Cancelled';
-          else if (s === 5) s = 'Expired';
-          return { ...r, status: s };
-        });
-
-        const data: OperatorStationDashboardData = {
+      map((raw): OperatorStationDashboardData => {
+        const legacyStatuses = ['Held', 'CheckedIn', 'Completed', 'Cancelled', 'Expired'] as const;
+        return {
           ...raw,
-          reservations: normalizedReservations,
+          reservations: (raw.reservations ?? []).map((reservation) => {
+            const status = legacyStatuses[Number(reservation.status) - 1] ?? reservation.status;
+            return { ...reservation, status };
+          }),
         };
-
-        // Hydrate charging reservation details if any charging bay reservations are checked in
-        const chargingReservations = (data.reservations || []).filter(
-          (r) => !!r.chargingBayId && r.status === 'CheckedIn'
-        );
-
-        if (chargingReservations.length === 0) {
-          this.stationData.set(data);
-          this.loading.set(false);
-          return of(data);
-        }
-
-        const detailRequests = chargingReservations.map((r) =>
-          this.getChargingStatus(r.id).pipe(
-            map((status) => ({ id: r.id, status })),
-            catchError(() => of({ id: r.id, status: null }))
-          )
-        );
-
-        return forkJoin(detailRequests).pipe(
-          map((details) => {
-            const detailMap = new Map(details.map((d) => [d.id, d.status]));
-            const enrichedReservations: OperatorActiveReservation[] = (data.reservations || []).map((r) => {
-              const detail = detailMap.get(r.id);
-              if (detail) {
-                return {
-                  ...r,
-                  vehicleArrivedAtUtc: detail.vehicleArrivedAtUtc,
-                  noChargeConfirmedAtUtc: detail.noChargeConfirmedAtUtc,
-                  vehicleDepartedAtUtc: detail.vehicleDepartedAtUtc,
-                  session: detail.session,
-                };
-              }
-              return r;
-            });
-
-            const enrichedData: OperatorStationDashboardData = {
-              ...data,
-              reservations: enrichedReservations,
-            };
-            this.stationData.set(enrichedData);
-            this.loading.set(false);
-            return enrichedData;
-          })
-        );
+      }),
+      tap((data) => {
+        this.stationData.set(data);
+        if (!silent) this.loading.set(false);
       }),
       catchError((err: HttpErrorResponse) => {
+        if (silent && err.status !== 404 && err.status !== 403) return throwError(() => err);
+        if (err.status === 404 || err.status === 403) this.stationData.set(null);
         this.loading.set(false);
         const msg = err.status === 404
           ? 'Tài khoản chưa được phân công quản lý trạm nào.'
@@ -143,16 +100,16 @@ export class OperatorService {
     return this.http.get<StationIncident[]>('/api/operator/me/incidents', { params: { page } });
   }
 
-  getTariffs(): Observable<StationTariff[]> {
-    return this.http.get<StationTariff[]>('/api/operator/me/tariffs');
+  getCurrentTariffs(): Observable<CurrentStationTariffs> {
+    return this.http.get<CurrentStationTariffs>('/api/operator/me/tariffs/current');
   }
 
   createTariff(serviceType: number, unitPrice: number): Observable<StationTariff> {
     return this.http.post<StationTariff>('/api/operator/me/tariffs', { serviceType, unitPrice });
   }
 
-  completeBatterySwap(id: string, returnedSerial: string, issuedSerial: string, inspectionResult: string): Observable<unknown> {
-    return this.http.post(`/api/operator/me/battery-swaps/${id}/complete`,
+  completeBatterySwap(id: string, returnedSerial: string, issuedSerial: string, inspectionResult: string): Observable<{ invoice: { id: string } }> {
+    return this.http.post<{ invoice: { id: string } }>(`/api/operator/me/battery-swaps/${id}/complete`,
       { returnedSerial, issuedSerial, inspectionResult });
   }
 
@@ -222,12 +179,11 @@ export class OperatorService {
       .pipe(switchMap((session) => this.getStationDashboard().pipe(map(() => session))));
   }
 
-  completeCharging(reservationId: string, meterKwh: number): Observable<void> {
+  completeCharging(reservationId: string, meterKwh: number): Observable<{ id: string }> {
     return this.http
-      .post<void>(`/api/operator/me/charging-reservations/${reservationId}/complete`, {
+      .post<{ id: string }>(`/api/operator/me/charging-reservations/${reservationId}/complete`, {
         meterKwh,
-      })
-      .pipe(switchMap(() => this.getStationDashboard().pipe(map(() => void 0))));
+      });
   }
 
   confirmNoCharge(reservationId: string): Observable<void> {

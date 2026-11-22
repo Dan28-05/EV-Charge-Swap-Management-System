@@ -289,6 +289,57 @@ public sealed class AuthenticationApiTests : IClassFixture<ApiFactory>
             new RegisterRequest { Email = UniqueEmail("other"), PhoneNumber = phone, FullName = "Other", Password = ValidPassword })).StatusCode);
     }
 
+    [Fact]
+    public async Task Invalid_non_email_login_does_not_match_or_lock_out_accounts_without_phone()
+    {
+        using var isolatedFactory = new ApiFactory();
+        using var isolatedClient = isolatedFactory.CreateClient(new() { BaseAddress = new Uri("https://localhost") });
+        var adminEmail = UniqueEmail("admin-nophone");
+        await isolatedFactory.CreateAdminAsync(adminEmail, ValidPassword);
+
+        // 6 failed login attempts with an invalid non-email identifier must return 401 and never lock out Admin
+        for (var i = 0; i < 6; i++)
+        {
+            var bad = await isolatedClient.PostAsJsonAsync("/api/auth/login",
+                new LoginRequest { Identifier = "not-a-phone", Password = "WrongPassword123" });
+            Assert.Equal(HttpStatusCode.Unauthorized, bad.StatusCode);
+        }
+
+        // Admin can still log in immediately with valid credentials
+        var adminLogin = await isolatedClient.PostAsJsonAsync("/api/auth/login",
+            new LoginRequest { Identifier = adminEmail, Password = ValidPassword });
+        adminLogin.EnsureSuccessStatusCode();
+
+        // Even with a second account having PhoneNumber == null, invalid identifier must return 401 (never 500)
+        await isolatedFactory.CreateAdminAsync(UniqueEmail("admin2-nophone"), ValidPassword);
+        var badMulti = await isolatedClient.PostAsJsonAsync("/api/auth/login",
+            new LoginRequest { Identifier = "invalid-id", Password = ValidPassword });
+        Assert.Equal(HttpStatusCode.Unauthorized, badMulti.StatusCode);
+
+        // Resending phone verification for an account without a phone must return 202 (never 500)
+        var resend = await isolatedClient.PostAsJsonAsync("/api/auth/verification/resend",
+            new ResendVerificationRequest { Email = adminEmail, Channel = "phone" });
+        Assert.Equal(HttpStatusCode.Accepted, resend.StatusCode);
+    }
+
+    [Fact]
+    public async Task Auth_rate_limiter_partitions_case_insensitively()
+    {
+        using var isolatedFactory = new ApiFactory();
+        using var isolatedClient = isolatedFactory.CreateClient(new() { BaseAddress = new Uri("https://localhost") });
+
+        HttpStatusCode lastStatus = HttpStatusCode.OK;
+        for (var i = 0; i < 31; i++)
+        {
+            var path = i % 2 == 0 ? "/api/auth/login" : "/api/auth/LOGIN";
+            var response = await isolatedClient.PostAsJsonAsync(path,
+                new LoginRequest { Identifier = "nobody@example.test", Password = "WrongPassword123" });
+            lastStatus = response.StatusCode;
+        }
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, lastStatus);
+    }
+
     private async Task<AuthenticationResponse> RegisterAsync(string? email = null)
     {
         email ??= UniqueEmail("customer");

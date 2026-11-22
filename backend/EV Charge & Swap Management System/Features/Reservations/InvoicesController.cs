@@ -90,7 +90,9 @@ public sealed class InvoicesController(AppDbContext db) : ControllerBase
                    customer != null ? (!string.IsNullOrWhiteSpace(customer.FullName) ? customer.FullName : customer.Email) : null,
                    customer != null ? customer.PhoneNumber : null,
                    customer != null ? customer.Email : null,
-                   collector != null ? (!string.IsNullOrWhiteSpace(collector.FullName) ? collector.FullName : collector.Email) : null);
+                   (isOperator || isAdmin) && collector != null
+                       ? (!string.IsNullOrWhiteSpace(collector.FullName) ? collector.FullName : collector.Email)
+                       : null);
     }
 
     private bool TryGetUserId(out Guid id) =>

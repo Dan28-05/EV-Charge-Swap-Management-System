@@ -21,6 +21,19 @@ namespace EVChargeSwap.Common.Messaging.Consumers;
 public sealed class NotificationConsumer : IConsumer
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
+    private static readonly TimeZoneInfo VietnamTimeZone = ResolveVietnamTimeZone();
+
+    private static TimeZoneInfo ResolveVietnamTimeZone()
+    {
+        try { return TimeZoneInfo.FindSystemTimeZoneById("Asia/Ho_Chi_Minh"); }
+        catch (TimeZoneNotFoundException)
+        {
+            try { return TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time"); }
+            catch (TimeZoneNotFoundException) { return TimeZoneInfo.CreateCustomTimeZone("ICT", TimeSpan.FromHours(7), "ICT", "ICT"); }
+        }
+    }
+
+    private static DateTimeOffset ToVietnamTime(DateTimeOffset utc) => TimeZoneInfo.ConvertTime(utc, VietnamTimeZone);
 
     private readonly AppDbContext _db;
     private readonly ILogger<NotificationConsumer> _logger;
@@ -82,14 +95,14 @@ public sealed class NotificationConsumer : IConsumer
                     Id = messageId,
                     UserId = ev.CustomerId,
                     Title = "Xác nhận đặt chỗ thành công",
-                    Message = $"Mã đặt chỗ {ev.Code} đã được xác nhận. Hết hạn giữ chỗ lúc {ev.ExpiresAtUtc.ToLocalTime():HH:mm dd/MM/yyyy}.",
+                    Message = $"Mã đặt chỗ {ev.Code} đã được xác nhận. Hết hạn giữ chỗ lúc {ToVietnamTime(ev.ExpiresAtUtc):HH:mm dd/MM/yyyy}.",
                     Type = NotificationType.Info,
                     ActionUrl = "/reservations"
                 };
                 await SaveOnceAsync(notification, ct);
                 var service = ev.ServiceType == nameof(ReservationServiceType.Charging) ? "sạc ô tô" : "đổi pin";
                 await NotifyStationOperatorsAsync(ev.LocationId, ev.CreatedAtUtc, messageId,
-                    "Lượt đặt mới", $"Khách hàng {custSummary} đã đặt giữ chỗ {service}. Mã: {ev.Code}. Hạn giữ chỗ: {ev.ExpiresAtUtc.ToLocalTime():HH:mm}.", NotificationType.Info,
+                    "Lượt đặt mới", $"Khách hàng {custSummary} đã đặt giữ chỗ {service}. Mã: {ev.Code}. Hạn giữ chỗ: {ToVietnamTime(ev.ExpiresAtUtc):HH:mm}.", NotificationType.Info,
                     $"/operator/dashboard?reservation={ev.ReservationId:D}", ct);
                 _logger.LogInformation("Saved reservation confirmation notification for customer {CustomerId}.", ev.CustomerId);
                 break;
@@ -104,7 +117,7 @@ public sealed class NotificationConsumer : IConsumer
                 {
                     UserId = ev.CustomerId,
                     Title = "Phiên sạc pin hoàn thành",
-                    Message = $"Phiên sạc kết thúc lúc {ev.CompletedAtUtc.ToLocalTime():HH:mm}. Tổng tiêu thụ: {ev.TotalKwh:F3} kWh. Vui lòng báo nhân viên khi xe rời chỗ sạc.",
+                    Message = $"Phiên sạc kết thúc lúc {ToVietnamTime(ev.CompletedAtUtc):HH:mm}. Tổng tiêu thụ: {ev.TotalKwh:F3} kWh. Vui lòng báo nhân viên khi xe rời chỗ sạc.",
                     Type = NotificationType.Success,
                     ActionUrl = "/reservations"
                 };
@@ -171,13 +184,12 @@ public sealed class NotificationConsumer : IConsumer
                     Type = NotificationType.Success
                 }, ct);
 
-                if (invoiceInfo?.LocationId is { } locId)
+                if (invoiceInfo is { LocationId: { } locId, IsCash: false })
                 {
                     var custSummary = invoiceInfo.CustomerName + (!string.IsNullOrWhiteSpace(invoiceInfo.CustomerPhone) ? $" ({invoiceInfo.CustomerPhone})" : "");
-                    var title = invoiceInfo.IsCash ? "Thanh toán tiền mặt thành công" : "Khách đã thanh toán QR";
                     await NotifyStationOperatorsAsync(locId, _clock.GetUtcNow(), messageId,
-                        title,
-                        $"Khách hàng {custSummary} đã thanh toán {(invoiceInfo.TotalAmount):N0} đ qua {invoiceInfo.Method}.{collectorSuffix}",
+                        "Khách đã thanh toán QR",
+                        $"Khách hàng {custSummary} đã thanh toán {(invoiceInfo.TotalAmount):N0} đ qua {invoiceInfo.Method}.",
                         NotificationType.Success, $"/operator/dashboard?invoice={ev.InvoiceId:D}", ct);
                 }
                 break;
@@ -324,9 +336,7 @@ public sealed class NotificationConsumer : IConsumer
 
             try
             {
-                await _hubContext.Clients.Group($"user:{notification.UserId}")
-                    .SendAsync("ReceiveNotification", payloadDto, ct);
-                await _hubContext.Clients.User(notification.UserId.ToString())
+                await _hubContext.Clients.Group(NotificationHub.GroupFor(notification.UserId))
                     .SendAsync("ReceiveNotification", payloadDto, ct);
             }
             catch (Exception ex)

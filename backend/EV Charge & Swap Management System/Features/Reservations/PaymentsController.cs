@@ -9,6 +9,7 @@ using EVChargeSwap.Features.Authorization;
 using EVChargeSwap.Features.Reservations.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 
 namespace EVChargeSwap.Features.Reservations;
@@ -23,16 +24,19 @@ public sealed record QrPaymentResponse(Guid Id, Guid InvoiceId, decimal Amount, 
 public sealed class PaymentsController(AppDbContext db, TimeProvider clock, IOutboxService outbox,
     IConfiguration configuration, IWebHostEnvironment environment, InvoiceRealtime? realtime = null) : ControllerBase
 {
-    private string? SigningKey => environment.IsDevelopment()
-        ? (configuration["MockPayments:WebhookSecret"] is { Length: >= 32 } key
+    private string? SigningKey =>
+        environment.IsDevelopment() &&
+        configuration["MockPayments:WebhookSecret"] is { Length: >= 32 } key
             ? key
-            : "evgo-mock-payments-dev-webhook-secret-min-32chars")
-        : (configuration["MockPayments:WebhookSecret"] is { Length: >= 32 } prodKey ? prodKey : null);
+            : null;
 
     [HttpPost("api/invoices/{invoiceId:guid}/pay")]
     public async Task<IActionResult> Create(Guid invoiceId, CancellationToken ct)
     {
         if (SigningKey is null) return Unavailable();
+        var authCheck = await db.Invoices.AsNoTracking().SingleOrDefaultAsync(x => x.Id == invoiceId, ct);
+        if (authCheck is null || !await CanAccessAsync(authCheck, ct)) return NotFound();
+
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var invoice = await Checkout.LockInvoiceAsync(db, invoiceId, ct);
         if (invoice is null || !await CanAccessAsync(invoice, ct)) return NotFound();
@@ -65,6 +69,7 @@ public sealed class PaymentsController(AppDbContext db, TimeProvider clock, IOut
     }
 
     [AllowAnonymous]
+    [EnableRateLimiting("webhook")]
     [HttpPost("api/payments/mock/webhook")]
     public Task<IActionResult> Webhook(MockPaymentEvent evt,
         [FromHeader(Name = "X-EVGo-Signature")] string? signature, CancellationToken ct) =>

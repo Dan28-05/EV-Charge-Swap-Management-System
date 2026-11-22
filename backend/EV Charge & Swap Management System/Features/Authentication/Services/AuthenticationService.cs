@@ -60,9 +60,18 @@ public sealed class AuthenticationService(
     {
         var identifier = request.Identifier.Trim();
         var isEmail = identifier.Contains('@');
-        var user = isEmail
-            ? await userManager.FindByEmailAsync(identifier)
-            : await db.Users.SingleOrDefaultAsync(x => x.PhoneNumber == PhoneNumberNormalizer.Normalize(identifier), cancellationToken);
+        ApplicationUser? user;
+        if (isEmail)
+        {
+            user = await userManager.FindByEmailAsync(identifier);
+        }
+        else
+        {
+            var normalizedPhone = PhoneNumberNormalizer.Normalize(identifier);
+            if (normalizedPhone is null)
+                return InvalidCredentials();
+            user = await db.Users.SingleOrDefaultAsync(x => x.PhoneNumber == normalizedPhone, cancellationToken);
+        }
         if (user is null || !user.IsActive)
             return InvalidCredentials();
 

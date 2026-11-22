@@ -51,15 +51,26 @@ public sealed class UserService(
         var user = await userManager.FindByIdAsync(userId.ToString());
         if (user is null || !user.IsActive)
             return OperationResult<bool>.Fail(OperationFailure.NotFound, "User was not found.");
+        if (await userManager.IsLockedOutAsync(user))
+            return OperationResult<bool>.Fail(OperationFailure.Validation,
+                "Account is temporarily locked due to too many failed attempts. Please try again later.");
         if (request.CurrentPassword == request.NewPassword)
             return OperationResult<bool>.Fail(OperationFailure.Validation, "The new password must be different.");
 
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         var changed = await userManager.ChangePasswordAsync(user, request.CurrentPassword, request.NewPassword);
         if (!changed.Succeeded)
+        {
+            if (changed.Errors.Any(e => string.Equals(e.Code, "PasswordMismatch", StringComparison.Ordinal)))
+            {
+                await userManager.AccessFailedAsync(user);
+                await transaction.CommitAsync(cancellationToken);
+            }
             return OperationResult<bool>.Fail(OperationFailure.Validation,
                 "Current password is incorrect or the new password does not meet the requirements.", ToErrors(changed));
+        }
 
+        await userManager.ResetAccessFailedCountAsync(user);
         await RevokeSessionsAsync(userId, "password_changed", cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return OperationResult<bool>.Success(true);

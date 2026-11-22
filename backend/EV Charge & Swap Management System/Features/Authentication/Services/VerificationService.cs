@@ -18,10 +18,13 @@ public sealed class VerificationService(
     public bool CanDeliver(string channel) => sender.CanSend(channel);
     public static bool ValidChannel(string channel) => channel is "email" or "phone";
 
-    public async Task SendAsync(ApplicationUser user, string channel, CancellationToken ct)
+    public async Task<bool> SendAsync(ApplicationUser user, string channel, CancellationToken ct)
     {
         if (!ValidChannel(channel)) throw new ArgumentException("Invalid channel.", nameof(channel));
-        await SendCodeAsync(user, channel, channel == "email" ? user.Email! : user.PhoneNumber!, ct);
+        var destination = channel == "email" ? user.Email : user.PhoneNumber;
+        if (string.IsNullOrWhiteSpace(destination)) return false;
+        await SendCodeAsync(user, channel, destination, ct);
+        return true;
     }
 
     public Task SendPasswordResetAsync(ApplicationUser user, string destination, CancellationToken ct) =>
@@ -57,7 +60,9 @@ public sealed class VerificationService(
     public async Task<bool> VerifyAsync(ApplicationUser user, string channel, string code, CancellationToken ct)
     {
         if (!ValidChannel(channel)) return false;
-        return await VerifyCodeAsync(user, channel, channel == "email" ? user.Email! : user.PhoneNumber!, code, true, ct);
+        var destination = channel == "email" ? user.Email : user.PhoneNumber;
+        if (string.IsNullOrWhiteSpace(destination)) return false;
+        return await VerifyCodeAsync(user, channel, destination, code, true, ct);
     }
 
     public Task<bool> VerifyPasswordResetAsync(ApplicationUser user, string destination, string code, CancellationToken ct) =>

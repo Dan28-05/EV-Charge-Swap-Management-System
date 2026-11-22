@@ -76,7 +76,9 @@ public sealed class AuthenticationController(AuthenticationService service,
 
         try
         {
-            await verification.SendAsync(user, request.Channel, cancellationToken);
+            var sent = await verification.SendAsync(user, request.Channel, cancellationToken);
+            if (!sent)
+                return BadRequest(new ProblemDetails { Title = "No contact destination is configured for this channel." });
             return Accepted();
         }
         catch (HttpRequestException)
@@ -109,7 +111,7 @@ public sealed class AuthenticationController(AuthenticationService service,
     public IActionResult DevelopmentCode(string channel, string destination)
     {
         var remote = HttpContext.Connection.RemoteIpAddress;
-        if (!environment.IsDevelopment() || (remote is not null && !System.Net.IPAddress.IsLoopback(remote)))
+        if (!environment.IsDevelopment() || remote is null || !System.Net.IPAddress.IsLoopback(remote))
             return NotFound();
         var inbox = services.GetService<DevelopmentCodeInbox>();
         var code = inbox?.GetCode(channel, destination);
@@ -130,8 +132,16 @@ public sealed class AuthenticationController(AuthenticationService service,
         CancellationToken cancellationToken)
     {
         if (!passwordReset.CanDeliver(request.Identifier)) return StatusCode(StatusCodes.Status503ServiceUnavailable);
-        await passwordReset.RequestAsync(request, cancellationToken);
-        return Accepted();
+        try
+        {
+            await passwordReset.RequestAsync(request, cancellationToken);
+            return Accepted();
+        }
+        catch (HttpRequestException)
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                new ProblemDetails { Title = "Could not deliver the reset code. Please try again." });
+        }
     }
 
     [AllowAnonymous]

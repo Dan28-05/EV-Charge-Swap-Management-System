@@ -71,7 +71,7 @@ public sealed class OperatorOperationsController(AppDbContext db, TimeProvider c
             .Select(x => new
             {
                 x.Reservation.Id,
-                Code = x.Reservation.Code,
+                Code = x.Reservation.Status == ReservationStatus.CheckedIn ? x.Reservation.Code : null,
                 x.Reservation.ChargingBayId,
                 x.Reservation.BatteryId,
                 Status = x.Reservation.Status.ToString(),

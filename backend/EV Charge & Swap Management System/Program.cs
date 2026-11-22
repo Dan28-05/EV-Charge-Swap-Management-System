@@ -10,10 +10,12 @@ using EVChargeSwap.Common.Errors;
 using EVChargeSwap.Common.Messaging;
 using EVChargeSwap.Common.Messaging.Consumers;
 using EVChargeSwap.Health;
+using EVChargeSwap.Features.Locations.Search;
 using EVChargeSwap.Middleware;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -21,6 +23,7 @@ using Microsoft.OpenApi.Models;
 using StackExchange.Redis;
 using System.Diagnostics;
 using System.IdentityModel.Tokens.Jwt;
+using System.Net;
 using System.Text;
 using System.Threading.RateLimiting;
 
@@ -94,6 +97,7 @@ if (!string.IsNullOrWhiteSpace(redisConn))
         options.AbortOnConnectFail = false;
         options.ConnectTimeout = 3000;
         options.SyncTimeout = 2000;
+        options.AsyncTimeout = 2000;
         return ConnectionMultiplexer.Connect(options);
     });
 }
@@ -105,6 +109,22 @@ builder.Services.AddSingleton<ILocationCache>(sp =>
     return new RedisLocationCache(multiplexer, logger);
 });
 builder.Services.AddScoped<LocationService>();
+builder.Services.AddOptions<LocationSearchOptions>()
+    .BindConfiguration(LocationSearchOptions.SectionName)
+    .Validate(options => ElasticLocationIndex.IsValidAlias(options.Alias),
+        "LocationSearch:Alias must be a lowercase Elasticsearch alias.")
+    .Validate(options => !options.Enabled ||
+        Uri.TryCreate(options.Endpoint, UriKind.Absolute, out var uri) && uri.Host.Length > 0 &&
+        uri.UserInfo.Length == 0 && uri.Query.Length == 0 && uri.Fragment.Length == 0 &&
+        (uri.Scheme == Uri.UriSchemeHttps || builder.Environment.IsDevelopment() && uri.Scheme == Uri.UriSchemeHttp),
+        "LocationSearch:Endpoint must use HTTPS outside Development.")
+    .Validate(options => !options.Enabled || builder.Environment.IsDevelopment() || !string.IsNullOrWhiteSpace(options.ApiKey),
+        "LocationSearch:ApiKey must be configured outside Development.")
+    .ValidateOnStart();
+builder.Services.AddSingleton<ElasticLocationIndex>();
+builder.Services.AddScoped<LocationSearchService>();
+builder.Services.AddScoped<LocationIndexer>();
+builder.Services.AddHostedService<LocationSearchInitializer>();
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<IStationNotifier, StationNotifier>();
 builder.Services.AddScoped<EVChargeSwap.Features.Reservations.Services.ReservationService>();
@@ -124,6 +144,7 @@ builder.Services.AddScoped<BillingConsumer>();
 builder.Services.AddScoped<InvoiceRealtimeConsumer>();
 builder.Services.AddScoped<EVChargeSwap.Features.Reservations.Services.InvoiceRealtime>();
 builder.Services.AddScoped<ReservationRealtimeConsumer>();
+builder.Services.AddScoped<LocationUpdatedConsumer>();
 builder.Services.AddHostedService<OutboxPublisherHostedService>();
 builder.Services.AddHostedService<RabbitMqConsumersHostedService>();
 builder.Services.AddIdentityCore<ApplicationUser>(options =>
@@ -189,14 +210,37 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         };
     });
 builder.Services.AddAuthorization();
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    foreach (var proxy in builder.Configuration.GetSection("ForwardedHeaders:KnownProxies").Get<string[]>() ?? [])
+    {
+        if (IPAddress.TryParse(proxy, out var ip))
+            options.KnownProxies.Add(ip);
+    }
+    foreach (var cidr in builder.Configuration.GetSection("ForwardedHeaders:KnownNetworks").Get<string[]>() ?? [])
+    {
+        var parts = cidr.Split('/');
+        if (parts.Length == 2 && IPAddress.TryParse(parts[0], out var prefix) && int.TryParse(parts[1], out var length))
+            options.KnownNetworks.Add(new Microsoft.AspNetCore.HttpOverrides.IPNetwork(prefix, length));
+    }
+});
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     options.AddPolicy("auth", context => RateLimitPartition.GetFixedWindowLimiter(
-        $"{context.Request.Path}:{context.Connection.RemoteIpAddress}",
+        $"{context.Request.Path.Value?.ToLowerInvariant()}:{context.Connection.RemoteIpAddress}",
         _ => new FixedWindowRateLimiterOptions
         {
             PermitLimit = 30,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0
+        }));
+    options.AddPolicy("webhook", context => RateLimitPartition.GetFixedWindowLimiter(
+        $"webhook:{context.Connection.RemoteIpAddress}",
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 60,
             Window = TimeSpan.FromMinutes(1),
             QueueLimit = 0
         }));
@@ -229,6 +273,7 @@ builder.Services.AddCors(options => options.AddPolicy("Angular", policy =>
 
 var app = builder.Build();
 
+app.UseForwardedHeaders();
 app.UseMiddleware<RequestLoggingMiddleware>();
 app.UseExceptionHandler();
 app.UseStatusCodePages();

@@ -4,7 +4,7 @@ namespace EVChargeSwap.Features.Users.Requests;
 
 public sealed class ChangePasswordRequest
 {
-    [Required]
+    [Required, StringLength(128)]
     public string CurrentPassword { get; init; } = string.Empty;
 
     [Required, StringLength(128, MinimumLength = 8)]

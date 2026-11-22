@@ -6,6 +6,7 @@ using EVChargeSwap.Features.Users.Responses;
 using EVChargeSwap.Features.Users.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace EVChargeSwap.Features.Users;
 
@@ -34,6 +35,7 @@ public sealed class UsersController(UserService service) : ControllerBase
     }
 
     [HttpPost("me/change-password")]
+    [EnableRateLimiting("auth")]
     public async Task<IActionResult> ChangePassword(
         ChangePasswordRequest request, CancellationToken cancellationToken)
     {

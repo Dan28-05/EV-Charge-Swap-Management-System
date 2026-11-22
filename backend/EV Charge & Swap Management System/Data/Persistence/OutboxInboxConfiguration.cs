@@ -17,6 +17,8 @@ internal sealed class OutboxMessageConfiguration : IEntityTypeConfiguration<Outb
 
         builder.HasIndex(x => new { x.ProcessedAtUtc, x.CreatedAtUtc })
             .HasFilter("\"ProcessedAtUtc\" IS NULL");
+        builder.HasIndex(x => new { x.RetryCount, x.CreatedAtUtc }, "ix_outbox_pending_retry")
+            .HasFilter("\"ProcessedAtUtc\" IS NULL");
     }
 }
 

@@ -64,6 +64,11 @@ internal sealed class ReservationConfiguration :
             .HasFilter(active + """ AND "ChargingBayId" IS NOT NULL""");
         builder.HasIndex(x => x.BatteryId, BatteryHoldIndex).IsUnique()
             .HasFilter(active + """ AND "BatteryId" IS NOT NULL""");
+        builder.HasIndex(x => x.LocationId);
+        builder.HasIndex(x => x.LocationId, "ix_reservations_active_location").HasFilter(active);
+        builder.HasIndex(x => new { x.CustomerId, x.CreatedAtUtc });
+        builder.HasIndex(x => x.ChargingBayId);
+        builder.HasIndex(x => x.BatteryId);
     }
 
     public void Configure(EntityTypeBuilder<ChargingBay> builder)
@@ -126,7 +131,7 @@ internal sealed class ChargingSessionConfiguration : IEntityTypeConfiguration<Ch
         builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.StartedById).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.CompletedById).OnDelete(DeleteBehavior.Restrict);
         builder.Property(x => x.StartMeterKwh).HasPrecision(12, 3);
-        builder.Property(x => x.AppliedKwhRate).HasPrecision(8, 2);
+        builder.Property(x => x.AppliedKwhRate).HasPrecision(12, 2);
         builder.Property(x => x.EndMeterKwh).HasPrecision(12, 3);
         builder.HasIndex(x => x.ReservationId).IsUnique();
     }

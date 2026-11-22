@@ -9,7 +9,13 @@ internal sealed class InvoiceConfiguration : IEntityTypeConfiguration<Invoice>
 {
     public void Configure(EntityTypeBuilder<Invoice> builder)
     {
-        builder.ToTable("invoices");
+        builder.ToTable("invoices", table =>
+        {
+            table.HasCheckConstraint("ck_invoices_non_negative",
+                """ "TotalKwh" >= 0 AND "EnergyAmount" >= 0 AND "TotalAmount" >= 0 """);
+            table.HasCheckConstraint("ck_invoices_deferral",
+                """ ("DueAtUtc" IS NULL) = ("DeferredByOperatorId" IS NULL) """);
+        });
         builder.HasKey(x => x.Id);
 
         builder.HasOne<Reservation>().WithMany().HasForeignKey(x => x.ReservationId).OnDelete(DeleteBehavior.Restrict);
@@ -17,7 +23,7 @@ internal sealed class InvoiceConfiguration : IEntityTypeConfiguration<Invoice>
 
         builder.Property(x => x.TotalKwh).HasPrecision(12, 3);
         builder.Property(x => x.KwhRate).HasPrecision(12, 2);
-        builder.Property(x => x.SwapRate).HasPrecision(8, 2);
+        builder.Property(x => x.SwapRate).HasPrecision(12, 2);
         builder.Property(x => x.EnergyAmount).HasPrecision(15, 2);
         builder.Property(x => x.TotalAmount).HasPrecision(15, 2);
 
@@ -27,6 +33,8 @@ internal sealed class InvoiceConfiguration : IEntityTypeConfiguration<Invoice>
         builder.HasIndex(x => x.ReservationId).IsUnique();
         builder.HasIndex(x => new { x.CustomerId, x.CreatedAtUtc });
         builder.HasIndex(x => x.Status);
+        builder.HasIndex(x => x.CustomerId, "ix_invoices_pending_customer")
+            .HasFilter(""" "Status" = 'Pending' """);
         builder.HasIndex(x => new { x.CustomerId, x.DueAtUtc })
             .HasFilter(""" "Status" = 'Pending' AND "DueAtUtc" IS NOT NULL """);
         builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.DeferredByOperatorId)

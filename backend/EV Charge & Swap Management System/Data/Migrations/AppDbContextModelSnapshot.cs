@@ -120,6 +120,9 @@ namespace EVChargeSwap.Data.Migrations
                     b.HasIndex("ProcessedAtUtc", "CreatedAtUtc")
                         .HasFilter("\"ProcessedAtUtc\" IS NULL");
 
+                    b.HasIndex(new[] { "RetryCount", "CreatedAtUtc" }, "ix_outbox_pending_retry")
+                        .HasFilter("\"ProcessedAtUtc\" IS NULL");
+
                     b.ToTable("outbox_messages", (string)null);
                 });
 
@@ -318,6 +321,10 @@ namespace EVChargeSwap.Data.Migrations
 
                     b.HasIndex("Name");
 
+                    b.HasIndex("IsActive", "Latitude", "Longitude");
+
+                    b.HasIndex("IsActive", "OperatingStatus", "Name", "Id");
+
                     b.ToTable("locations", null, t =>
                         {
                             t.HasCheckConstraint("ck_locations_available_batteries", "available_batteries IS NULL OR (offers_battery_swap AND available_batteries BETWEEN 0 AND 20)");
@@ -385,8 +392,8 @@ namespace EVChargeSwap.Data.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<decimal>("AppliedRate")
-                        .HasPrecision(8, 2)
-                        .HasColumnType("numeric(8,2)");
+                        .HasPrecision(12, 2)
+                        .HasColumnType("numeric(12,2)");
 
                     b.Property<DateTimeOffset>("CompletedAtUtc")
                         .HasColumnType("timestamp with time zone");
@@ -474,8 +481,8 @@ namespace EVChargeSwap.Data.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<decimal?>("AppliedKwhRate")
-                        .HasPrecision(8, 2)
-                        .HasColumnType("numeric(8,2)");
+                        .HasPrecision(12, 2)
+                        .HasColumnType("numeric(12,2)");
 
                     b.Property<Guid>("ChargingBayId")
                         .HasColumnType("uuid");
@@ -642,8 +649,8 @@ namespace EVChargeSwap.Data.Migrations
                         .HasColumnType("character varying(20)");
 
                     b.Property<decimal?>("SwapRate")
-                        .HasPrecision(8, 2)
-                        .HasColumnType("numeric(8,2)");
+                        .HasPrecision(12, 2)
+                        .HasColumnType("numeric(12,2)");
 
                     b.Property<decimal>("TotalAmount")
                         .HasPrecision(15, 2)
@@ -667,7 +674,15 @@ namespace EVChargeSwap.Data.Migrations
                     b.HasIndex("CustomerId", "DueAtUtc")
                         .HasFilter(" \"Status\" = 'Pending' AND \"DueAtUtc\" IS NOT NULL ");
 
-                    b.ToTable("invoices", (string)null);
+                    b.HasIndex(new[] { "CustomerId" }, "ix_invoices_pending_customer")
+                        .HasFilter(" \"Status\" = 'Pending' ");
+
+                    b.ToTable("invoices", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_invoices_deferral", " (\"DueAtUtc\" IS NULL) = (\"DeferredByOperatorId\" IS NULL) ");
+
+                            t.HasCheckConstraint("ck_invoices_non_negative", " \"TotalKwh\" >= 0 AND \"EnergyAmount\" >= 0 AND \"TotalAmount\" >= 0 ");
+                        });
                 });
 
             modelBuilder.Entity("EVChargeSwap.Features.Reservations.Entities.OperatorAssignment", b =>
@@ -736,6 +751,8 @@ namespace EVChargeSwap.Data.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("CollectedByOperatorId");
+
+                    b.HasIndex("InvoiceId");
 
                     b.HasIndex(new[] { "InvoiceId" }, "ux_payments_pending")
                         .IsUnique()
@@ -847,6 +864,10 @@ namespace EVChargeSwap.Data.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("BatteryId");
+
+                    b.HasIndex("ChargingBayId");
+
                     b.HasIndex("CheckedInById");
 
                     b.HasIndex("ClosedById");
@@ -862,7 +883,12 @@ namespace EVChargeSwap.Data.Migrations
 
                     b.HasIndex("VehicleDepartedById");
 
+                    b.HasIndex("CustomerId", "CreatedAtUtc");
+
                     b.HasIndex("Status", "ExpiresAtUtc");
+
+                    b.HasIndex(new[] { "LocationId" }, "ix_reservations_active_location")
+                        .HasFilter(" \"Status\" IN ('Held', 'CheckedIn') ");
 
                     b.HasIndex(new[] { "BatteryId" }, "ux_reservations_active_battery")
                         .IsUnique()
@@ -952,8 +978,8 @@ namespace EVChargeSwap.Data.Migrations
                         .HasColumnType("integer");
 
                     b.Property<decimal>("UnitPrice")
-                        .HasPrecision(8, 2)
-                        .HasColumnType("numeric(8,2)");
+                        .HasPrecision(12, 2)
+                        .HasColumnType("numeric(12,2)");
 
                     b.HasKey("Id");
 
@@ -1110,6 +1136,8 @@ namespace EVChargeSwap.Data.Migrations
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("UserId", "CreatedAtUtc", "Id");
 
                     b.HasIndex("UserId", "IsRead", "CreatedAtUtc");
 

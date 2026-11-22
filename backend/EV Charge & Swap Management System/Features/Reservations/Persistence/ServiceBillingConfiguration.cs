@@ -12,7 +12,7 @@ internal sealed class ServiceBillingConfiguration : IEntityTypeConfiguration<Tar
     public void Configure(EntityTypeBuilder<Tariff> builder)
     {
         builder.ToTable("tariffs", table => table.HasCheckConstraint("ck_tariffs_price", """ "UnitPrice" >= 0 """));
-        builder.Property(x => x.UnitPrice).HasPrecision(8, 2);
+        builder.Property(x => x.UnitPrice).HasPrecision(12, 2);
         builder.HasIndex(x => new { x.LocationId, x.ServiceType, x.EffectiveFromUtc }).IsUnique();
         builder.HasOne<Location>().WithMany().HasForeignKey(x => x.LocationId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.CreatedById).OnDelete(DeleteBehavior.Restrict);
@@ -27,7 +27,7 @@ internal sealed class ServiceBillingConfiguration : IEntityTypeConfiguration<Tar
         builder.HasOne<Battery>().WithMany().HasForeignKey(x => x.IssuedBatteryId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.OperatorId).OnDelete(DeleteBehavior.Restrict);
         builder.Property(x => x.InspectionResult).HasMaxLength(500);
-        builder.Property(x => x.AppliedRate).HasPrecision(8, 2);
+        builder.Property(x => x.AppliedRate).HasPrecision(12, 2);
     }
 
     public void Configure(EntityTypeBuilder<Payment> builder)
@@ -37,6 +37,7 @@ internal sealed class ServiceBillingConfiguration : IEntityTypeConfiguration<Tar
             .OnDelete(DeleteBehavior.Restrict);
         builder.Property(x => x.Amount).HasPrecision(15, 2);
         builder.Property(x => x.Status).HasConversion<string>().HasMaxLength(12);
+        builder.HasIndex(x => x.InvoiceId);
         builder.HasIndex(x => x.InvoiceId, "ux_payments_pending").IsUnique().HasFilter(""" "Status" = 'Pending' """);
         builder.HasIndex(x => x.InvoiceId, "ux_payments_succeeded").IsUnique().HasFilter(""" "Status" = 'Succeeded' """);
         builder.HasOne<Invoice>().WithMany().HasForeignKey(x => x.InvoiceId).OnDelete(DeleteBehavior.Restrict);

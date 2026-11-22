@@ -38,5 +38,7 @@ public sealed class LocationConfiguration : IEntityTypeConfiguration<Location>
             .HasConversion<string>().HasMaxLength(20).HasDefaultValue(Entities.LocationOperatingStatus.Unknown);
         builder.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc");
         builder.HasIndex(x => x.Name);
+        builder.HasIndex(x => new { x.IsActive, x.Latitude, x.Longitude });
+        builder.HasIndex(x => new { x.IsActive, x.OperatingStatus, x.Name, x.Id });
     }
 }

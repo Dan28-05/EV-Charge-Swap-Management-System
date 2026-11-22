@@ -1,23 +1,25 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using EVChargeSwap.Common.Messaging.Consumers;
+using EVChargeSwap.Data;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
+using RabbitMQ.Client.Exceptions;
 
 namespace EVChargeSwap.Common.Messaging;
 
 public sealed class RabbitMqConsumersHostedService : BackgroundService
 {
-    private const string DeadLetterExchange = "ev.dlx";
-    private const string DeadLetterQueue = "ev.dlq";
+    private const string DeadLetterExchange = RabbitMqConnectionProvider.DeadLetterExchange;
+    private const string RetryCountHeader = "x-retry-count";
+    private const int MaxConsumerRetries = 3;
 
     internal static IReadOnlyList<Type> ConsumerTypes { get; } =
     [
@@ -33,7 +35,7 @@ public sealed class RabbitMqConsumersHostedService : BackgroundService
     private readonly IRabbitMqConnectionProvider _connectionProvider;
     private readonly RabbitMqOptions _options;
     private readonly ILogger<RabbitMqConsumersHostedService> _logger;
-    private readonly List<IChannel> _activeChannels = [];
+    private readonly List<(IChannel Channel, string ConsumerTag)> _activeConsumers = [];
 
     public RabbitMqConsumersHostedService(
         IServiceScopeFactory scopeFactory,
@@ -64,7 +66,6 @@ public sealed class RabbitMqConsumersHostedService : BackgroundService
             {
                 await StartConsumersAsync(stoppingToken);
                 _logger.LogInformation("All RabbitMQ enterprise consumers started and listening.");
-                // Keep background service alive while consumers process asynchronously
                 await Task.Delay(Timeout.Infinite, stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -73,10 +74,18 @@ public sealed class RabbitMqConsumersHostedService : BackgroundService
             }
             catch (Exception ex)
             {
+                await CloseActiveConsumersAsync();
                 _logger.LogWarning("RabbitMQ broker not ready for consumers ({Message}). Retrying in {Delay}s...",
                     ex.Message, backoffDelay.TotalSeconds);
 
-                await Task.Delay(backoffDelay, stoppingToken);
+                try
+                {
+                    await Task.Delay(backoffDelay, stoppingToken);
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    break;
+                }
                 backoffDelay = TimeSpan.FromSeconds(Math.Min(backoffDelay.TotalSeconds * 2, maxBackoff.TotalSeconds));
             }
         }
@@ -84,36 +93,15 @@ public sealed class RabbitMqConsumersHostedService : BackgroundService
         _logger.LogInformation("RabbitMQ consumers background service stopped.");
     }
 
+    public override async Task StopAsync(CancellationToken cancellationToken)
+    {
+        await CloseActiveConsumersAsync();
+        await base.StopAsync(cancellationToken);
+    }
+
     private async Task StartConsumersAsync(CancellationToken ct)
     {
         await _connectionProvider.EnsureTopologyAsync(ct);
-
-        // Declare Dead Letter Exchange and Queue
-        using (var setupChannel = await _connectionProvider.CreateChannelAsync(ct))
-        {
-            await setupChannel.ExchangeDeclareAsync(
-                exchange: DeadLetterExchange,
-                type: ExchangeType.Topic,
-                durable: true,
-                autoDelete: false,
-                arguments: null,
-                cancellationToken: ct);
-
-            await setupChannel.QueueDeclareAsync(
-                queue: DeadLetterQueue,
-                durable: true,
-                exclusive: false,
-                autoDelete: false,
-                arguments: null,
-                cancellationToken: ct);
-
-            await setupChannel.QueueBindAsync(
-                queue: DeadLetterQueue,
-                exchange: DeadLetterExchange,
-                routingKey: "#",
-                arguments: null,
-                cancellationToken: ct);
-        }
 
         foreach (var consumerType in ConsumerTypes)
         {
@@ -121,65 +109,129 @@ public sealed class RabbitMqConsumersHostedService : BackgroundService
             var consumerInstance = (IConsumer)scope.ServiceProvider.GetRequiredService(consumerType);
 
             var channel = await _connectionProvider.CreateChannelAsync(ct);
-            _activeChannels.Add(channel);
-
-            await DeclareConsumerQueueAsync(channel, consumerInstance, _options.ExchangeName, ct);
-
-            await channel.BasicQosAsync(prefetchSize: 0, prefetchCount: 10, global: false, cancellationToken: ct);
-
-            var consumer = new AsyncEventingBasicConsumer(channel);
-            var queueName = consumerInstance.QueueName;
-            var consumerName = consumerInstance.ConsumerName;
-
-            consumer.ReceivedAsync += async (sender, ea) =>
+            try
             {
-                try
+                await DeclareConsumerQueueAsync(channel, consumerInstance, _options.ExchangeName, ct);
+                await channel.BasicQosAsync(prefetchSize: 0, prefetchCount: 10, global: false, cancellationToken: ct);
+
+                var consumer = new AsyncEventingBasicConsumer(channel);
+                var queueName = consumerInstance.QueueName;
+                var consumerName = consumerInstance.ConsumerName;
+
+                consumer.ReceivedAsync += async (_, ea) =>
                 {
-                    await using var msgScope = _scopeFactory.CreateAsyncScope();
-                    var inboxService = msgScope.ServiceProvider.GetRequiredService<IInboxService>();
-                    var currentConsumer = (IConsumer)msgScope.ServiceProvider.GetRequiredService(consumerType);
-
-                    if (!Guid.TryParse(ea.BasicProperties?.MessageId, out var messageId))
+                    try
                     {
-                        messageId = Guid.NewGuid();
-                    }
+                        if (!Guid.TryParse(ea.BasicProperties?.MessageId, out var messageId) || messageId == Guid.Empty)
+                        {
+                            _logger.LogError("Rejected message without valid MessageId in {Consumer}. Routing to DLQ.", consumerName);
+                            await SafeNackAsync(channel, ea.DeliveryTag, requeue: false);
+                            return;
+                        }
 
-                    // Idempotent Inbox Check
-                    if (await inboxService.HasBeenProcessedAsync(messageId, consumerName, ct))
+                        await using var msgScope = _scopeFactory.CreateAsyncScope();
+                        var db = msgScope.ServiceProvider.GetRequiredService<AppDbContext>();
+                        var inboxService = msgScope.ServiceProvider.GetRequiredService<IInboxService>();
+                        var currentConsumer = (IConsumer)msgScope.ServiceProvider.GetRequiredService(consumerType);
+
+                        var body = ea.Body.ToArray();
+                        var payload = Encoding.UTF8.GetString(body);
+                        var eventType = ea.BasicProperties?.Type ?? string.Empty;
+
+                        await using var tx = await db.Database.BeginTransactionAsync(ct);
+                        var claimed = await inboxService.TryClaimAsync(messageId, consumerName, ct);
+                        if (!claimed)
+                        {
+                            await tx.CommitAsync(ct);
+                            _logger.LogInformation("Message {MessageId} already processed by {Consumer}. Skipping duplicate.",
+                                messageId, consumerName);
+                            await SafeAckAsync(channel, ea.DeliveryTag);
+                            return;
+                        }
+
+                        await currentConsumer.HandleAsync(eventType, ea.RoutingKey, payload, messageId, ct);
+                        await inboxService.MarkAsProcessedAsync(messageId, consumerName, ct);
+                        await tx.CommitAsync(ct);
+
+                        await SafeAckAsync(channel, ea.DeliveryTag);
+                    }
+                    catch (OperationCanceledException) when (ct.IsCancellationRequested)
                     {
-                        _logger.LogInformation("Message {MessageId} already processed by {Consumer}. Skipping duplicate.",
-                            messageId, consumerName);
-                        await channel.BasicAckAsync(ea.DeliveryTag, multiple: false);
-                        return;
+                        // Graceful shutdown: requeue so in-flight messages are not permanently dead-lettered.
+                        _logger.LogInformation("Requeueing in-flight message {MessageId} in {Consumer} due to host shutdown.",
+                            ea.BasicProperties?.MessageId, consumerName);
+                        await SafeNackAsync(channel, ea.DeliveryTag, requeue: true);
                     }
+                    catch (Exception ex)
+                    {
+                        var retryCount = GetRetryCount(ea.BasicProperties);
+                        if (retryCount < MaxConsumerRetries)
+                        {
+                            _logger.LogWarning(ex,
+                                "Failed to process message {MessageId} in {Consumer} (attempt {Attempt}/{Max}). Scheduling retry.",
+                                ea.BasicProperties?.MessageId, consumerName, retryCount + 1, MaxConsumerRetries);
 
-                    var body = ea.Body.ToArray();
-                    var payload = Encoding.UTF8.GetString(body);
-                    var eventType = ea.BasicProperties?.Type ?? string.Empty;
+                            try
+                            {
+                                await Task.Delay(TimeSpan.FromMilliseconds(500 * (retryCount + 1)), ct);
+                                var retryProps = new BasicProperties
+                                {
+                                    MessageId = ea.BasicProperties?.MessageId,
+                                    Type = ea.BasicProperties?.Type,
+                                    ContentType = ea.BasicProperties?.ContentType ?? "application/json",
+                                    DeliveryMode = DeliveryModes.Persistent,
+                                    Headers = new Dictionary<string, object?>(ea.BasicProperties?.Headers ?? new Dictionary<string, object?>())
+                                    {
+                                        [RetryCountHeader] = retryCount + 1
+                                    }
+                                };
 
-                    await currentConsumer.HandleAsync(eventType, ea.RoutingKey, payload, messageId, ct);
+                                // Republish directly to this consumer's queue with incremented retry count.
+                                await channel.BasicPublishAsync(
+                                    exchange: string.Empty,
+                                    routingKey: queueName,
+                                    mandatory: false,
+                                    basicProperties: retryProps,
+                                    body: ea.Body,
+                                    cancellationToken: ct);
+                                await SafeAckAsync(channel, ea.DeliveryTag);
+                                return;
+                            }
+                            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                            {
+                                await SafeNackAsync(channel, ea.DeliveryTag, requeue: true);
+                                return;
+                            }
+                            catch (Exception retryEx)
+                            {
+                                _logger.LogError(retryEx, "Retry republish failed for message {MessageId} in {Consumer}. Routing to DLQ.",
+                                    ea.BasicProperties?.MessageId, consumerName);
+                            }
+                        }
+                        else
+                        {
+                            _logger.LogError(ex, "Exhausted {Max} retries for message {MessageId} in {Consumer}. Routing to DLQ.",
+                                MaxConsumerRetries, ea.BasicProperties?.MessageId, consumerName);
+                        }
 
-                    await inboxService.MarkAsProcessedAsync(messageId, consumerName, ct);
+                        await SafeNackAsync(channel, ea.DeliveryTag, requeue: false);
+                    }
+                };
 
-                    await channel.BasicAckAsync(ea.DeliveryTag, multiple: false);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to process message {MessageId} in {Consumer}. Routing to DLQ.",
-                        ea.BasicProperties?.MessageId, consumerName);
+                var consumerTag = await channel.BasicConsumeAsync(
+                    queue: queueName,
+                    autoAck: false,
+                    consumer: consumer,
+                    cancellationToken: ct);
 
-                    // Requeue: false forwards the message to dead-letter exchange (ev.dlx -> ev.dlq)
-                    await channel.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: false);
-                }
-            };
-
-            await channel.BasicConsumeAsync(
-                queue: queueName,
-                autoAck: false,
-                consumer: consumer,
-                cancellationToken: ct);
-
-            _logger.LogInformation("Consumer {Consumer} registered on queue '{Queue}'.", consumerName, queueName);
+                _activeConsumers.Add((channel, consumerTag));
+                _logger.LogInformation("Consumer {Consumer} registered on queue '{Queue}'.", consumerName, queueName);
+            }
+            catch
+            {
+                await channel.DisposeAsync();
+                throw;
+            }
         }
     }
 
@@ -196,20 +248,69 @@ public sealed class RabbitMqConsumersHostedService : BackgroundService
             await channel.QueueBindAsync(consumer.QueueName, exchange, key, arguments: null, cancellationToken: ct);
     }
 
-    public override void Dispose()
+    private static int GetRetryCount(IReadOnlyBasicProperties? properties)
     {
-        foreach (var channel in _activeChannels)
+        if (properties?.Headers is null || !properties.Headers.TryGetValue(RetryCountHeader, out var raw) || raw is null)
+            return 0;
+
+        return raw switch
+        {
+            int i => i,
+            long l => (int)l,
+            byte b => b,
+            _ => int.TryParse(raw.ToString(), out var parsed) ? parsed : 0
+        };
+    }
+
+    private async Task SafeAckAsync(IChannel channel, ulong deliveryTag)
+    {
+        try
+        {
+            if (channel.IsOpen)
+                await channel.BasicAckAsync(deliveryTag, multiple: false);
+        }
+        catch (AlreadyClosedException)
+        {
+            // Broker will redeliver unacked messages automatically.
+        }
+    }
+
+    private async Task SafeNackAsync(IChannel channel, ulong deliveryTag, bool requeue)
+    {
+        try
+        {
+            if (channel.IsOpen)
+                await channel.BasicNackAsync(deliveryTag, multiple: false, requeue: requeue);
+        }
+        catch (AlreadyClosedException)
+        {
+            // Broker will redeliver unacked messages automatically.
+        }
+    }
+
+    private async Task CloseActiveConsumersAsync()
+    {
+        foreach (var (channel, consumerTag) in _activeConsumers)
         {
             try
             {
-                channel.Dispose();
+                if (channel.IsOpen)
+                    await channel.BasicCancelAsync(consumerTag);
             }
             catch
             {
-                // Ignore channel cleanup errors on shutdown
+                // Ignore cancel errors during shutdown.
+            }
+
+            try
+            {
+                await channel.DisposeAsync();
+            }
+            catch
+            {
+                // Ignore channel cleanup errors on shutdown.
             }
         }
-        _activeChannels.Clear();
-        base.Dispose();
+        _activeConsumers.Clear();
     }
 }

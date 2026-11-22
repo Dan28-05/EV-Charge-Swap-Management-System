@@ -17,11 +17,15 @@ public interface IRabbitMqConnectionProvider : IAsyncDisposable
 
 public sealed class RabbitMqConnectionProvider : IRabbitMqConnectionProvider
 {
+    internal const string DeadLetterExchange = "ev.dlx";
+    internal const string DeadLetterQueue = "ev.dlq";
+
     private readonly RabbitMqOptions _options;
     private readonly ILogger<RabbitMqConnectionProvider> _logger;
     private readonly SemaphoreSlim _connectionLock = new(1, 1);
-    private IConnection? _connection;
-    private bool _topologyDeclared;
+    private volatile IConnection? _connection;
+    private volatile bool _topologyDeclared;
+    private int _disposed;
 
     public RabbitMqConnectionProvider(IOptions<RabbitMqOptions> options, ILogger<RabbitMqConnectionProvider> logger)
     {
@@ -33,29 +37,43 @@ public sealed class RabbitMqConnectionProvider : IRabbitMqConnectionProvider
 
     public async Task<IConnection> GetConnectionAsync(CancellationToken ct = default)
     {
-        if (_connection is not null && _connection.IsOpen)
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+
+        var existing = _connection;
+        if (existing is not null && existing.IsOpen)
         {
-            return _connection;
+            return existing;
         }
 
         await _connectionLock.WaitAsync(ct);
         try
         {
-            if (_connection is not null && _connection.IsOpen)
-            {
-                return _connection;
-            }
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
 
-            if (_connection is not null)
+            existing = _connection;
+            if (existing is not null)
             {
+                if (existing.IsOpen)
+                {
+                    return existing;
+                }
+
+                // When AutomaticRecoveryEnabled is true, RabbitMQ.Client recovers network drops in-place.
+                // Only dispose and recreate if the connection was explicitly shut down by the application.
+                if (existing.CloseReason is not { Initiator: ShutdownInitiator.Application })
+                {
+                    return existing;
+                }
+
                 try
                 {
-                    await _connection.DisposeAsync();
+                    await existing.DisposeAsync();
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Error disposing stale RabbitMQ connection.");
+                    _logger.LogWarning(ex, "Error disposing closed RabbitMQ connection.");
                 }
+                _connection = null;
             }
 
             var factory = new ConnectionFactory
@@ -71,11 +89,12 @@ public sealed class RabbitMqConnectionProvider : IRabbitMqConnectionProvider
             };
 
             _logger.LogInformation("Connecting to RabbitMQ broker at {Host}:{Port}...", _options.Host, _options.Port);
-            _connection = await factory.CreateConnectionAsync(ct);
-            _logger.LogInformation("Connected to RabbitMQ broker successfully.");
+            var created = await factory.CreateConnectionAsync(ct);
+            _connection = created;
             _topologyDeclared = false;
+            _logger.LogInformation("Connected to RabbitMQ broker successfully.");
 
-            return _connection;
+            return created;
         }
         finally
         {
@@ -96,9 +115,17 @@ public sealed class RabbitMqConnectionProvider : IRabbitMqConnectionProvider
             return;
         }
 
+        var connection = await GetConnectionAsync(ct);
+
+        await _connectionLock.WaitAsync(ct);
         try
         {
-            using var channel = await CreateChannelAsync(ct);
+            if (_topologyDeclared)
+            {
+                return;
+            }
+
+            await using var channel = await connection.CreateChannelAsync(cancellationToken: ct);
             await channel.ExchangeDeclareAsync(
                 exchange: _options.ExchangeName,
                 type: ExchangeType.Topic,
@@ -107,29 +134,64 @@ public sealed class RabbitMqConnectionProvider : IRabbitMqConnectionProvider
                 arguments: null,
                 cancellationToken: ct);
 
+            await channel.ExchangeDeclareAsync(
+                exchange: DeadLetterExchange,
+                type: ExchangeType.Topic,
+                durable: true,
+                autoDelete: false,
+                arguments: null,
+                cancellationToken: ct);
+
+            await channel.QueueDeclareAsync(
+                queue: DeadLetterQueue,
+                durable: true,
+                exclusive: false,
+                autoDelete: false,
+                arguments: null,
+                cancellationToken: ct);
+
+            await channel.QueueBindAsync(
+                queue: DeadLetterQueue,
+                exchange: DeadLetterExchange,
+                routingKey: "#",
+                arguments: null,
+                cancellationToken: ct);
+
             _topologyDeclared = true;
-            _logger.LogInformation("RabbitMQ topic exchange '{Exchange}' verified.", _options.ExchangeName);
+            _logger.LogInformation("RabbitMQ topic exchange '{Exchange}' and DLQ topology verified.", _options.ExchangeName);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to declare RabbitMQ exchange '{Exchange}'.", _options.ExchangeName);
             throw;
         }
+        finally
+        {
+            _connectionLock.Release();
+        }
     }
 
     public async ValueTask DisposeAsync()
     {
-        _connectionLock.Dispose();
-        if (_connection is not null)
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
+        var connection = _connection;
+        _connection = null;
+        if (connection is not null)
         {
             try
             {
-                await _connection.DisposeAsync();
+                await connection.DisposeAsync();
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Error disposing RabbitMQ connection on shutdown.");
             }
         }
+
+        _connectionLock.Dispose();
     }
 }

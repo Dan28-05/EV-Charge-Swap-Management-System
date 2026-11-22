@@ -13,7 +13,8 @@ import {
   countBookableResources,
 } from '../models/operator.models';
 import { OperatorService } from '../services/operator.service';
-import { EMPTY, auditTime, catchError, filter, finalize, merge, switchMap, timer } from 'rxjs';
+import { EMPTY, auditTime, catchError, filter, finalize, merge, switchMap, tap, timer } from 'rxjs';
+import { extractApiError } from '../../../core/utils/api-error.util';
 import { AuthService } from '../../auth/services/auth.service';
 import { ReservationRealtimeService } from '../../reservations/services/reservation-realtime.service';
 
@@ -153,7 +154,7 @@ export class OperatorDashboardComponent implements OnInit {
   }
 
   refresh(): void {
-    this.operatorService.getStationDashboard().subscribe({
+    this.operatorService.getStationDashboard().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       error: () => {},
     });
   }
@@ -194,14 +195,14 @@ export class OperatorDashboardComponent implements OnInit {
     this.billingBusy.set(true);
     this.billingError.set(null);
     this.operatorService.completeBatterySwap(reservation.id, returned, issued, inspection)
-      .pipe(finalize(() => this.billingBusy.set(false))).subscribe({
+      .pipe(takeUntilDestroyed(this.destroyRef), finalize(() => this.billingBusy.set(false))).subscribe({
         next: ({ invoice }) => {
           this.swapReservation.set(null);
           this.openCheckout(invoice.id);
           this.refresh();
         },
-        error: (err) => {
-          const detail = err.error?.detail || err.error?.title || '';
+        error: (err: unknown) => {
+          const detail = extractApiError(err, '');
           if (detail.includes('distinct')) {
             this.billingError.set('Mã pin khách trả và pin trạm giao phải là 2 viên pin khác nhau.');
           } else if (detail.includes('custody')) {
@@ -238,21 +239,22 @@ export class OperatorDashboardComponent implements OnInit {
     const request = target.kind === 'bay'
       ? this.operatorService.updateBayEquipmentState(target.id, ChargerEquipmentState.Faulted, description)
       : this.operatorService.updateBatteryState(target.id, BatteryLifecycleState.Faulted, description);
-    request.pipe(takeUntilDestroyed(this.destroyRef), finalize(() => this.faultBusy.set(false))).subscribe({
-      next: () => {
+    request.pipe(
+      tap(() => {
         this.faultDialog().nativeElement.close();
         this.incidentNotice.set('Đã gửi báo cáo sự cố.');
-        this.operatorService.getStationDashboard().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-          next: (station) => {
-            if (station.reservations.some((visit) => visit.incident &&
-                (visit.chargingBayId === target.id || visit.batteryId === target.id))) {
-              this.currentTab.set('operations');
-            }
-          },
-          error: () => {},
-        });
+      }),
+      switchMap(() => this.operatorService.getStationDashboard().pipe(catchError(() => EMPTY))),
+      takeUntilDestroyed(this.destroyRef),
+      finalize(() => this.faultBusy.set(false)),
+    ).subscribe({
+      next: (station) => {
+        if (station.reservations.some((visit) => visit.incident &&
+            (visit.chargingBayId === target.id || visit.batteryId === target.id))) {
+          this.currentTab.set('operations');
+        }
       },
-      error: () => this.faultError.set('Không thể gửi báo cáo sự cố.'),
+      error: (err: unknown) => this.faultError.set(extractApiError(err, 'Không thể gửi báo cáo sự cố.')),
     });
   }
 
@@ -295,6 +297,7 @@ export class OperatorDashboardComponent implements OnInit {
 
     this.operatorService
       .checkIn({ locationId: location.id, code })
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
           this.checkinLoading.set(false);
@@ -302,20 +305,38 @@ export class OperatorDashboardComponent implements OnInit {
           this.checkinSuccess.set(`Check-in thành công cho khách hàng! Mã: ${res.code ? res.code.slice(0, 8) : ''}...`);
           this.currentTab.set('operations');
         },
-        error: (err) => {
+        error: (err: unknown) => {
           this.checkinLoading.set(false);
-          if (err.status === 404) {
+          const status = (err as { status?: number })?.status;
+          if (status === 404) {
             this.checkinError.set('Không tìm thấy lượt đặt hoặc mã check-in không đúng.');
-          } else if (err.status === 409) {
-            this.checkinError.set(err.error?.detail || err.error?.message || 'Mã check-in không thuộc trạm này hoặc đã hết hạn.');
+          } else if (status === 409) {
+            this.checkinError.set(extractApiError(err, 'Mã check-in không thuộc trạm này hoặc đã hết hạn.'));
           } else {
-            this.checkinError.set('Lỗi xử lý check-in. Vui lòng kiểm tra lại.');
+            this.checkinError.set(extractApiError(err, 'Lỗi xử lý check-in. Vui lòng kiểm tra lại.'));
           }
         },
       });
   }
 
   // --- Charging Session Stepper Logic ---
+  readonly actionBusy = signal(false);
+
+  onMeterInput(event: Event): void {
+    const raw = (event.target as HTMLInputElement | null)?.value ?? '';
+    if (raw.trim() === '') {
+      this.meterKwhInput.set(null);
+      return;
+    }
+    const parsed = Number(raw);
+    this.meterKwhInput.set(Number.isFinite(parsed) ? parsed : null);
+  }
+
+  isValidMeterInput(): boolean {
+    const val = this.meterKwhInput();
+    return val !== null && Number.isFinite(val) && val >= 0;
+  }
+
   confirmVehicleArrived(res: OperatorActiveReservation): void {
     if (this.confirmingArrival()) return;
     this.confirmingArrival.set(res.id);
@@ -323,9 +344,9 @@ export class OperatorDashboardComponent implements OnInit {
       takeUntilDestroyed(this.destroyRef),
       finalize(() => this.confirmingArrival.set(null)),
     ).subscribe({
-      error: (err) => {
-        if (err.status === 409) this.refresh();
-        alert(err.error?.detail || 'Không thể xác nhận xe vào bãi.');
+      error: (err: unknown) => {
+        if ((err as { status?: number })?.status === 409) this.refresh();
+        alert(extractApiError(err, 'Không thể xác nhận xe vào bãi.'));
       },
     });
   }
@@ -341,7 +362,7 @@ export class OperatorDashboardComponent implements OnInit {
   openCompleteChargingModal(res: OperatorActiveReservation): void {
     this.selectedReservation.set(res);
     this.meterModalMode.set('complete');
-    this.meterKwhInput.set(res.session?.startMeterKwh ? Number(res.session.startMeterKwh) : null);
+    this.meterKwhInput.set(res.session?.startMeterKwh != null ? Number(res.session.startMeterKwh) : null);
     this.meterError.set(null);
     this.meterModalOpen.set(true);
   }
@@ -355,13 +376,13 @@ export class OperatorDashboardComponent implements OnInit {
   submitMeterReading(): void {
     const res = this.selectedReservation();
     const meter = this.meterKwhInput();
-    if (!res || meter === null || isNaN(meter) || meter < 0) {
+    if (!res || meter === null || !Number.isFinite(meter) || meter < 0) {
       this.meterError.set('Vui lòng nhập chỉ số công tơ điện hợp lệ (>= 0).');
       return;
     }
 
     if (this.meterModalMode() === 'complete') {
-      const start = res.session?.startMeterKwh ? Number(res.session.startMeterKwh) : 0;
+      const start = res.session?.startMeterKwh != null ? Number(res.session.startMeterKwh) : 0;
       if (meter < start) {
         this.meterError.set(`Chỉ số cuối (${meter} kWh) không được nhỏ hơn chỉ số đầu (${start} kWh).`);
         return;
@@ -372,57 +393,71 @@ export class OperatorDashboardComponent implements OnInit {
     this.meterError.set(null);
 
     if (this.meterModalMode() === 'start') {
-      this.operatorService.startCharging(res.id, meter).subscribe({
-        next: () => {
-          this.meterSubmitting.set(false);
-          this.closeMeterModal();
-        },
-        error: (err: any) => {
-          this.meterSubmitting.set(false);
-          this.meterError.set(err.error?.detail || err.error?.message || 'Lỗi khi cập nhật chỉ số công tơ.');
+      this.operatorService.startCharging(res.id, meter).pipe(
+        takeUntilDestroyed(this.destroyRef),
+        finalize(() => this.meterSubmitting.set(false)),
+      ).subscribe({
+        next: () => this.closeMeterModal(),
+        error: (err: unknown) => {
+          this.meterError.set(extractApiError(err, 'Lỗi khi cập nhật chỉ số công tơ.'));
         },
       });
     } else {
-      this.operatorService.completeCharging(res.id, meter).subscribe({
+      this.operatorService.completeCharging(res.id, meter).pipe(
+        takeUntilDestroyed(this.destroyRef),
+        finalize(() => this.meterSubmitting.set(false)),
+      ).subscribe({
         next: (invoice) => {
-          this.meterSubmitting.set(false);
           this.closeMeterModal();
           this.openCheckout(invoice.id);
           this.refresh();
         },
-        error: (err: any) => {
-          this.meterSubmitting.set(false);
-          this.meterError.set(err.error?.detail || err.error?.message || 'Lỗi khi cập nhật chỉ số công tơ.');
+        error: (err: unknown) => {
+          this.meterError.set(extractApiError(err, 'Lỗi khi cập nhật chỉ số công tơ.'));
         },
       });
     }
   }
 
   confirmNoCharge(res: OperatorActiveReservation): void {
+    if (this.actionBusy()) return;
     if (confirm('Xác nhận khách đã vào chỗ đỗ nhưng quyết định không sạc?')) {
-      this.operatorService.confirmNoCharge(res.id).subscribe({
+      this.actionBusy.set(true);
+      this.operatorService.confirmNoCharge(res.id).pipe(
+        takeUntilDestroyed(this.destroyRef),
+        finalize(() => this.actionBusy.set(false)),
+      ).subscribe({
         next: () => {},
-        error: (err) => alert(err.error?.detail || 'Không thể xác nhận không sạc.'),
+        error: (err: unknown) => alert(extractApiError(err, 'Không thể xác nhận không sạc.')),
       });
     }
   }
 
   confirmVehicleDeparted(res: OperatorActiveReservation): void {
+    if (this.actionBusy()) return;
     if (confirm('Xác nhận xe đã rời chỗ đỗ? Thao tác này sẽ giải phóng trụ sạc về trạng thái Trống.')) {
-      this.operatorService.confirmVehicleDeparted(res.id).subscribe({
+      this.actionBusy.set(true);
+      this.operatorService.confirmVehicleDeparted(res.id).pipe(
+        takeUntilDestroyed(this.destroyRef),
+        finalize(() => this.actionBusy.set(false)),
+      ).subscribe({
         next: () => {},
-        error: (err) => alert(err.error?.detail || 'Không thể xác nhận xe rời bãi.'),
+        error: (err: unknown) => alert(extractApiError(err, 'Không thể xác nhận xe rời bãi.')),
       });
     }
   }
 
   closeWithoutService(res: OperatorActiveReservation): void {
     const location = this.stationData()?.location;
-    if (!location) return;
+    if (!location || this.actionBusy()) return;
     if (confirm('Đóng lượt giữ chỗ này do khách không sử dụng dịch vụ?')) {
-      this.operatorService.closeWithoutService(res.id, location.id).subscribe({
+      this.actionBusy.set(true);
+      this.operatorService.closeWithoutService(res.id, location.id).pipe(
+        takeUntilDestroyed(this.destroyRef),
+        finalize(() => this.actionBusy.set(false)),
+      ).subscribe({
         next: () => {},
-        error: (err) => alert(err.error?.detail || 'Không thể đóng lượt giữ chỗ.'),
+        error: (err: unknown) => alert(extractApiError(err, 'Không thể đóng lượt giữ chỗ.')),
       });
     }
   }
@@ -433,10 +468,14 @@ export class OperatorDashboardComponent implements OnInit {
       this.openFaultForm('bay', bay.id, bay.code);
       return;
     }
-    if (bay.equipmentState === newState) return;
-    this.operatorService.updateBayEquipmentState(bay.id, newState).subscribe({
+    if (bay.equipmentState === newState || this.actionBusy()) return;
+    this.actionBusy.set(true);
+    this.operatorService.updateBayEquipmentState(bay.id, newState).pipe(
+      takeUntilDestroyed(this.destroyRef),
+      finalize(() => this.actionBusy.set(false)),
+    ).subscribe({
       next: () => {},
-      error: (err) => alert(err.error?.detail || 'Không thể cập nhật trạng thái trụ sạc.'),
+      error: (err: unknown) => alert(extractApiError(err, 'Không thể cập nhật trạng thái trụ sạc.')),
     });
   }
 
@@ -448,13 +487,13 @@ export class OperatorDashboardComponent implements OnInit {
     }
     if (battery.state === nextState || this.updatingBatteryId() === battery.id) return;
     this.updatingBatteryId.set(battery.id);
-    this.operatorService.updateBatteryState(battery.id, nextState).subscribe({
-      next: () => {
-        this.updatingBatteryId.set(null);
-      },
-      error: (err) => {
-        this.updatingBatteryId.set(null);
-        alert(err.error?.detail || err.error || 'Không thể cập nhật trạng thái viên pin.');
+    this.operatorService.updateBatteryState(battery.id, nextState).pipe(
+      takeUntilDestroyed(this.destroyRef),
+      finalize(() => this.updatingBatteryId.set(null)),
+    ).subscribe({
+      next: () => {},
+      error: (err: unknown) => {
+        alert(extractApiError(err, 'Không thể cập nhật trạng thái viên pin.'));
       },
     });
   }

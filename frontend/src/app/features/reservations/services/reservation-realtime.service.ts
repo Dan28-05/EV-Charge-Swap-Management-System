@@ -1,5 +1,5 @@
 import { isPlatformBrowser } from '@angular/common';
-import { Injectable, PLATFORM_ID, effect, inject, signal } from '@angular/core';
+import { Injectable, PLATFORM_ID, computed, effect, inject, signal, untracked } from '@angular/core';
 import { HubConnectionBuilder, LogLevel } from '@microsoft/signalr';
 import { Subject, firstValueFrom } from 'rxjs';
 import { AuthService } from '../../auth/services/auth.service';
@@ -29,11 +29,21 @@ export class ReservationRealtimeService {
   readonly receivedNotification$ = this.receivedNotification.asObservable();
   readonly connected = signal(false);
 
+  private readonly connectionIdentity = computed(() => {
+    const user = this.auth?.currentUser();
+    if (!user || !user.roles.some((role) => role === 'Customer' || role === 'Operator')) {
+      return null;
+    }
+    return `${user.id}:${[...user.roles].sort().join(',')}`;
+  });
+
   constructor() {
     if (!this.auth || !isPlatformBrowser(inject(PLATFORM_ID))) return;
     effect((onCleanup) => {
-      const user = this.auth?.currentUser();
-      if (!user || !user.roles.some((role) => role === 'Customer' || role === 'Operator')) return;
+      // Depend only on primitive (id + sorted roles) so token refreshes and profile edits never reconnect SignalR.
+      if (!this.connectionIdentity()) return;
+      const user = untracked(() => this.auth?.currentUser());
+      if (!user) return;
 
       let disposed = false;
       let retry: ReturnType<typeof setTimeout> | undefined;

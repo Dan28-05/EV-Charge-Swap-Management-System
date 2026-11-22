@@ -255,6 +255,7 @@
                   type="button"
                   class="service-choice-card"
                   [class.active]="selectedServiceType() === 1"
+                  [disabled]="(station?.availableChargingBays ?? 0) <= 0"
                   (click)="selectType(1)"
                 >
                   <div class="choice-icon charging">
@@ -267,11 +268,15 @@
                       <strong>Sạc ô tô điện</strong>
                       <span class="choice-radio" [class.selected]="selectedServiceType() === 1"></span>
                     </div>
-                    <p class="choice-spec">
-                      Công suất: {{ station?.chargingPowerKw || 60 }} kW • Cổng sạc tiêu chuẩn CCS2
-                    </p>
+                    @if (station?.chargingPowerKw) {
+                      <p class="choice-spec">Công suất hỗ trợ: {{ station?.chargingPowerKw }} kW</p>
+                    }
                     <div class="choice-badge">
-                      ⚡ Sẵn sàng {{ station?.availableChargingBays || '1+' }}/10 chỗ
+                      @if ((station?.availableChargingBays ?? 0) > 0) {
+                        ⚡ Sẵn sàng {{ station?.availableChargingBays ?? 0 }} chỗ
+                      } @else {
+                        Hết chỗ trống (0)
+                      }
                     </div>
                   </div>
                 </button>
@@ -282,6 +287,7 @@
                   type="button"
                   class="service-choice-card"
                   [class.active]="selectedServiceType() === 2"
+                  [disabled]="(station?.availableBatteries ?? 0) <= 0"
                   (click)="selectType(2)"
                 >
                   <div class="choice-icon swap">
@@ -294,11 +300,15 @@
                       <strong>Đổi pin xe máy điện</strong>
                       <span class="choice-radio" [class.selected]="selectedServiceType() === 2"></span>
                     </div>
-                    <p class="choice-spec">
-                      Pin LFP {{ station?.batteryCapacityKwh || 1.5 }} kWh • Đổi trong 60 giây
-                    </p>
+                    @if (station?.batteryCapacityKwh) {
+                      <p class="choice-spec">Pin LFP {{ station?.batteryCapacityKwh }} kWh</p>
+                    }
                     <div class="choice-badge swap-badge">
-                      🔋 Sẵn sàng {{ station?.availableBatteries || '1+' }}/20 bình
+                      @if ((station?.availableBatteries ?? 0) > 0) {
+                        🔋 Sẵn sàng {{ station?.availableBatteries ?? 0 }} bình
+                      } @else {
+                        Hết pin sẵn sàng (0)
+                      }
                     </div>
                   </div>
                 </button>

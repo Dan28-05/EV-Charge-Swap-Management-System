@@ -72,6 +72,7 @@ describe('ReservationService', () => {
     const req = httpMock.expectOne('/api/reservations');
     expect(req.request.method).toBe('POST');
     expect(req.request.body).toEqual({ locationId: 'loc-2222', serviceType: 1 });
+    expect(req.request.headers.get('Idempotency-Key')).toMatch(/^[0-9a-f-]{36}$/i);
     req.flush(mockReservation);
 
     expect(service.activeReservation()?.id).toBe('res-1111');

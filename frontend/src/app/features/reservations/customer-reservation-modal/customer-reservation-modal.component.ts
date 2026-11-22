@@ -1,16 +1,32 @@
 import { CommonModule } from '@angular/common';
-import { Component, EventEmitter, Input, Output, computed, inject, signal, OnInit, OnChanges, SimpleChanges } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  EventEmitter,
+  Input,
+  OnChanges,
+  OnInit,
+  Output,
+  SimpleChanges,
+  computed,
+  effect,
+  inject,
+  signal,
+} from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router, RouterModule } from '@angular/router';
 import * as QRCode from 'qrcode';
+import { extractApiError } from '../../../core/utils/api-error.util';
 import { AuthService } from '../../auth/services/auth.service';
 import { Station } from '../../station-finder/models/station.model';
 import { LocationsApiService } from '../../station-finder/services/locations-api.service';
-import { ReservationServiceType, ReservationResponse } from '../models/reservation.models';
+import { ReservationServiceType } from '../models/reservation.models';
 import { ReservationService } from '../services/reservation.service';
 
 @Component({
   selector: 'app-customer-reservation-modal',
-  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, RouterModule],
   templateUrl: './customer-reservation-modal.component.html',
   styleUrl: './customer-reservation-modal.component.scss',
@@ -20,6 +36,7 @@ export class CustomerReservationModalComponent implements OnInit, OnChanges {
   private readonly authService = inject(AuthService);
   private readonly locationsApi = inject(LocationsApiService);
   private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
 
   @Input() station: Station | null = null;
   @Input() initialServiceType: ReservationServiceType | null = null;
@@ -39,6 +56,9 @@ export class CustomerReservationModalComponent implements OnInit, OnChanges {
   readonly showCancelConfirm = signal<boolean>(false);
   readonly copiedCode = signal<boolean>(false);
 
+  private qrRenderSeq = 0;
+  private copiedTimer: ReturnType<typeof setTimeout> | null = null;
+
   readonly hasActive = computed(() => !!this.activeReservation());
   readonly isHeld = computed(() => this.activeReservation()?.status === 'Held');
   readonly isCheckedIn = computed(() => this.activeReservation()?.status === 'CheckedIn');
@@ -55,12 +75,32 @@ export class CustomerReservationModalComponent implements OnInit, OnChanges {
     return Math.max(0, Math.min(100, Math.round((remaining / total) * 100)));
   });
 
+  constructor() {
+    this.destroyRef.onDestroy(() => {
+      if (this.copiedTimer) clearTimeout(this.copiedTimer);
+    });
+
+    // Reactively regenerate QR code and hydrate station details whenever activeReservation arrives or updates.
+    effect(() => {
+      const res = this.activeReservation();
+      void this.generateQrFor(res?.status === 'Held' ? res.code : null);
+
+      if (!this.station && res?.locationId && this.stationData()?.id !== res.locationId) {
+        this.locationsApi.detail(res.locationId).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+          next: (s) => this.stationData.set(s),
+          error: () => {},
+        });
+      }
+    });
+  }
+
   ngOnInit(): void {
     if (this.currentUser()) {
-      this.reservationService.getActive().subscribe();
+      this.reservationService.getActive().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        error: () => {},
+      });
     }
     this.syncServiceType();
-    this.refreshQrCode();
   }
 
   ngOnChanges(changes: SimpleChanges): void {
@@ -72,46 +112,48 @@ export class CustomerReservationModalComponent implements OnInit, OnChanges {
   private syncServiceType(): void {
     if (this.station) {
       this.stationData.set(this.station);
-    } else {
-      const active = this.activeReservation();
-      if (active?.locationId) {
-        this.locationsApi.detail(active.locationId).subscribe({
-          next: (s) => this.stationData.set(s),
-          error: () => {},
-        });
-      }
     }
 
     if (this.initialServiceType) {
       this.selectedServiceType.set(this.initialServiceType);
     } else if (this.station) {
-      if (this.station.offersCarCharging) {
+      const hasCharging = this.station.offersCarCharging && (this.station.availableChargingBays ?? 0) > 0;
+      const hasSwap = this.station.offersBatterySwap && (this.station.availableBatteries ?? 0) > 0;
+      if (hasCharging) {
+        this.selectedServiceType.set(ReservationServiceType.Charging);
+      } else if (hasSwap) {
+        this.selectedServiceType.set(ReservationServiceType.BatterySwap);
+      } else if (this.station.offersCarCharging) {
         this.selectedServiceType.set(ReservationServiceType.Charging);
       } else if (this.station.offersBatterySwap) {
         this.selectedServiceType.set(ReservationServiceType.BatterySwap);
       }
     }
-    this.refreshQrCode();
   }
 
-  async refreshQrCode(): Promise<void> {
-    const res = this.activeReservation();
-    if (res && res.code && res.status === 'Held') {
-      try {
-        const url = await QRCode.toDataURL(res.code, {
-          width: 105,
-          margin: 1,
-          color: {
-            dark: '#0f172a',
-            light: '#ffffff',
-          },
-        });
-        this.qrDataUrl.set(url);
-      } catch (err) {
-        console.error('Failed to generate QR code', err);
-      }
-    } else {
+  private async generateQrFor(code: string | null): Promise<void> {
+    const seq = ++this.qrRenderSeq;
+    if (!code) {
       this.qrDataUrl.set('');
+      return;
+    }
+
+    try {
+      const url = await QRCode.toDataURL(code, {
+        width: 105,
+        margin: 1,
+        color: {
+          dark: '#0f172a',
+          light: '#ffffff',
+        },
+      });
+      if (seq === this.qrRenderSeq) {
+        this.qrDataUrl.set(url);
+      }
+    } catch {
+      if (seq === this.qrRenderSeq) {
+        this.qrDataUrl.set('');
+      }
     }
   }
 
@@ -134,12 +176,11 @@ export class CustomerReservationModalComponent implements OnInit, OnChanges {
         locationId: this.station.id,
         serviceType: this.selectedServiceType(),
       })
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: () => {
-          this.refreshQrCode();
-        },
-        error: (err) => {
-          const detail = err.error?.detail || err.error?.title || 'Không thể giữ chỗ vào lúc này. Vui lòng thử lại sau.';
+        next: () => {},
+        error: (err: unknown) => {
+          const detail = extractApiError(err, 'Không thể giữ chỗ vào lúc này. Vui lòng thử lại sau.');
           this.errorMessage.set(this.translateBackendError(detail));
         },
       });
@@ -147,12 +188,13 @@ export class CustomerReservationModalComponent implements OnInit, OnChanges {
 
   copyCode(): void {
     const code = this.activeReservation()?.code;
-    if (!code) return;
+    if (!code || typeof navigator === 'undefined' || !navigator.clipboard) return;
 
     navigator.clipboard.writeText(code).then(() => {
       this.copiedCode.set(true);
-      setTimeout(() => this.copiedCode.set(false), 2500);
-    });
+      if (this.copiedTimer) clearTimeout(this.copiedTimer);
+      this.copiedTimer = setTimeout(() => this.copiedCode.set(false), 2500);
+    }).catch(() => {});
   }
 
   requestCancel(): void {
@@ -167,13 +209,13 @@ export class CustomerReservationModalComponent implements OnInit, OnChanges {
     const current = this.activeReservation();
     if (!current) return;
 
-    this.reservationService.cancel(current.id).subscribe({
+    this.reservationService.cancel(current.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => {
         this.showCancelConfirm.set(false);
         this.closed.emit();
       },
-      error: (err) => {
-        const detail = err.error?.detail || 'Không thể hủy lượt đặt chỗ vào lúc này.';
+      error: (err: unknown) => {
+        const detail = extractApiError(err, 'Không thể hủy lượt đặt chỗ vào lúc này.');
         this.errorMessage.set(this.translateBackendError(detail));
         this.showCancelConfirm.set(false);
       },
@@ -181,7 +223,7 @@ export class CustomerReservationModalComponent implements OnInit, OnChanges {
   }
 
   refreshActiveStatus(): void {
-    this.reservationService.getActive().subscribe({
+    this.reservationService.getActive().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (res) => {
         if (!res) {
           this.errorMessage.set(null);

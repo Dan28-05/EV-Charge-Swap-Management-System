@@ -47,4 +47,5 @@ export interface AuthenticationResponse {
 export interface ProblemDetails {
   detail?: string;
   title?: string;
+  errors?: Record<string, string[]>;
 }

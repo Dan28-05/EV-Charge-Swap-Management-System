@@ -1,4 +1,4 @@
-import { Injectable, signal } from '@angular/core';
+import { DestroyRef, Injectable, inject, signal } from '@angular/core';
 import {
   HubConnection,
   HubConnectionBuilder,
@@ -18,12 +18,14 @@ export type RealtimeConnectionStatus = 'connected' | 'reconnecting' | 'disconnec
 
 @Injectable({ providedIn: 'root' })
 export class StationRealtimeService {
+  private readonly destroyRef = inject(DestroyRef);
   private hubConnection: HubConnection | null = null;
   private readonly inventorySubject = new Subject<StationInventoryUpdatedEvent>();
   private stationIds: string[] = [];
   private subscriptionQueue: Promise<void> = Promise.resolve();
   private reconnectTimer?: ReturnType<typeof setTimeout>;
   private connectingPromise: Promise<void> | null = null;
+  private destroyed = false;
 
   readonly connectionStatus = signal<RealtimeConnectionStatus>('disconnected');
   readonly stationUpdated$: Observable<StationInventoryUpdatedEvent> =
@@ -31,6 +33,12 @@ export class StationRealtimeService {
 
   constructor() {
     this.initHubConnection();
+    this.destroyRef.onDestroy(() => {
+      this.destroyed = true;
+      this.clearReconnectTimer();
+      void this.hubConnection?.stop().catch(() => undefined);
+      this.inventorySubject.complete();
+    });
   }
 
   private initHubConnection(): void {
@@ -116,8 +124,19 @@ export class StationRealtimeService {
 
   private syncSubscriptions(): void {
     this.subscriptionQueue = this.subscriptionQueue.then(async () => {
-      if (this.stationIds.length > 0) await this.ensureConnected();
-      if (this.hubConnection?.state !== HubConnectionState.Connected) return;
+      if (this.destroyed) return;
+      if (this.stationIds.length === 0) {
+        this.clearReconnectTimer();
+        if (this.hubConnection?.state === HubConnectionState.Connected) {
+          await this.hubConnection.invoke('WatchStations', []);
+          await this.hubConnection.stop();
+        }
+        this.connectionStatus.set('disconnected');
+        return;
+      }
+
+      await this.ensureConnected();
+      if (this.destroyed || this.hubConnection?.state !== HubConnectionState.Connected) return;
       const snapshot = await this.hubConnection.invoke<StationInventoryUpdatedEvent[]>('WatchStations', this.stationIds);
       snapshot.forEach((item) => this.inventorySubject.next(item));
       this.connectionStatus.set('connected');
@@ -127,8 +146,15 @@ export class StationRealtimeService {
     });
   }
 
+  private clearReconnectTimer(): void {
+    if (this.reconnectTimer !== undefined) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = undefined;
+    }
+  }
+
   private scheduleRetry(): void {
-    if (this.stationIds.length === 0 || this.reconnectTimer !== undefined) return;
+    if (this.destroyed || this.stationIds.length === 0 || this.reconnectTimer !== undefined) return;
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = undefined;
       this.syncSubscriptions();

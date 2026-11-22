@@ -1,5 +1,6 @@
-import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { DestroyRef, Injectable, computed, effect, inject, signal } from '@angular/core';
+import { isPlatformBrowser } from '@angular/common';
+import { HttpClient, HttpErrorResponse, HttpHeaders } from '@angular/common/http';
+import { DestroyRef, Injectable, PLATFORM_ID, computed, effect, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { EMPTY, Observable, auditTime, catchError, finalize, map, of, switchMap, tap, throwError } from 'rxjs';
 import { ReservationRealtimeService } from './reservation-realtime.service';
@@ -13,6 +14,7 @@ import {
 @Injectable({ providedIn: 'root' })
 export class ReservationService {
   private readonly http = inject(HttpClient);
+  private readonly platformId = inject(PLATFORM_ID);
   private readonly authService = inject(AuthService, { optional: true });
   private readonly realtime = inject(ReservationRealtimeService);
   private readonly destroyRef = inject(DestroyRef);
@@ -42,9 +44,8 @@ export class ReservationService {
   });
 
   constructor() {
-    this.startCountdownLoop();
     this.destroyRef.onDestroy(() => {
-      if (this.countdownTimer) clearInterval(this.countdownTimer);
+      this.stopCountdownLoop();
       this.stopPolling();
     });
     this.realtime.changed$.pipe(auditTime(100), takeUntilDestroyed(this.destroyRef))
@@ -60,9 +61,11 @@ export class ReservationService {
     }
   }
 
-  hold(request: HoldRequest): Observable<ReservationResponse> {
+  hold(request: HoldRequest, idempotencyKey?: string): Observable<ReservationResponse> {
     this.loading.set(true);
-    return this.http.post<ReservationResponse>('/api/reservations', request).pipe(
+    const key = idempotencyKey ?? this.newIdempotencyKey();
+    const headers = new HttpHeaders({ 'Idempotency-Key': key });
+    return this.http.post<ReservationResponse>('/api/reservations', request, { headers }).pipe(
       tap((res) => {
         this.loading.set(false);
         this.setActive(res);
@@ -156,6 +159,12 @@ export class ReservationService {
     this.activeReservation.set(reservation);
     this.updateCountdown();
 
+    if (reservation?.status === 'Held') {
+      this.startCountdownLoop();
+    } else {
+      this.stopCountdownLoop();
+    }
+
     if (reservation && (reservation.status === 'Held' || reservation.status === 'CheckedIn')) {
       this.startPolling();
     } else {
@@ -164,10 +173,28 @@ export class ReservationService {
   }
 
   private startCountdownLoop(): void {
-    if (this.countdownTimer) clearInterval(this.countdownTimer);
+    if (!isPlatformBrowser(this.platformId) || this.countdownTimer) return;
     this.countdownTimer = setInterval(() => {
       this.updateCountdown();
     }, 1000);
+  }
+
+  private stopCountdownLoop(): void {
+    if (this.countdownTimer) {
+      clearInterval(this.countdownTimer);
+      this.countdownTimer = null;
+    }
+  }
+
+  private newIdempotencyKey(): string {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+      const r = (Math.random() * 16) | 0;
+      const v = c === 'x' ? r : (r & 0x3) | 0x8;
+      return v.toString(16);
+    });
   }
 
   private updateCountdown(): void {

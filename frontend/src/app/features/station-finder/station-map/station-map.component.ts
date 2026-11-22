@@ -1,14 +1,15 @@
 import {
   AfterViewInit,
+  ChangeDetectionStrategy,
   Component,
+  effect,
   ElementRef,
-  EventEmitter,
   inject,
-  Input,
-  OnChanges,
+  input,
   OnDestroy,
-  Output,
-  ViewChild,
+  output,
+  signal,
+  viewChild,
 } from '@angular/core';
 import * as L from 'leaflet';
 import { serviceLabel, Station } from '../models/station.model';
@@ -16,10 +17,11 @@ import { STATION_FINDER_CONFIG } from '../station-finder.config';
 
 @Component({
   selector: 'app-station-map',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div #canvas class="canvas" aria-label="Bản đồ trạm sạc và đổi pin OpenStreetMap"></div>
 
-    <div class="map-floating-controls" [class.panel-open]="!!selectedId" aria-label="Điều khiển bản đồ">
+    <div class="map-floating-controls" [class.panel-open]="!!selectedId()" aria-label="Điều khiển bản đồ">
       <div class="control-group zoom-group">
         <button
           type="button"
@@ -52,7 +54,7 @@ import { STATION_FINDER_CONFIG } from '../station-finder.config';
         class="ctrl-btn single-btn"
         aria-label="Vị trí của tôi"
         title="Vị trí của tôi"
-        [class.active]="locating"
+        [class.active]="locating()"
         (click)="locateMe()"
       >
         <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2">
@@ -166,17 +168,17 @@ import { STATION_FINDER_CONFIG } from '../station-finder.config';
     }
   `,
 })
-export class StationMapComponent implements AfterViewInit, OnChanges, OnDestroy {
-  @ViewChild('canvas', { static: true }) canvas!: ElementRef<HTMLDivElement>;
-  @Input() stations: Station[] = [];
-  @Input() selectedId: string | null = null;
-  @Input() sidebarCollapsed = false;
-  @Input() userLocation: { lat: number; lng: number } | null = null;
-  @Input() searchCenter: { lat: number; lng: number } | null = null;
-  @Input() radiusKm: number | null = null;
-  @Output() stationSelected = new EventEmitter<string>();
-  @Output() userLocated = new EventEmitter<{ lat: number; lng: number }>();
-  @Output() mapAreaChanged = new EventEmitter<{ lat: number; lng: number }>();
+export class StationMapComponent implements AfterViewInit, OnDestroy {
+  private readonly canvas = viewChild.required<ElementRef<HTMLDivElement>>('canvas');
+  readonly stations = input<Station[]>([]);
+  readonly selectedId = input<string | null>(null);
+  readonly sidebarCollapsed = input<boolean>(false);
+  readonly userLocation = input<{ lat: number; lng: number } | null>(null);
+  readonly searchCenter = input<{ lat: number; lng: number } | null>(null);
+  readonly radiusKm = input<number | null>(null);
+  readonly stationSelected = output<string>();
+  readonly userLocated = output<{ lat: number; lng: number }>();
+  readonly mapAreaChanged = output<{ lat: number; lng: number }>();
 
   private readonly config = inject(STATION_FINDER_CONFIG);
   private map?: L.Map;
@@ -187,10 +189,24 @@ export class StationMapComponent implements AfterViewInit, OnChanges, OnDestroy 
   private previousSelection: string | null = null;
   private previousSearchCenter: string | null = null;
   private hasInitiallyFitted = false;
-  locating = false;
+  readonly locating = signal(false);
+
+  constructor() {
+    effect(() => {
+      // Track all reactive map inputs and re-render Leaflet whenever any input changes.
+      this.stations();
+      this.selectedId();
+      this.sidebarCollapsed();
+      this.userLocation();
+      this.searchCenter();
+      this.radiusKm();
+      this.render();
+    });
+  }
 
   ngAfterViewInit() {
-    this.map = L.map(this.canvas.nativeElement, {
+    const el = this.canvas().nativeElement;
+    this.map = L.map(el, {
       zoomControl: false,
       attributionControl: false,
       minZoom: 5,
@@ -209,13 +225,9 @@ export class StationMapComponent implements AfterViewInit, OnChanges, OnDestroy 
 
     if (typeof ResizeObserver !== 'undefined') {
       this.resize = new ResizeObserver(() => this.map?.invalidateSize());
-      this.resize.observe(this.canvas.nativeElement);
+      this.resize.observe(el);
     }
 
-    this.render();
-  }
-
-  ngOnChanges() {
     this.render();
   }
 
@@ -229,11 +241,11 @@ export class StationMapComponent implements AfterViewInit, OnChanges, OnDestroy 
 
   locateMe() {
     if (!navigator.geolocation || !this.map) return;
-    this.locating = true;
+    this.locating.set(true);
 
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        this.locating = false;
+        this.locating.set(false);
         const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
         this.userLocated.emit(coords);
         this.updateUserPositionOnMap(coords.lat, coords.lng);
@@ -241,7 +253,7 @@ export class StationMapComponent implements AfterViewInit, OnChanges, OnDestroy 
         this.map?.setView([coords.lat, coords.lng], this.map.getZoom(), { animate: false });
       },
       () => {
-        this.locating = false;
+        this.locating.set(false);
       },
       { enableHighAccuracy: true, timeout: 8000 },
     );
@@ -264,8 +276,9 @@ export class StationMapComponent implements AfterViewInit, OnChanges, OnDestroy 
     }
 
     // Vẽ hoặc cập nhật vòng tròn bán kính nếu có radiusKm
-    if (this.radiusKm && this.radiusKm > 0) {
-      const radiusMeters = this.radiusKm * 1000;
+    const radiusKm = this.radiusKm();
+    if (radiusKm && radiusKm > 0) {
+      const radiusMeters = radiusKm * 1000;
       if (!this.userRadiusCircle) {
         this.userRadiusCircle = L.circle(latLng, {
           radius: radiusMeters,
@@ -285,12 +298,13 @@ export class StationMapComponent implements AfterViewInit, OnChanges, OnDestroy 
   }
 
   fitAll() {
-    if (!this.map || !this.stations.length) return;
+    const stations = this.stations();
+    if (!this.map || !stations.length) return;
     const isMobile = (this.map.getSize().x || window.innerWidth) <= 768;
-    const leftPad = isMobile ? 20 : (!this.sidebarCollapsed ? 420 : 30);
-    const rightPad = isMobile ? 20 : (this.selectedId ? 415 : 30);
+    const leftPad = isMobile ? 20 : (!this.sidebarCollapsed() ? 420 : 30);
+    const rightPad = isMobile ? 20 : (this.selectedId() ? 415 : 30);
     this.map.fitBounds(
-      this.stations.map((s) => [s.latitude, s.longitude] as L.LatLngTuple),
+      stations.map((s) => [s.latitude, s.longitude] as L.LatLngTuple),
       {
         paddingTopLeft: [leftPad, 50],
         paddingBottomRight: [rightPad, 50],
@@ -302,20 +316,26 @@ export class StationMapComponent implements AfterViewInit, OnChanges, OnDestroy 
   private render() {
     if (!this.map) return;
 
+    const stations = this.stations();
+    const selectedId = this.selectedId();
+    const sidebarCollapsed = this.sidebarCollapsed();
+    const userLocation = this.userLocation();
+    const searchCenter = this.searchCenter();
+
     // Cập nhật vị trí GPS nếu được truyền từ bên ngoài
-    if (this.userLocation) {
-      this.updateUserPositionOnMap(this.userLocation.lat, this.userLocation.lng);
+    if (userLocation) {
+      this.updateUserPositionOnMap(userLocation.lat, userLocation.lng);
 
       if (!this.hasInitiallyFitted) {
-        this.map.setView([this.userLocation.lat, this.userLocation.lng], this.map.getZoom());
+        this.map.setView([userLocation.lat, userLocation.lng], this.map.getZoom());
         this.hasInitiallyFitted = true;
       }
     }
 
     // The search radius follows the area the customer is browsing, not necessarily their GPS dot.
-    if (this.searchCenter) {
-      const center: L.LatLngTuple = [this.searchCenter.lat, this.searchCenter.lng];
-      const centerKey = `${this.searchCenter.lat.toFixed(5)},${this.searchCenter.lng.toFixed(5)}`;
+    if (searchCenter) {
+      const center: L.LatLngTuple = [searchCenter.lat, searchCenter.lng];
+      const centerKey = `${searchCenter.lat.toFixed(5)},${searchCenter.lng.toFixed(5)}`;
       if (this.previousSearchCenter !== centerKey) {
         this.map.setView(center, this.map.getZoom(), { animate: false });
         this.hasInitiallyFitted = true;
@@ -323,7 +343,7 @@ export class StationMapComponent implements AfterViewInit, OnChanges, OnDestroy 
       this.previousSearchCenter = centerKey;
     }
 
-    const ids = new Set(this.stations.map((s) => s.id));
+    const ids = new Set(stations.map((s) => s.id));
 
     // Dọn dẹp markers không còn trong danh sách
     for (const [id, marker] of this.markers) {
@@ -334,9 +354,9 @@ export class StationMapComponent implements AfterViewInit, OnChanges, OnDestroy 
     }
 
     // Vẽ markers theo chuẩn Google Maps Pin
-    for (const station of this.stations) {
+    for (const station of stations) {
       const label = serviceLabel(station);
-      const isSelected = station.id === this.selectedId;
+      const isSelected = station.id === selectedId;
       const boltSvg = `<svg class="pin-svg pin-bolt" viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>`;
       const batterySvg = `<svg class="pin-svg pin-battery" viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M16 4h-1V2.5a.5.5 0 0 0-.5-.5h-5a.5.5 0 0 0-.5.5V4H8C6.34 4 5 5.34 5 7v12c0 1.66 1.34 3 3 3h8c1.66 0 3-1.34 3-3V7c0-1.66-1.34-3-3-3zm-1 12H9v-2h6v2zm0-4H9v-2h6v2zm0-4H9V6h6v2z"/></svg>`;
       const dualSvg = `<div class="pin-svg-dual">${boltSvg}${batterySvg}</div>`;
@@ -400,8 +420,8 @@ export class StationMapComponent implements AfterViewInit, OnChanges, OnDestroy 
     }
 
     // Khi chọn một trạm mới: tính toán trọng tâm để marker hiển thị chính giữa vùng thông thoáng (không bị đè bởi Panel)
-    if (this.selectedId && this.previousSelection !== this.selectedId) {
-      const marker = this.markers.get(this.selectedId);
+    if (selectedId && this.previousSelection !== selectedId) {
+      const marker = this.markers.get(selectedId);
       if (marker) {
         const currentZoom = this.map.getZoom();
         const targetZoom = currentZoom;
@@ -414,7 +434,7 @@ export class StationMapComponent implements AfterViewInit, OnChanges, OnDestroy 
           const point = this.map.latLngToContainerPoint(marker.getLatLng());
           this.map.panBy([0, point.y - height * 0.25], { animate: true, duration: 0.5 });
         } else {
-          const leftPad = !this.sidebarCollapsed ? 420 : 30;
+          const leftPad = !sidebarCollapsed ? 420 : 30;
           const rightPad = 410; // Panel chi tiết chiếm 380px + lề
           const visibleCenterX = (leftPad + (width - rightPad)) / 2;
           const shiftX = (width / 2) - visibleCenterX;
@@ -427,7 +447,7 @@ export class StationMapComponent implements AfterViewInit, OnChanges, OnDestroy 
       }
     }
     // Khi bỏ chọn (đóng chi tiết): giữ nguyên hoàn toàn góc nhìn và độ zoom của bản đồ
-    this.previousSelection = this.selectedId;
+    this.previousSelection = selectedId;
   }
 
   ngOnDestroy() {

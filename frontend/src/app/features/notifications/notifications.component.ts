@@ -1,10 +1,11 @@
 import { CommonModule, DatePipe } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
-import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router, RouterLink } from '@angular/router';
-import { finalize } from 'rxjs';
+import { EMPTY, Subject, catchError, finalize, merge, switchMap } from 'rxjs';
 import { AuthService } from '../auth/services/auth.service';
+import { ReservationRealtimeService } from '../reservations/services/reservation-realtime.service';
 
 export interface NotificationItem {
   id: string;
@@ -19,6 +20,7 @@ export type NotificationCategory = 'all' | 'booking' | 'charging' | 'payment';
 
 @Component({
   selector: 'app-notifications',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, DatePipe, RouterLink],
   templateUrl: './notifications.component.html',
   styleUrl: './notifications.component.scss',
@@ -27,6 +29,9 @@ export class NotificationsComponent implements OnInit {
   private readonly http = inject(HttpClient);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly realtime = inject(ReservationRealtimeService, { optional: true });
+  private readonly reloadTrigger = new Subject<void>();
+  private copiedTimer: ReturnType<typeof setTimeout> | null = null;
 
   readonly auth = inject(AuthService);
   readonly items = signal<NotificationItem[]>([]);
@@ -51,19 +56,55 @@ export class NotificationsComponent implements OnInit {
     }));
   });
 
+  constructor() {
+    this.destroyRef.onDestroy(() => {
+      if (this.copiedTimer) clearTimeout(this.copiedTimer);
+    });
+  }
+
   ngOnInit(): void {
+    merge(this.reloadTrigger, this.realtime?.notificationsChanged$ ?? EMPTY).pipe(
+      switchMap(() => {
+        if (!this.auth.isAuthenticated()) return EMPTY;
+        this.loading.set(true);
+        this.error.set(null);
+        const params: Record<string, string> = {};
+        if (this.page() !== 1) params['page'] = String(this.page());
+        if (this.activeCategory() !== 'all') params['category'] = this.activeCategory();
+        return this.http.get<{ items: NotificationItem[]; totalCount: number; pageSize: number; unreadCount?: number }>(
+          '/api/notifications',
+          { params },
+        ).pipe(
+          finalize(() => this.loading.set(false)),
+          catchError(() => {
+            this.error.set('Không tải được thông báo. Vui lòng thử lại sau.');
+            return EMPTY;
+          }),
+        );
+      }),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe(({ items, totalCount, pageSize, unreadCount }) => {
+      this.items.set(items);
+      this.total.set(totalCount ?? items.length);
+      this.pageSize.set(pageSize ?? 20);
+      if (typeof unreadCount === 'number') {
+        this.unreadCount.set(unreadCount);
+      } else {
+        this.unreadCount.set(items.filter((i) => !i.isRead).length);
+      }
+    });
+
     this.refresh();
   }
 
   setCategory(category: NotificationCategory): void {
-    if (this.loading()) return;
     this.activeCategory.set(category);
     this.page.set(1);
     this.refresh();
   }
 
   goToPage(page: number): void {
-    if (this.loading() || page < 1 || page > this.pageCount()) return;
+    if (page < 1 || page > this.pageCount()) return;
     this.page.set(page);
     this.refresh();
   }
@@ -125,35 +166,15 @@ export class NotificationsComponent implements OnInit {
   }
 
   refresh(): void {
-    if (this.loading() || !this.auth.isAuthenticated()) return;
-    this.loading.set(true);
-    this.error.set(null);
-    const params: Record<string, string> = {};
-    if (this.page() !== 1) params['page'] = String(this.page());
-    if (this.activeCategory() !== 'all') params['category'] = this.activeCategory();
-    this.http.get<{ items: NotificationItem[]; totalCount: number; pageSize: number; unreadCount?: number }>('/api/notifications', { params }).pipe(
-      takeUntilDestroyed(this.destroyRef),
-      finalize(() => this.loading.set(false)),
-    ).subscribe({
-      next: ({ items, totalCount, pageSize, unreadCount }) => {
-        this.items.set(items);
-        this.total.set(totalCount ?? items.length);
-        this.pageSize.set(pageSize ?? 20);
-        if (typeof unreadCount === 'number') {
-          this.unreadCount.set(unreadCount);
-        } else {
-          this.unreadCount.set(items.filter((i) => !i.isRead).length);
-        }
-      },
-      error: () => this.error.set('Không tải được thông báo. Vui lòng thử lại sau.'),
-    });
+    this.reloadTrigger.next();
   }
 
   copyCode(code: string): void {
     if (typeof navigator !== 'undefined' && navigator.clipboard) {
       navigator.clipboard.writeText(code).then(() => {
         this.copiedCode.set(code);
-        setTimeout(() => this.copiedCode.set(null), 2000);
+        if (this.copiedTimer) clearTimeout(this.copiedTimer);
+        this.copiedTimer = setTimeout(() => this.copiedCode.set(null), 2000);
       }).catch(() => {});
     }
   }

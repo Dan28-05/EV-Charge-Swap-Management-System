@@ -59,14 +59,11 @@ public sealed class EmailDeliveryConsumer : IConsumer
                 var qrPayload = $"EVCS-CHECKIN:{ev.Code}";
                 using var generator = new QRCodeGenerator();
                 using var data = generator.CreateQrCode(qrPayload, QRCodeGenerator.ECCLevel.Q);
-                var qr = new PngByteQRCode(data);
+                using var qr = new PngByteQRCode(data);
                 var qrBytes = qr.GetGraphic(20);
-                var qrBase64 = Convert.ToBase64String(qrBytes);
 
-                _logger.LogInformation("Generated {Bytes} bytes QR Code for reservation {Code}. Email queued to {Email}.",
-                    qrBytes.Length, ev.Code, user.Email);
-
-                // Note: Production email dispatch can embed qrBase64 as data URI
+                _logger.LogInformation("Generated {Bytes} bytes QR Code for reservation {ReservationId} (customer {CustomerId}).",
+                    qrBytes.Length, ev.ReservationId, ev.CustomerId);
                 break;
             }
 
@@ -86,12 +83,11 @@ public sealed class EmailDeliveryConsumer : IConsumer
                 var qrPayload = $"EVCS-PAY:{ev.InvoiceId}:{ev.TotalAmount}";
                 using var generator = new QRCodeGenerator();
                 using var data = generator.CreateQrCode(qrPayload, QRCodeGenerator.ECCLevel.Q);
-                var qr = new PngByteQRCode(data);
+                using var qr = new PngByteQRCode(data);
                 var qrBytes = qr.GetGraphic(20);
 
-                _logger.LogInformation("Generated payment QR Code for invoice {InvoiceId} ({Amount} đ). Email dispatched to {Email}.",
-                    ev.InvoiceId, ev.TotalAmount, user.Email);
-
+                _logger.LogInformation("Generated {Bytes} bytes payment QR Code for invoice {InvoiceId} (customer {CustomerId}).",
+                    qrBytes.Length, ev.InvoiceId, ev.CustomerId);
                 break;
             }
 

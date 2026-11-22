@@ -20,6 +20,11 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using Npgsql;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
+using Serilog;
 using StackExchange.Redis;
 using System.Diagnostics;
 using System.IdentityModel.Tokens.Jwt;
@@ -28,6 +33,36 @@ using System.Text;
 using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Host.UseSerilog((context, services, loggerConfig) => loggerConfig
+    .ReadFrom.Configuration(context.Configuration)
+    .ReadFrom.Services(services)
+    .Enrich.FromLogContext()
+    .WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj} {Properties:j}{NewLine}{Exception}"));
+
+var otelEndpoint = builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"];
+builder.Services.AddOpenTelemetry()
+    .ConfigureResource(resource => resource.AddService("EVChargeSwap.Api"))
+    .WithTracing(tracing =>
+    {
+        tracing
+            .AddSource(RabbitMqConsumersHostedService.ActivitySource.Name)
+            .AddAspNetCoreInstrumentation(options => options.RecordException = true)
+            .AddHttpClientInstrumentation()
+            .AddNpgsql();
+        if (!string.IsNullOrWhiteSpace(otelEndpoint))
+            tracing.AddOtlpExporter();
+    })
+    .WithMetrics(metrics =>
+    {
+        metrics
+            .AddMeter("EVChargeSwap.LocationSearch", "EVChargeSwap.RedisCache")
+            .AddAspNetCoreInstrumentation()
+            .AddHttpClientInstrumentation()
+            .AddNpgsqlInstrumentation();
+        if (!string.IsNullOrWhiteSpace(otelEndpoint))
+            metrics.AddOtlpExporter();
+    });
 
 builder.Services.AddControllers();
 builder.Services.AddOpenApi(options =>
@@ -125,7 +160,18 @@ builder.Services.AddSingleton<ElasticLocationIndex>();
 builder.Services.AddScoped<LocationSearchService>();
 builder.Services.AddScoped<LocationIndexer>();
 builder.Services.AddHostedService<LocationSearchInitializer>();
-builder.Services.AddSignalR();
+var signalR = builder.Services.AddSignalR();
+if (builder.Configuration.GetValue("SignalR:UseRedisBackplane", false) && !string.IsNullOrWhiteSpace(redisConn))
+{
+    signalR.AddStackExchangeRedis(redisConn, options =>
+    {
+        options.Configuration.ChannelPrefix = RedisChannel.Literal("evcs-signalr");
+        options.Configuration.AbortOnConnectFail = false;
+        options.Configuration.ConnectTimeout = 3000;
+        options.Configuration.SyncTimeout = 2000;
+        options.Configuration.AsyncTimeout = 2000;
+    });
+}
 builder.Services.AddSingleton<IStationNotifier, StationNotifier>();
 builder.Services.AddScoped<EVChargeSwap.Features.Reservations.Services.ReservationService>();
 builder.Services.AddScoped<EVChargeSwap.Features.Reservations.Services.ChargingService>();

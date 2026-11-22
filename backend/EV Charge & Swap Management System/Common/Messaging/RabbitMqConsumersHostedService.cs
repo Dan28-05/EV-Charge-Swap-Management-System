@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -20,6 +21,7 @@ public sealed class RabbitMqConsumersHostedService : BackgroundService
     private const string DeadLetterExchange = RabbitMqConnectionProvider.DeadLetterExchange;
     private const string RetryCountHeader = "x-retry-count";
     private const int MaxConsumerRetries = 3;
+    internal static readonly ActivitySource ActivitySource = new("EVChargeSwap.Messaging");
 
     internal static IReadOnlyList<Type> ConsumerTypes { get; } =
     [
@@ -120,6 +122,7 @@ public sealed class RabbitMqConsumersHostedService : BackgroundService
 
                 consumer.ReceivedAsync += async (_, ea) =>
                 {
+                    using var activity = StartConsumerActivity(consumerName, ea);
                     try
                     {
                         if (!Guid.TryParse(ea.BasicProperties?.MessageId, out var messageId) || messageId == Guid.Empty)
@@ -246,6 +249,34 @@ public sealed class RabbitMqConsumersHostedService : BackgroundService
             }, cancellationToken: ct);
         foreach (var key in consumer.RoutingKeys)
             await channel.QueueBindAsync(consumer.QueueName, exchange, key, arguments: null, cancellationToken: ct);
+    }
+
+    private static Activity? StartConsumerActivity(string consumerName, BasicDeliverEventArgs ea)
+    {
+        ActivityContext parentContext = default;
+        if (ea.BasicProperties?.Headers is not null &&
+            ea.BasicProperties.Headers.TryGetValue("traceparent", out var rawTrace) &&
+            rawTrace is not null)
+        {
+            var traceParent = rawTrace switch
+            {
+                byte[] bytes => Encoding.UTF8.GetString(bytes),
+                string text => text,
+                _ => rawTrace.ToString()
+            };
+            if (!string.IsNullOrWhiteSpace(traceParent))
+                ActivityContext.TryParse(traceParent, null, out parentContext);
+        }
+
+        var activity = parentContext != default
+            ? ActivitySource.StartActivity($"consume {ea.RoutingKey}", ActivityKind.Consumer, parentContext)
+            : ActivitySource.StartActivity($"consume {ea.RoutingKey}", ActivityKind.Consumer);
+        activity?.SetTag("messaging.system", "rabbitmq");
+        activity?.SetTag("messaging.destination.name", ea.RoutingKey);
+        activity?.SetTag("messaging.consumer.name", consumerName);
+        if (!string.IsNullOrWhiteSpace(ea.BasicProperties?.MessageId))
+            activity?.SetTag("messaging.message.id", ea.BasicProperties.MessageId);
+        return activity;
     }
 
     private static int GetRetryCount(IReadOnlyBasicProperties? properties)

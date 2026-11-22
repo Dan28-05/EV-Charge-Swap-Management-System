@@ -3,7 +3,9 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 
 namespace EVChargeSwap.Health;
 
-public sealed class DatabaseHealthCheck(IServiceScopeFactory scopeFactory) : IHealthCheck
+public sealed class DatabaseHealthCheck(
+    IServiceScopeFactory scopeFactory,
+    ILogger<DatabaseHealthCheck> logger) : IHealthCheck
 {
     public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
     {
@@ -15,9 +17,10 @@ public sealed class DatabaseHealthCheck(IServiceScopeFactory scopeFactory) : IHe
                 ? HealthCheckResult.Healthy()
                 : HealthCheckResult.Unhealthy("Database is unavailable.");
         }
-        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
-            // Health responses must not expose connection strings or provider exceptions.
+            // Log full diagnostic internally; health HTTP response stays sanitized.
+            logger.LogWarning(ex, "Database readiness check failed.");
             return HealthCheckResult.Unhealthy("Database is unavailable.");
         }
     }

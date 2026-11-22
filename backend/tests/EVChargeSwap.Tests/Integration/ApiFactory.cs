@@ -23,6 +23,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
     {
         builder.UseEnvironment("Development");
         builder.UseSetting("RabbitMq:Enabled", "false");
+        builder.UseSetting("ConnectionStrings:Redis", string.Empty);
         builder.UseSetting("ConnectionStrings:Default", "Host=localhost;Database=unused_by_tests;Username=test");
         builder.UseSetting("Jwt:Issuer", "EVChargeSwap.Tests");
         builder.UseSetting("Jwt:Audience", "EVChargeSwap.Tests.Client");

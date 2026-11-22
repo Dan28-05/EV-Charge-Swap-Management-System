@@ -1,15 +1,21 @@
 using EVChargeSwap.Data;
 using EVChargeSwap.Common.Pagination;
+using EVChargeSwap.Common.Messaging;
+using EVChargeSwap.Common.Messaging.Events;
 using Microsoft.EntityFrameworkCore;
 using EVChargeSwap.Features.Locations.Caching;
 using EVChargeSwap.Features.Locations.Entities;
 using EVChargeSwap.Features.Locations.Requests;
 using EVChargeSwap.Features.Locations.Responses;
+using EVChargeSwap.Features.Locations.Search;
 using EVChargeSwap.Features.Reservations.Entities;
+using Microsoft.Extensions.Options;
 
 namespace EVChargeSwap.Features.Locations.Services;
 
-public sealed class LocationService(AppDbContext db, ILocationCache? cache = null)
+public sealed class LocationService(AppDbContext db, ILocationCache? cache = null,
+    LocationSearchService? searchService = null, IOutboxService? outbox = null,
+    IOptions<LocationSearchOptions>? searchOptions = null)
 {
     private readonly ILocationCache _cache = cache ?? new NoOpLocationCache();
 
@@ -19,14 +25,28 @@ public sealed class LocationService(AppDbContext db, ILocationCache? cache = nul
     public async Task<PagedResponse<LocationResponse>> SearchAsync(string search, PaginationRequest pagination,
         CancellationToken cancellationToken)
     {
-        var term = search.Trim().ToLower();
-        var query = db.Locations.AsNoTracking().Where(x => x.IsActive &&
-            (x.Name.ToLower().Contains(term) || x.Address.ToLower().Contains(term)));
-        var count = await query.CountAsync(cancellationToken);
-        var locations = await query.OrderBy(x => x.Name).ThenBy(x => x.Id)
-            .Skip(pagination.GetOffset()).Take(pagination.PageSize).ToListAsync(cancellationToken);
-        return new PagedResponse<LocationResponse>(await WithLiveCountsAsync(locations.Select(ToResponse).ToList(), cancellationToken),
-            pagination.Page, pagination.PageSize, count);
+        var offset = pagination.GetOffset();
+        if (searchService is not null &&
+            await searchService.TrySearchAsync(search, offset, pagination.PageSize, cancellationToken) is { } indexed)
+        {
+            var current = await ReadSearchResultsAsync(indexed.Ids, cancellationToken);
+            // Visibility can change before indexing. Re-run the page against authoritative data in that window.
+            if (current.Count == indexed.Ids.Count)
+                return new(current, pagination.Page, pagination.PageSize, indexed.TotalCount);
+        }
+
+        var fallback = await LocationSearchService.SearchPostgresAsync(db, search, offset, pagination.PageSize, cancellationToken);
+        return new(await ReadSearchResultsAsync(fallback.Ids, cancellationToken),
+            pagination.Page, pagination.PageSize, fallback.TotalCount);
+    }
+
+    private async Task<List<LocationResponse>> ReadSearchResultsAsync(IReadOnlyList<Guid> ids, CancellationToken ct)
+    {
+        if (ids.Count == 0) return [];
+        var locations = await db.Locations.AsNoTracking()
+            .Where(x => x.IsActive && ids.Contains(x.Id)).ToDictionaryAsync(x => x.Id, ct);
+        var ordered = ids.Where(locations.ContainsKey).Select(id => ToResponse(locations[id])).ToList();
+        return await WithLiveCountsAsync(ordered, ct);
     }
 
     public async Task<PagedResponse<AdminLocationResponse>> ListAdminAsync(PaginationRequest pagination,
@@ -136,7 +156,7 @@ public sealed class LocationService(AppDbContext db, ILocationCache? cache = nul
         if (request.OperatingStatus is { } status) location.SetOperatingStatus(status);
         location.SetServiceDetails(request.IsOpen24Hours, request.ChargingPowerKw, request.BatteryCapacityKwh, request.AvailableBatteries, request.AvailableChargingBays);
         db.Locations.Add(location);
-        await db.SaveChangesAsync(cancellationToken);
+        await SaveLocationAsync(location.Id, cancellationToken);
 
         var response = (await WithLiveCountsAsync([ToResponse(location)], cancellationToken))[0];
         await _cache.InvalidateAllAsync(cancellationToken);
@@ -153,7 +173,7 @@ public sealed class LocationService(AppDbContext db, ILocationCache? cache = nul
             request.OffersCarCharging, request.OffersBatterySwap);
         if (request.OperatingStatus is { } status) location.SetOperatingStatus(status);
         location.SetServiceDetails(request.IsOpen24Hours, request.ChargingPowerKw, request.BatteryCapacityKwh, request.AvailableBatteries, request.AvailableChargingBays);
-        await db.SaveChangesAsync(cancellationToken);
+        await SaveLocationAsync(id, cancellationToken);
 
         var response = (await WithLiveCountsAsync([ToResponse(location)], cancellationToken))[0];
         await _cache.InvalidateLocationAsync(id, cancellationToken);
@@ -169,10 +189,20 @@ public sealed class LocationService(AppDbContext db, ILocationCache? cache = nul
         var location = await db.Locations.FindAsync([id], cancellationToken);
         if (location is null) return false;
         if (isActive) location.Activate(); else location.Deactivate();
-        await db.SaveChangesAsync(cancellationToken);
+        await SaveLocationAsync(id, cancellationToken);
 
         await _cache.InvalidateLocationAsync(id, cancellationToken);
         return true;
+    }
+
+    private async Task SaveLocationAsync(Guid locationId, CancellationToken ct)
+    {
+        if (searchOptions?.Value.Enabled == true)
+            await outbox!.EnqueueAsync("LocationUpdated", EventRoutingKeys.LocationUpdated,
+                new LocationUpdatedEvent(locationId), ct);
+
+        // Both tracked changes are persisted by the same EF Core transaction.
+        await db.SaveChangesAsync(ct);
     }
 
     private static LocationResponse ToResponse(Location x) =>

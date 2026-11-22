@@ -25,7 +25,8 @@ public sealed class RabbitMqConsumersHostedService : BackgroundService
         typeof(EmailDeliveryConsumer),
         typeof(BillingConsumer),
         typeof(InvoiceRealtimeConsumer),
-        typeof(ReservationRealtimeConsumer)
+        typeof(ReservationRealtimeConsumer),
+        typeof(LocationUpdatedConsumer)
     ];
 
     private readonly IServiceScopeFactory _scopeFactory;

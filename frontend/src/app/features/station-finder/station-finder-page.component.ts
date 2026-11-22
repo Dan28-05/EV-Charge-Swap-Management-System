@@ -2,7 +2,7 @@ import { Component, computed, DestroyRef, effect, inject, OnInit, signal } from 
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
-import { Subscription } from 'rxjs';
+import { Subscription, timer } from 'rxjs';
 import {
   directionsUrl,
   formatDistance,
@@ -45,6 +45,8 @@ export class StationFinderPageComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
   private detailRequest?: Subscription;
   private stationRequest?: Subscription;
+  private searchDelay?: Subscription;
+  private placeRequest?: Subscription;
   private globalQuery = '';
   private page = 0;
 
@@ -97,16 +99,13 @@ export class StationFinderPageComponent implements OnInit {
   readonly placeSearchError = signal('');
 
   readonly displayedStations = computed(() => {
-    const query = this.searchQuery().trim().toLowerCase();
     const serviceFilter = this.activeServiceFilter();
     const availabilityFilter = this.availabilityFilter();
     const list = this.stations();
 
-    if (!query && serviceFilter === 'all' && availabilityFilter === 'all') return list;
+    if (serviceFilter === 'all' && availabilityFilter === 'all') return list;
 
     return list.filter((s) => {
-      const matchesQuery =
-        !query || s.name.toLowerCase().includes(query) || s.address.toLowerCase().includes(query);
       const matchesFilter =
         serviceFilter === 'all' ||
         (serviceFilter === 'charging' && s.offersCarCharging) ||
@@ -115,7 +114,7 @@ export class StationFinderPageComponent implements OnInit {
         availabilityFilter === 'all' ||
         (availabilityFilter === 'open' && s.operatingStatus === 'Open') ||
         (availabilityFilter === 'available' && this.isOpenAndAvailable(s, serviceFilter));
-      return matchesQuery && matchesFilter && matchesAvailability;
+      return matchesFilter && matchesAvailability;
     });
   });
 
@@ -219,9 +218,10 @@ export class StationFinderPageComponent implements OnInit {
           const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
           this.userLocation.set(coords);
           this.searchCenter.set(coords);
-          this.searchNearby(coords.lat, coords.lng, this.selectedRadiusKm(), true);
+          if (!this.searchQuery().trim()) this.searchNearby(coords.lat, coords.lng, this.selectedRadiusKm(), true);
         },
         () => {
+          if (this.searchQuery().trim()) return;
           this.stations.set([]);
           this.total.set(0);
           this.hasMore.set(false);
@@ -235,6 +235,7 @@ export class StationFinderPageComponent implements OnInit {
 
   // Tìm các trạm gần nhất theo bán kính qua Backend API
   searchNearby(lat: number, lng: number, radiusKm: number, resetList = true) {
+    this.searchDelay?.unsubscribe();
     this.globalQuery = '';
     this.stationRequest?.unsubscribe();
     if (resetList) {
@@ -283,7 +284,7 @@ export class StationFinderPageComponent implements OnInit {
 
   onMapAreaChanged(coords: { lat: number; lng: number }) {
     this.searchCenter.set(coords);
-    this.searchNearby(coords.lat, coords.lng, this.selectedRadiusKm(), true);
+    if (!this.searchQuery().trim()) this.searchNearby(coords.lat, coords.lng, this.selectedRadiusKm(), true);
   }
 
   setRadius(radiusKm: number) {
@@ -318,18 +319,45 @@ export class StationFinderPageComponent implements OnInit {
 
   onSearchChange(value: string) {
     this.searchQuery.set(value);
+    this.searchDelay?.unsubscribe();
+    this.placeRequest?.unsubscribe();
     this.placeResults.set([]);
     this.placeSearchError.set('');
+    this.placeSearchLoading.set(false);
+
+    const query = value.trim();
+    if (this.globalQuery) {
+      this.stationRequest?.unsubscribe();
+      this.loading.set(false);
+      this.hasMore.set(false);
+    }
+
+    if (query.length >= 2) {
+      this.searchDelay = timer(300).pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe(() => this.searchStations(query, true));
+    } else if (this.globalQuery) {
+      const center = this.searchCenter();
+      if (center) {
+        this.searchNearby(center.lat, center.lng, this.selectedRadiusKm(), true);
+      } else {
+        this.globalQuery = '';
+        this.stations.set([]);
+        this.total.set(0);
+        this.error.set('');
+      }
+    }
   }
 
   submitSearch() {
+    this.searchDelay?.unsubscribe();
+    this.placeRequest?.unsubscribe();
     const query = this.searchQuery().trim();
     if (query) this.searchStations(query, true);
     if (query.length < 2) return;
 
     this.placeSearchLoading.set(true);
     this.placeSearchError.set('');
-    this.placeSearch.search(query).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    this.placeRequest = this.placeSearch.search(query).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (results) => {
         this.placeResults.set(results);
         this.placeSearchLoading.set(false);

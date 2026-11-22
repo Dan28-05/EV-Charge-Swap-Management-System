@@ -106,4 +106,27 @@ describe('Station finder', () => {
       .flush({ items: [], page: 1, pageSize: 20, totalCount: 0 });
     expect(f.componentInstance.error()).toBe('');
   });
+
+  it('debounces station suggestions and keeps results matched without Vietnamese accents', async () => {
+    const f = setup();
+    vi.useFakeTimers();
+    try {
+      f.componentInstance.onSearchChange('vincom dong');
+      await vi.advanceTimersByTimeAsync(160);
+      f.componentInstance.onSearchChange('vincom dong kh');
+      await vi.advanceTimersByTimeAsync(160);
+      http.expectNone((request) => request.url === '/api/locations/search');
+      await vi.advanceTimersByTimeAsync(140);
+      const request = http.expectOne((req) => req.url === '/api/locations/search');
+      expect(request.request.params.get('query')).toBe('vincom dong kh');
+      request.flush({
+        items: [{ ...station('vincom'), name: 'Vincom Đồng Khởi' }],
+        page: 1, pageSize: 20, totalCount: 1,
+      });
+      http.expectNone((req) => req.url.includes('nominatim.openstreetmap.org'));
+      expect(f.componentInstance.displayedStations().map((item) => item.name)).toEqual(['Vincom Đồng Khởi']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

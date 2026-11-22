@@ -4,6 +4,7 @@ using EVChargeSwap.Features.Authorization;
 using EVChargeSwap.Features.Locations.Requests;
 using EVChargeSwap.Features.Locations.Responses;
 using EVChargeSwap.Features.Locations.Services;
+using EVChargeSwap.Features.Locations.Search;
 using Microsoft.AspNetCore.Authorization;
 using System.ComponentModel.DataAnnotations;
 
@@ -41,6 +42,25 @@ public sealed class LocationsController(LocationService service) : ControllerBas
     public async Task<ActionResult<PagedResponse<AdminLocationResponse>>> ListAdmin(
         [FromQuery] PaginationRequest pagination, CancellationToken cancellationToken) =>
         Ok(await service.ListAdminAsync(pagination, cancellationToken));
+
+    [HttpPost("admin/search/rebuild")]
+    [Authorize(Roles = AppRoles.Admin)]
+    public async Task<IActionResult> RebuildSearch([FromServices] LocationIndexer indexer,
+        CancellationToken cancellationToken)
+    {
+        if (!indexer.Enabled) return NotFound();
+
+        try
+        {
+            await indexer.RebuildAsync(cancellationToken);
+            return NoContent();
+        }
+        catch (LocationIndexException)
+        {
+            return Problem(statusCode: StatusCodes.Status503ServiceUnavailable,
+                title: "Station search index could not be rebuilt.");
+        }
+    }
 
     [HttpPost]
     [Authorize(Roles = AppRoles.Admin)]

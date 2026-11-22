@@ -223,6 +223,7 @@
             class="search-input"
             placeholder="Tìm địa điểm hoặc tên trạm..."
             [ngModel]="searchQuery()"
+            maxlength="100"
             (ngModelChange)="onSearchChange($event)"
             (keydown.enter)="submitSearch()"
             aria-label="Tìm địa điểm hoặc tên trạm"

@@ -17,7 +17,10 @@ public static class EventRoutingKeys
     public const string BayFaulted = "equipment.bay.faulted";
     public const string IncidentReported = "incident.reported";
     public const string IncidentReservationResolved = "incident.reservation.resolved";
+    public const string LocationUpdated = "location.updated";
 }
+
+public sealed record LocationUpdatedEvent(Guid LocationId);
 
 public sealed record ReservationConfirmedEvent(
     Guid ReservationId,

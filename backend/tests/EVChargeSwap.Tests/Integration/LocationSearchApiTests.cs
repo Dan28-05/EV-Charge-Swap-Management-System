@@ -46,6 +46,10 @@ public sealed class LocationSearchApiTests
         Assert.Equal(location.Id, Assert.Single(page.Items).Id);
         Assert.Equal(1, page.TotalCount);
         Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.PostAsync(RebuildPath, null)).StatusCode);
+
+        // Deep pagination past ResultWindow (10,000) must return 400 Bad Request rather than scanning PostgreSQL
+        var deepPage = await client.GetAsync("/api/locations/search?query=vincom&page=501&pageSize=20");
+        Assert.Equal(HttpStatusCode.BadRequest, deepPage.StatusCode);
     }
 
     [ElasticsearchFact]

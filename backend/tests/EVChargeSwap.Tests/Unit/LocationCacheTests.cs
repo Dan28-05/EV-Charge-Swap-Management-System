@@ -148,6 +148,79 @@ public sealed class LocationCacheTests
         Assert.Null(cached);
     }
 
+    [Fact]
+    public async Task LocationService_VersionedCache_PreventsStaleWriteAfterInvalidation()
+    {
+        using var connection = new SqliteConnection("Data Source=:memory:");
+        connection.Open();
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlite(connection).Options;
+        await using var db = new AppDbContext(options);
+        await db.Database.EnsureCreatedAsync();
+
+        var entity = new Location("Versioned Station", "Address", 10.7m, 106.7m, true, false);
+        db.Locations.Add(entity);
+        await db.SaveChangesAsync();
+
+        var cache = new VersionedInMemoryLocationCache();
+        var v0 = await cache.GetVersionAsync(CancellationToken.None);
+        Assert.Equal(0, v0);
+
+        // Simulate concurrent invalidation advancing version 0 -> 1 before stale DB read tries to write
+        await cache.InvalidateLocationAsync(entity.Id, CancellationToken.None);
+        Assert.Equal(1, await cache.GetVersionAsync(CancellationToken.None));
+
+        var stale = new LocationResponse(entity.Id, "Stale", "Old", 10, 106, true, false, LocationOperatingStatus.Open);
+        await cache.SetAsync(stale, expectedVersion: v0, CancellationToken.None);
+
+        // Stale write must have been rejected because current version is 1 != 0
+        Assert.Null(await cache.GetAsync(entity.Id, CancellationToken.None));
+    }
+
+    private sealed class VersionedInMemoryLocationCache : ILocationCache
+    {
+        private long _version;
+        private readonly Dictionary<string, LocationResponse> _store = [];
+        private readonly Dictionary<string, PagedResponse<LocationResponse>> _paged = [];
+
+        public Task<long> GetVersionAsync(CancellationToken cancellationToken) => Task.FromResult(_version);
+
+        public Task<LocationResponse?> GetAsync(Guid id, CancellationToken cancellationToken) =>
+            Task.FromResult(_store.TryGetValue($"v{_version}:{id}", out var v) ? v : null);
+
+        public Task SetAsync(LocationResponse location, CancellationToken cancellationToken) =>
+            SetAsync(location, _version, cancellationToken);
+
+        public Task SetAsync(LocationResponse location, long expectedVersion, CancellationToken cancellationToken)
+        {
+            if (_version == expectedVersion) _store[$"v{expectedVersion}:{location.Id}"] = location;
+            return Task.CompletedTask;
+        }
+
+        public Task<PagedResponse<LocationResponse>?> GetPagedAsync(int page, int pageSize, CancellationToken cancellationToken) =>
+            Task.FromResult(_paged.TryGetValue($"v{_version}:{page}:{pageSize}", out var v) ? v : null);
+
+        public Task SetPagedAsync(PagedResponse<LocationResponse> pagedResponse, CancellationToken cancellationToken) =>
+            SetPagedAsync(pagedResponse, _version, cancellationToken);
+
+        public Task SetPagedAsync(PagedResponse<LocationResponse> pagedResponse, long expectedVersion, CancellationToken cancellationToken)
+        {
+            if (_version == expectedVersion) _paged[$"v{expectedVersion}:{pagedResponse.Page}:{pagedResponse.PageSize}"] = pagedResponse;
+            return Task.CompletedTask;
+        }
+
+        public Task InvalidateLocationAsync(Guid id, CancellationToken cancellationToken)
+        {
+            _version++;
+            return Task.CompletedTask;
+        }
+
+        public Task InvalidateAllAsync(CancellationToken cancellationToken)
+        {
+            _version++;
+            return Task.CompletedTask;
+        }
+    }
+
     private sealed class TestInMemoryLocationCache : ILocationCache
     {
         private readonly Dictionary<Guid, LocationResponse> _store = [];

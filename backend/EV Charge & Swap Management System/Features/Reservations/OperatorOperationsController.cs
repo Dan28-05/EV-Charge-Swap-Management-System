@@ -112,7 +112,6 @@ public sealed class OperatorOperationsController(AppDbContext db, TimeProvider c
 
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
-        await cache.InvalidateLocationAsync(locationId.Value, ct);
         if (notifier is not null) await notifier.NotifyStationInventoryChangedAsync(locationId.Value, ct);
         return NoContent();
     }
@@ -165,7 +164,6 @@ public sealed class OperatorOperationsController(AppDbContext db, TimeProvider c
         battery.StateUpdatedAtUtc = now;
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
-        await cache.InvalidateLocationAsync(locationId.Value, ct);
         if (notifier is not null) await notifier.NotifyStationInventoryChangedAsync(locationId.Value, ct);
         return NoContent();
     }

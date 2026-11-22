@@ -24,11 +24,11 @@ public sealed partial class LocationSearchService(ElasticLocationIndex index, IL
         {
             return await index.SearchAsync(term.Trim().Normalize(), offset, size, ct);
         }
-        catch (Exception ex) when (!ct.IsCancellationRequested &&
-            ex is LocationIndexException or JsonException or FormatException or KeyNotFoundException or OperationCanceledException)
+        catch (Exception ex) when (!ct.IsCancellationRequested)
         {
             Fallbacks.Add(1);
-            logger.LogDebug("Station search is using PostgreSQL after an Elasticsearch {FailureType}.", ex.GetType().Name);
+            logger.LogWarning(ex, "Station search is falling back to PostgreSQL after an Elasticsearch {FailureType}.",
+                ex.GetType().Name);
             return null;
         }
         finally

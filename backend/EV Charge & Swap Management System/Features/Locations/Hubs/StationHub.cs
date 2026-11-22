@@ -12,23 +12,42 @@ public sealed class StationHub(LocationService locations) : Hub
 
     public Task WatchStation(Guid locationId) => WatchStations([locationId]);
 
-    public async Task<IReadOnlyList<StationInventoryUpdatedEvent>> WatchStations(Guid[] locationIds)
+    public async Task<IReadOnlyList<StationInventoryUpdatedEvent>> WatchStations(Guid[]? locationIds)
     {
-        if (locationIds.Length > 100) throw new HubException("Too many station subscriptions.");
-        var next = locationIds.Where(id => id != Guid.Empty).ToHashSet();
+        var requested = locationIds ?? [];
+        if (requested.Length > 100) throw new HubException("Too many station subscriptions.");
+
+        var next = requested.Where(id => id != Guid.Empty).ToHashSet();
         var current = Context.Items.TryGetValue(SubscriptionKey, out var value) && value is HashSet<Guid> ids
-            ? ids : [];
-        foreach (var id in current.Except(next))
-            await Groups.RemoveFromGroupAsync(Context.ConnectionId, GroupFor(id));
-        foreach (var id in next.Except(current))
-            await Groups.AddToGroupAsync(Context.ConnectionId, GroupFor(id));
-        Context.Items[SubscriptionKey] = next;
-        return await locations.GetInventorySnapshotAsync(next.ToArray(), Context.ConnectionAborted);
+            ? ids
+            : [];
+        Context.Items[SubscriptionKey] = current;
+
+        var ct = Context.ConnectionAborted;
+        foreach (var id in current.Except(next).ToArray())
+        {
+            await Groups.RemoveFromGroupAsync(Context.ConnectionId, GroupFor(id), ct);
+            current.Remove(id);
+        }
+
+        foreach (var id in next.Except(current).ToArray())
+        {
+            await Groups.AddToGroupAsync(Context.ConnectionId, GroupFor(id), ct);
+            current.Add(id);
+        }
+
+        return current.Count == 0
+            ? []
+            : await locations.GetInventorySnapshotAsync(current.ToArray(), ct);
     }
 
     public async Task UnwatchStation(Guid locationId)
     {
-        if (Context.Items.TryGetValue(SubscriptionKey, out var value) && value is HashSet<Guid> ids)
-            await WatchStations(ids.Where(id => id != locationId).ToArray());
+        if (locationId == Guid.Empty) return;
+        if (Context.Items.TryGetValue(SubscriptionKey, out var value) && value is HashSet<Guid> ids && ids.Contains(locationId))
+        {
+            await Groups.RemoveFromGroupAsync(Context.ConnectionId, GroupFor(locationId), Context.ConnectionAborted);
+            ids.Remove(locationId);
+        }
     }
 }

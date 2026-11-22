@@ -1,5 +1,5 @@
-using EVChargeSwap.Features.Locations.Hubs;
 using EVChargeSwap.Data;
+using EVChargeSwap.Features.Locations.Hubs;
 using EVChargeSwap.Features.Reservations.Entities;
 using EVChargeSwap.Features.Users.Hubs;
 using Microsoft.AspNetCore.SignalR;
@@ -13,13 +13,16 @@ public sealed class StationNotifier(
     IHubContext<StationHub> hubContext,
     IHubContext<NotificationHub> privateHub,
     IServiceScopeFactory scopeFactory,
-    ILogger<StationNotifier> logger) : IStationNotifier
+    ILogger<StationNotifier> logger,
+    TimeProvider? clock = null) : IStationNotifier
 {
+    private readonly TimeProvider _clock = clock ?? TimeProvider.System;
+
     public async Task NotifyStationInventoryChangedAsync(Guid locationId, CancellationToken ct = default)
     {
         try
         {
-            using var scope = scopeFactory.CreateScope();
+            await using var scope = scopeFactory.CreateAsyncScope();
             var locationService = scope.ServiceProvider.GetRequiredService<LocationService>();
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             var assignedOperators = await db.Set<OperatorAssignment>().AsNoTracking()
@@ -29,15 +32,16 @@ public sealed class StationNotifier(
                 await privateHub.Clients.Groups(assignedOperators.Select(NotificationHub.GroupFor).ToArray())
                     .SendAsync("OperatorStationChanged", ct);
 
-            var station = await locationService.GetAsync(locationId, ct);
-            if (station is null) return;
+            // Query authoritative active station availability directly from PostgreSQL (bypassing Redis cache).
+            var snapshots = await locationService.GetInventorySnapshotAsync([locationId], ct);
+            if (snapshots.Count == 0) return;
 
+            var snapshot = snapshots[0];
             var payload = new StationInventoryUpdatedEvent(
-                station.Id,
-                station.AvailableChargingBays,
-                station.AvailableBatteries,
-                DateTimeOffset.UtcNow
-            );
+                snapshot.LocationId,
+                snapshot.AvailableChargingBays,
+                snapshot.AvailableBatteries,
+                _clock.GetUtcNow());
 
             await hubContext.Clients.Group(StationHub.GroupFor(locationId))
                 .SendAsync("StationInventoryUpdated", payload, ct);

@@ -1,3 +1,4 @@
+using System.Data;
 using System.Linq.Expressions;
 using EVChargeSwap.Data;
 using EVChargeSwap.Features.Locations.Entities;
@@ -51,33 +52,73 @@ public sealed class LocationIndexer(AppDbContext db, ElasticLocationIndex index,
         if (onlyIfMissing && previous.Count > 0) return;
 
         var staging = await index.CreateIndexAsync(ct);
-        var locations = db.Locations.AsNoTracking().Where(x => x.IsActive);
-        Guid? after = null;
-        var count = 0;
-        while (true)
+        try
         {
-            var page = after is { } id ? locations.Where(x => x.Id.CompareTo(id) > 0) : locations;
-            var batch = await page.OrderBy(x => x.Id).Take(BatchSize).Select(ToDocument).ToListAsync(ct);
-            if (batch.Count == 0) break;
+            var locations = db.Locations.AsNoTracking().Where(x => x.IsActive);
+            Guid? after = null;
+            var count = 0;
+            while (true)
+            {
+                var page = after is { } id ? locations.Where(x => x.Id.CompareTo(id) > 0) : locations;
+                var batch = await page.OrderBy(x => x.Id).Take(BatchSize).Select(ToDocument).ToListAsync(ct);
+                if (batch.Count == 0) break;
 
-            await index.BulkIndexAsync(staging, batch.Select(Normalize).ToArray(), ct);
-            count += batch.Count;
-            after = batch[^1].Id;
+                await index.BulkIndexAsync(staging, batch.Select(Normalize).ToArray(), ct);
+                count += batch.Count;
+                after = batch[^1].Id;
+            }
+
+            await index.PublishIndexAsync(staging, previous, ct);
+            logger.LogInformation("Published station search index {Index} with {LocationCount} stations.", staging, count);
         }
-
-        await index.PublishIndexAsync(staging, previous, ct);
-        logger.LogInformation("Published station search index {Index} with {LocationCount} stations.", staging, count);
+        catch
+        {
+            // Clean up orphan staging index so repeated startup/rebuild failures cannot exhaust shard limits.
+            await index.TryDeleteIndexAsync(staging, CancellationToken.None);
+            throw;
+        }
     }, ct);
 
     private async Task WithIndexLockAsync(Func<Task> action, CancellationToken ct)
     {
-        // Serialize event writes with rebuilds across replicas. Business writes can continue and enqueue new events.
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        if (db.Database.IsNpgsql())
+        if (!db.Database.IsNpgsql())
+        {
+            await action();
+            return;
+        }
+
+        // Use a session-level advisory lock without holding an open PostgreSQL transaction across ES HTTP I/O.
+        var connection = db.Database.GetDbConnection();
+        var shouldClose = connection.State != ConnectionState.Open;
+        if (shouldClose)
+            await db.Database.OpenConnectionAsync(ct);
+
+        var acquired = false;
+        try
+        {
             await db.Database.ExecuteSqlInterpolatedAsync(
-                $"SELECT pg_advisory_xact_lock(hashtextextended({LockKey}, 0))", ct);
-        await action();
-        await transaction.CommitAsync(ct);
+                $"SELECT pg_advisory_lock(hashtextextended({LockKey}, 0))", ct);
+            acquired = true;
+            await action();
+        }
+        finally
+        {
+            if (acquired)
+            {
+                try
+                {
+                    await db.Database.ExecuteSqlInterpolatedAsync(
+                        $"SELECT pg_advisory_unlock(hashtextextended({LockKey}, 0))", CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Failed to release station search advisory lock.");
+                }
+            }
+
+            if (shouldClose)
+                await db.Database.CloseConnectionAsync();
+        }
     }
 
     private static LocationSearchDocument Normalize(LocationSearchDocument document) =>

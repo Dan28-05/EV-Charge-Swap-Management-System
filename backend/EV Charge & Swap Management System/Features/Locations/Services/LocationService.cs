@@ -15,9 +15,10 @@ namespace EVChargeSwap.Features.Locations.Services;
 
 public sealed class LocationService(AppDbContext db, ILocationCache? cache = null,
     LocationSearchService? searchService = null, IOutboxService? outbox = null,
-    IOptions<LocationSearchOptions>? searchOptions = null)
+    IOptions<LocationSearchOptions>? searchOptions = null, TimeProvider? clock = null)
 {
     private readonly ILocationCache _cache = cache ?? new NoOpLocationCache();
+    private readonly TimeProvider _clock = clock ?? TimeProvider.System;
 
     public Task<PagedResponse<LocationResponse>> ListAsync(PaginationRequest pagination, CancellationToken cancellationToken) =>
         ListAsync(pagination, includeInactive: false, cancellationToken);
@@ -65,8 +66,10 @@ public sealed class LocationService(AppDbContext db, ILocationCache? cache = nul
     private async Task<PagedResponse<LocationResponse>> ListAsync(PaginationRequest pagination,
         bool includeInactive, CancellationToken cancellationToken)
     {
+        long cacheVersion = 0;
         if (!includeInactive)
         {
+            cacheVersion = await _cache.GetVersionAsync(cancellationToken);
             var cached = await _cache.GetPagedAsync(pagination.Page, pagination.PageSize, cancellationToken);
             if (cached is not null)
                 return cached with { Items = await WithLiveCountsAsync(cached.Items.ToList(), cancellationToken) };
@@ -86,12 +89,13 @@ public sealed class LocationService(AppDbContext db, ILocationCache? cache = nul
 
         var result = new PagedResponse<LocationResponse>(await WithLiveCountsAsync(items, cancellationToken),
             pagination.Page, pagination.PageSize, totalCount);
-        if (!includeInactive) await _cache.SetPagedAsync(result, cancellationToken);
+        if (!includeInactive) await _cache.SetPagedAsync(result, cacheVersion, cancellationToken);
         return result;
     }
 
     public async Task<LocationResponse?> GetAsync(Guid id, CancellationToken cancellationToken)
     {
+        var cacheVersion = await _cache.GetVersionAsync(cancellationToken);
         var cached = await _cache.GetAsync(id, cancellationToken);
         if (cached is not null)
             return (await WithLiveCountsAsync([cached], cancellationToken))[0];
@@ -103,7 +107,7 @@ public sealed class LocationService(AppDbContext db, ILocationCache? cache = nul
             .SingleOrDefaultAsync(cancellationToken);
 
         if (location is null) return null;
-        await _cache.SetAsync(location, cancellationToken);
+        await _cache.SetAsync(location, cacheVersion, cancellationToken);
         return (await WithLiveCountsAsync([location], cancellationToken))[0];
     }
 
@@ -197,8 +201,8 @@ public sealed class LocationService(AppDbContext db, ILocationCache? cache = nul
 
     private async Task SaveLocationAsync(Guid locationId, CancellationToken ct)
     {
-        if (searchOptions?.Value.Enabled == true)
-            await outbox!.EnqueueAsync("LocationUpdated", EventRoutingKeys.LocationUpdated,
+        if (searchOptions?.Value.Enabled == true && outbox is not null)
+            await outbox.EnqueueAsync("LocationUpdated", EventRoutingKeys.LocationUpdated,
                 new LocationUpdatedEvent(locationId), ct);
 
         // Both tracked changes are persisted by the same EF Core transaction.
@@ -214,10 +218,14 @@ public sealed class LocationService(AppDbContext db, ILocationCache? cache = nul
         Guid[] locationIds, CancellationToken ct)
     {
         if (locationIds.Length == 0) return [];
-        var locations = await db.Locations.AsNoTracking().Where(x => x.IsActive && locationIds.Contains(x.Id))
+        var stations = await db.Locations.AsNoTracking()
+            .Where(x => x.IsActive && locationIds.Contains(x.Id))
+            .Select(x => new LocationResponse(x.Id, string.Empty, string.Empty, 0, 0,
+                x.OffersCarCharging, x.OffersBatterySwap, LocationOperatingStatus.Unknown,
+                false, null, null, null, null))
             .ToListAsync(ct);
-        var inventory = await WithLiveCountsAsync(locations.Select(ToResponse).ToList(), ct);
-        var now = DateTimeOffset.UtcNow;
+        var inventory = await WithLiveCountsAsync(stations, ct);
+        var now = _clock.GetUtcNow();
         return inventory.Select(x => new StationInventoryUpdatedEvent(
             x.Id, x.AvailableChargingBays, x.AvailableBatteries, now)).ToList();
     }
@@ -226,7 +234,7 @@ public sealed class LocationService(AppDbContext db, ILocationCache? cache = nul
     {
         if (locations.Count == 0) return locations;
         var ids = locations.Select(x => x.Id).ToArray();
-        var now = DateTimeOffset.UtcNow;
+        var now = _clock.GetUtcNow();
         var activeReservations = await db.Set<Reservation>().AsNoTracking()
             .Where(r => ids.Contains(r.LocationId) &&
                 (r.Status == ReservationStatus.CheckedIn || r.Status == ReservationStatus.Held))

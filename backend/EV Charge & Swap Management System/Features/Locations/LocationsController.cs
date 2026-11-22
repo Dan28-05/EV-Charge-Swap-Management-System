@@ -34,8 +34,14 @@ public sealed class LocationsController(LocationService service) : ControllerBas
     [HttpGet("search")]
     public async Task<ActionResult<PagedResponse<LocationResponse>>> Search(
         [FromQuery, Required, StringLength(100, MinimumLength = 1)] string query,
-        [FromQuery] PaginationRequest pagination, CancellationToken cancellationToken) =>
-        Ok(await service.SearchAsync(query, pagination, cancellationToken));
+        [FromQuery] PaginationRequest pagination, CancellationToken cancellationToken)
+    {
+        if (pagination.GetOffset() + (long)pagination.PageSize > ElasticLocationIndex.ResultWindow)
+            return Problem(statusCode: StatusCodes.Status400BadRequest,
+                title: "Search pagination exceeds the maximum supported result window.");
+
+        return Ok(await service.SearchAsync(query, pagination, cancellationToken));
+    }
 
     [HttpGet("admin")]
     [Authorize(Roles = AppRoles.Admin)]
@@ -45,14 +51,17 @@ public sealed class LocationsController(LocationService service) : ControllerBas
 
     [HttpPost("admin/search/rebuild")]
     [Authorize(Roles = AppRoles.Admin)]
-    public async Task<IActionResult> RebuildSearch([FromServices] LocationIndexer indexer,
-        CancellationToken cancellationToken)
+    public async Task<IActionResult> RebuildSearch(
+        [FromServices] LocationIndexer indexer,
+        [FromServices] IHostApplicationLifetime lifetime)
     {
-        if (!indexer.Enabled) return NotFound();
+        if (!indexer.Enabled)
+            return Problem(statusCode: StatusCodes.Status503ServiceUnavailable,
+                title: "Station search index is not enabled.");
 
         try
         {
-            await indexer.RebuildAsync(cancellationToken);
+            await indexer.RebuildAsync(lifetime.ApplicationStopping);
             return NoContent();
         }
         catch (LocationIndexException)

@@ -7,7 +7,7 @@ using HttpMethod = Elastic.Transport.HttpMethod;
 
 namespace EVChargeSwap.Features.Locations.Search;
 
-public sealed class ElasticLocationIndex(IOptions<LocationSearchOptions> options)
+public sealed class ElasticLocationIndex(IOptions<LocationSearchOptions> options) : IDisposable
 {
     internal const int ResultWindow = 10_000;
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
@@ -45,14 +45,22 @@ public sealed class ElasticLocationIndex(IOptions<LocationSearchOptions> options
             Serialize(query), ct, SearchRequest);
         EnsureSuccess(response, "search");
 
-        using var json = JsonDocument.Parse(response.Body);
-        if (json.RootElement.GetProperty("timed_out").GetBoolean())
-            throw new LocationIndexException("search timeout", null);
+        using var json = ParseBody(response.Body, "search");
+        try
+        {
+            if (json.RootElement.GetProperty("timed_out").GetBoolean())
+                throw new LocationIndexException("search timeout", null);
 
-        var hits = json.RootElement.GetProperty("hits");
-        var ids = hits.GetProperty("hits").EnumerateArray()
-            .Select(hit => Guid.Parse(hit.GetProperty("_id").GetString()!)).ToArray();
-        return new LocationSearchPage(ids, hits.GetProperty("total").GetProperty("value").GetInt32());
+            var hits = json.RootElement.GetProperty("hits");
+            var ids = hits.GetProperty("hits").EnumerateArray()
+                .Select(hit => Guid.Parse(hit.GetProperty("_id").GetString()!)).ToArray();
+            return new LocationSearchPage(ids, hits.GetProperty("total").GetProperty("value").GetInt32());
+        }
+        catch (LocationIndexException) { throw; }
+        catch (Exception ex) when (ex is KeyNotFoundException or InvalidOperationException or FormatException or ArgumentNullException)
+        {
+            throw new LocationIndexException("parse search response", response.ApiCallDetails.HttpStatusCode, ex);
+        }
     }
 
     private static object PrefixQuery(string term, string field, int boost) => new
@@ -74,7 +82,7 @@ public sealed class ElasticLocationIndex(IOptions<LocationSearchOptions> options
             return [];
 
         EnsureSuccess(response, "read alias");
-        using var json = JsonDocument.Parse(response.Body);
+        using var json = ParseBody(response.Body, "read alias");
         return json.RootElement.EnumerateObject().Select(entry => entry.Name).ToArray();
     }
 
@@ -86,13 +94,34 @@ public sealed class ElasticLocationIndex(IOptions<LocationSearchOptions> options
         return index;
     }
 
+    public async Task TryDeleteIndexAsync(string index, CancellationToken ct)
+    {
+        try
+        {
+            await SendAsync(HttpMethod.DELETE, $"/{index}", null, ct);
+        }
+        catch
+        {
+            // Best-effort cleanup of orphan staging index.
+        }
+    }
+
     internal async Task BulkIndexAsync(string index, IReadOnlyList<LocationSearchDocument> documents, CancellationToken ct)
     {
-        var response = await _client!.IndexManyAsync(documents, index, ct);
-        if (!response.ApiCallDetails.HasSuccessfulStatusCode)
-            throw new LocationIndexException("bulk index", response.ApiCallDetails.HttpStatusCode);
-        if (response.Errors)
-            throw new LocationIndexException("bulk index contained failed items", response.ItemsWithErrors.First().Status);
+        try
+        {
+            var response = await _client!.IndexManyAsync(documents, index, ct);
+            if (!response.ApiCallDetails.HasSuccessfulStatusCode)
+                throw new LocationIndexException("bulk index", response.ApiCallDetails.HttpStatusCode);
+            if (response.Errors)
+                throw new LocationIndexException("bulk index contained failed items", response.ItemsWithErrors.First().Status);
+        }
+        catch (LocationIndexException) { throw; }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        {
+            throw new LocationIndexException("bulk index", null, ex);
+        }
     }
 
     public async Task PublishIndexAsync(string index, IReadOnlyList<string> previous, CancellationToken ct)
@@ -105,7 +134,7 @@ public sealed class ElasticLocationIndex(IOptions<LocationSearchOptions> options
         actions.Add(new { add = new { index, alias = Alias, is_write_index = true } });
         var response = await SendAsync(HttpMethod.POST, "/_aliases", Serialize(new { actions }), ct);
         EnsureSuccess(response, "switch alias");
-        using var json = JsonDocument.Parse(response.Body);
+        using var json = ParseBody(response.Body, "switch alias");
         if (!json.RootElement.GetProperty("acknowledged").GetBoolean() ||
             (json.RootElement.TryGetProperty("errors", out var errors) && errors.GetBoolean()))
             throw new LocationIndexException("switch alias was not acknowledged", null);
@@ -117,20 +146,54 @@ public sealed class ElasticLocationIndex(IOptions<LocationSearchOptions> options
 
     public async Task DeleteAsync(Guid id, CancellationToken ct)
     {
-        var response = await SendAsync(HttpMethod.DELETE, $"/{Alias}/_doc/{id:D}", null, ct);
-        if (response.ApiCallDetails.HttpStatusCode == 404)
+        var response = await SendAsync(HttpMethod.DELETE, $"/{Alias}/_doc/{id:D}?require_alias=true", null, ct);
+        if (response.ApiCallDetails.HttpStatusCode == 404 && !string.IsNullOrWhiteSpace(response.Body))
         {
-            using var json = JsonDocument.Parse(response.Body);
-            if (json.RootElement.TryGetProperty("result", out var result) && result.GetString() == "not_found")
-                return;
+            try
+            {
+                using var json = JsonDocument.Parse(response.Body);
+                if (json.RootElement.TryGetProperty("result", out var result) && result.GetString() == "not_found")
+                    return;
+            }
+            catch (JsonException)
+            {
+                // Fall through to EnsureSuccess to signal non-Elasticsearch 404.
+            }
         }
         EnsureSuccess(response, "remove station");
     }
 
-    private Task<StringResponse> SendAsync(HttpMethod method, string path, PostData? body, CancellationToken ct,
-        RequestConfiguration? configuration = null) =>
-        _client!.Transport.RequestAsync<StringResponse>(new EndpointPath(method, path),
-            body, null, configuration, cancellationToken: ct);
+    private async Task<StringResponse> SendAsync(HttpMethod method, string path, PostData? body, CancellationToken ct,
+        RequestConfiguration? configuration = null)
+    {
+        try
+        {
+            return await _client!.Transport.RequestAsync<StringResponse>(new EndpointPath(method, path),
+                body, null, configuration, cancellationToken: ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw new LocationIndexException($"{method} {path}", null, ex);
+        }
+    }
+
+    private static JsonDocument ParseBody(string? body, string operation)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+            throw new LocationIndexException($"{operation} returned empty body", null);
+        try
+        {
+            return JsonDocument.Parse(body);
+        }
+        catch (JsonException ex)
+        {
+            throw new LocationIndexException($"{operation} returned invalid JSON", null, ex);
+        }
+    }
 
     private static PostData Serialize<T>(T payload) => PostData.String(JsonSerializer.Serialize(payload, Json));
 
@@ -150,10 +213,16 @@ public sealed class ElasticLocationIndex(IOptions<LocationSearchOptions> options
             clientSettings.Authentication(new ApiKey(settings.ApiKey));
         return new ElasticsearchClient(clientSettings);
     }
+
+    public void Dispose()
+    {
+        if (_client?.Transport is IDisposable disposable)
+            disposable.Dispose();
+    }
 }
 
-internal sealed class LocationIndexException(string operation, int? statusCode)
-    : Exception($"Elasticsearch operation '{operation}' failed (HTTP {statusCode?.ToString() ?? "unavailable"}).")
+internal sealed class LocationIndexException(string operation, int? statusCode, Exception? innerException = null)
+    : Exception($"Elasticsearch operation '{operation}' failed (HTTP {statusCode?.ToString() ?? "unavailable"}).", innerException)
 {
     public bool IsTransient => statusCode is null or 404 or 408 or 429 or >= 500;
 }

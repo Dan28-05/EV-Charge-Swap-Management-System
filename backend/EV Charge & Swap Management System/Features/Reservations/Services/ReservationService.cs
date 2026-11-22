@@ -196,24 +196,39 @@ public sealed class ReservationService(AppDbContext db, TimeProvider clock, IOut
     {
         var now = clock.GetUtcNow();
         var due = query.Where(x => x.Status == ReservationStatus.Held && x.ExpiresAtUtc <= now);
+        // Fast-path: avoid opening/rolling back a transaction on every HoldAsync when nothing is expired.
+        if (!await due.AsNoTracking().AnyAsync(ct)) return 0;
+
         var total = 0;
         while (true)
         {
             await using var tx = await db.Database.BeginTransactionAsync(ct);
             var batch = await due.AsNoTracking().OrderBy(x => x.Id).Take(ExpiryBatchSize).ToListAsync(ct);
-            foreach (var reservation in batch)
+            if (batch.Count == 0) return total;
+
+            var batchIds = batch.Select(x => x.Id).ToArray();
+            var updatedCount = await due.Where(x => batchIds.Contains(x.Id)).ExecuteUpdateAsync(update => update
+                .SetProperty(x => x.Status, ReservationStatus.Expired)
+                .SetProperty(x => x.ClosedAtUtc, now), ct);
+
+            if (updatedCount > 0)
             {
-                // The status predicate is rechecked after concurrent writes to the row.
-                var updated = await due.Where(x => x.Id == reservation.Id).ExecuteUpdateAsync(update => update
-                    .SetProperty(x => x.Status, ReservationStatus.Expired)
-                    .SetProperty(x => x.ClosedAtUtc, now), ct);
-                if (updated == 0) continue;
-                await ReservationTransitions.RecordAsync(db, outbox, reservation, ReservationStatus.Expired, null, now, ct);
-                total++;
+                // Fetch only the rows actually transitioned in this transaction when partial concurrency occurred.
+                var expiredBatch = updatedCount == batch.Count
+                    ? batch
+                    : await db.Reservations.AsNoTracking()
+                        .Where(x => batchIds.Contains(x.Id) && x.Status == ReservationStatus.Expired && x.ClosedAtUtc == now)
+                        .ToListAsync(ct);
+
+                foreach (var reservation in expiredBatch)
+                {
+                    await ReservationTransitions.RecordAsync(db, outbox, reservation, ReservationStatus.Expired, null, now, ct);
+                    total++;
+                }
+
+                await db.SaveChangesAsync(ct);
             }
 
-            if (batch.Count == 0) return total;
-            await db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
             if (batch.Count < ExpiryBatchSize) return total;
         }

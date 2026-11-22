@@ -128,7 +128,7 @@ public sealed class LocationService(AppDbContext db, ILocationCache? cache = nul
                 x.Longitude <= (decimal)(longitude + longitudeDelta));
         if (request.Service == "charging") query = query.Where(x => x.OffersCarCharging);
         if (request.Service == "swap") query = query.Where(x => x.OffersBatterySwap);
-        if (request.Availability == "open")
+        if (request.Availability is "open" or "available")
             query = query.Where(x => x.OperatingStatus == LocationOperatingStatus.Open);
         if (!string.IsNullOrWhiteSpace(request.Search))
         {
@@ -245,17 +245,30 @@ public sealed class LocationService(AppDbContext db, ILocationCache? cache = nul
             .Select(x => x.ChargingBayId!.Value).ToHashSet();
         var heldBatteryIds = heldResources.Where(x => x.BatteryId.HasValue)
             .Select(x => x.BatteryId!.Value).ToHashSet();
-        var bays = await db.Set<ChargingBay>().AsNoTracking()
-            .Where(x => ids.Contains(x.LocationId) && x.EquipmentState == ChargerState.Active &&
-                x.ParkingState == ParkingState.Vacant)
-            .Select(x => new { x.Id, x.LocationId }).ToListAsync(ct);
-        var batteries = await db.Set<Battery>().AsNoTracking()
-            .Where(x => x.LocationId != null && ids.Contains(x.LocationId.Value) && x.State == BatteryState.Ready)
-            .Select(x => new { x.Id, x.LocationId }).ToListAsync(ct);
-        var bayCounts = bays.Where(x => !heldBayIds.Contains(x.Id))
-            .GroupBy(x => x.LocationId).ToDictionary(x => x.Key, x => x.Count());
-        var batteryCounts = batteries.Where(x => !heldBatteryIds.Contains(x.Id))
-            .GroupBy(x => x.LocationId!.Value).ToDictionary(x => x.Key, x => x.Count());
+        var chargingIds = locations.Where(x => x.OffersCarCharging).Select(x => x.Id).ToArray();
+        var swapIds = locations.Where(x => x.OffersBatterySwap).Select(x => x.Id).ToArray();
+
+        var bayCounts = chargingIds.Length == 0
+            ? new Dictionary<Guid, int>()
+            : await db.Set<ChargingBay>().AsNoTracking()
+                .Where(x => chargingIds.Contains(x.LocationId) &&
+                    x.EquipmentState == ChargerState.Active &&
+                    x.ParkingState == ParkingState.Vacant &&
+                    !heldBayIds.Contains(x.Id))
+                .GroupBy(x => x.LocationId)
+                .Select(g => new { g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.Key, x => x.Count, ct);
+
+        var batteryCounts = swapIds.Length == 0
+            ? new Dictionary<Guid, int>()
+            : await db.Set<Battery>().AsNoTracking()
+                .Where(x => x.LocationId != null &&
+                    swapIds.Contains(x.LocationId.Value) &&
+                    x.State == BatteryState.Ready &&
+                    !heldBatteryIds.Contains(x.Id))
+                .GroupBy(x => x.LocationId!.Value)
+                .Select(g => new { g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.Key, x => x.Count, ct);
         return locations.Select(x => x with
         {
             AvailableChargingBays = x.OffersCarCharging ? bayCounts.GetValueOrDefault(x.Id) : null,

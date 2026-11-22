@@ -20,15 +20,17 @@ public sealed class IncidentService(AppDbContext db, TimeProvider clock, IOutbox
         Guid locationId, Guid? bayId, Guid? batteryId, Guid reporterId, DateTimeOffset now,
         string description, CancellationToken ct)
     {
+        // Push active predicate directly into the FOR UPDATE query so PostgreSQL only locks the active row,
+        // never historical Completed/Cancelled/Expired rows for this bay or battery.
         var reservation = await db.Reservations
             .FromSqlInterpolated($"""
                 SELECT * FROM reservations
-                WHERE "LocationId" = {locationId} AND
-                    "ChargingBayId" IS NOT DISTINCT FROM {bayId} AND "BatteryId" IS NOT DISTINCT FROM {batteryId}
+                WHERE "LocationId" = {locationId}
+                  AND "ChargingBayId" IS NOT DISTINCT FROM {bayId}
+                  AND "BatteryId" IS NOT DISTINCT FROM {batteryId}
+                  AND ("Status" = 'CheckedIn' OR ("Status" = 'Held' AND "ExpiresAtUtc" > {now}))
                 FOR UPDATE
                 """)
-            .Where(x => x.LocationId == locationId && x.ChargingBayId == bayId && x.BatteryId == batteryId &&
-                (x.Status == ReservationStatus.CheckedIn || x.Status == ReservationStatus.Held && x.ExpiresAtUtc > now))
             .SingleOrDefaultAsync(ct);
         var reservationId = reservation?.Id;
         var sessionId = bayId.HasValue && reservationId.HasValue
@@ -123,7 +125,8 @@ public sealed class IncidentService(AppDbContext db, TimeProvider clock, IOutbox
         var locationId = await ForOperator(operatorId).Where(x => x.Id == id)
             .Select(x => (Guid?)x.LocationId).SingleOrDefaultAsync(ct);
         if (locationId is not { } station) return (null, null);
-        if (resolution == IncidentResolution.Reassigned) await reservations.ExpireAtStationAsync(station, ct);
+        if (resolution is IncidentResolution.Reassigned or IncidentResolution.Cancelled)
+            await reservations.ExpireAtStationAsync(station, ct);
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         if (!await ReservationLocks.LockOperatorStationAsync(db, station, operatorId, ct)) return (null, null);
 
@@ -202,8 +205,10 @@ public sealed class IncidentService(AppDbContext db, TimeProvider clock, IOutbox
 
     private static IQueryable<IncidentCandidate> Candidates(AppDbContext db, IncidentReport report, DateTimeOffset now, Guid? id = null)
     {
-        var active = db.Reservations.Where(x => x.Status == ReservationStatus.CheckedIn ||
-            x.Status == ReservationStatus.Held && x.ExpiresAtUtc > now);
+        // Match PostgreSQL partial unique indexes (ux_reservations_active_bay / ux_reservations_active_battery)
+        // which block all Held and CheckedIn rows until expired rows are transitioned to Expired.
+        var active = db.Reservations.Where(x =>
+            x.Status == ReservationStatus.CheckedIn || x.Status == ReservationStatus.Held);
         if (report.ChargingBayId.HasValue)
             return db.ChargingBays.Where(x => (id == null || x.Id == id) &&
                     x.LocationId == report.LocationId && x.ParkingState == ParkingState.Vacant &&

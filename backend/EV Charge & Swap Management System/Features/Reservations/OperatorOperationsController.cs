@@ -96,12 +96,22 @@ public sealed class OperatorOperationsController(AppDbContext db, TimeProvider c
         var locationId = await AssignedLocationAsync(ct);
         if (locationId is null) return NotFound();
         var now = clock.GetUtcNow();
-        if (request.State == ChargerState.Faulted)
+        if (request.State is ChargerState.Faulted or ChargerState.Maintenance)
             await (reservationService ?? new ReservationService(db, clock, outbox)).ExpireAtStationAsync(locationId.Value, ct);
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         if (!await ReservationLocks.LockOperatorStationAsync(db, locationId.Value, UserId(), ct)) return Forbid();
         var bay = await db.Set<ChargingBay>().SingleOrDefaultAsync(x => x.Id == id && x.LocationId == locationId, ct);
         if (bay is null) return NotFound();
+        if (request.State == ChargerState.Maintenance)
+        {
+            if (bay.ParkingState == ParkingState.Occupied ||
+                await db.Set<Reservation>().AnyAsync(x => x.ChargingBayId == id &&
+                    (x.Status == ReservationStatus.Held || x.Status == ReservationStatus.CheckedIn), ct))
+            {
+                return Problem(statusCode: StatusCodes.Status409Conflict,
+                    detail: "Resolve the active reservation or vehicle occupancy before placing this charging bay into maintenance.");
+            }
+        }
         if (request.State == ChargerState.Faulted && (bay.EquipmentState != ChargerState.Faulted ||
             !await db.IncidentReports.AnyAsync(x => x.ChargingBayId == id, ct)))
             await IncidentService.RecordFaultAsync(db, outbox, locationId.Value, id, null, UserId(), now,
@@ -138,6 +148,7 @@ public sealed class OperatorOperationsController(AppDbContext db, TimeProvider c
                     clock.GetUtcNow(), FaultDescription(request.Description), ct);
                 await db.SaveChangesAsync(ct);
                 await transaction.CommitAsync(ct);
+                if (notifier is not null) await notifier.NotifyStationInventoryChangedAsync(locationId.Value, ct);
             }
             return NoContent();
         }
@@ -179,13 +190,12 @@ public sealed class OperatorOperationsController(AppDbContext db, TimeProvider c
             return BadRequest("Service intervals overlap.");
         var locationId = await AssignedLocationAsync(ct);
         if (locationId is null) return NotFound();
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        if (!await ReservationLocks.LockOperatorStationAsync(db, locationId.Value, UserId(), ct)) return Forbid();
         var station = await db.Locations.AsNoTracking().SingleAsync(x => x.Id == locationId, ct);
         if (request.ServiceType == ReservationServiceType.Charging && !station.OffersCarCharging ||
             request.ServiceType == ReservationServiceType.BatterySwap && !station.OffersBatterySwap)
-            return Conflict("This station does not offer the service.");
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        await LockLocationAsync(locationId.Value, ct);
-        if (!await StillAssignedAsync(locationId.Value, ct)) return Forbid();
+            return Problem(statusCode: StatusCodes.Status409Conflict, detail: "This station does not offer the service.");
         await db.Set<ServiceHours>().Where(x => x.LocationId == locationId && x.ServiceType == request.ServiceType &&
             x.Day == request.Day).ExecuteDeleteAsync(ct);
         db.AddRange(ordered.Select(x => new ServiceHours

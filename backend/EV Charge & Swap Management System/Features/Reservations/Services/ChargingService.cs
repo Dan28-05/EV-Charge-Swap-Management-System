@@ -19,7 +19,7 @@ public sealed class ChargingService(AppDbContext db, TimeProvider clock, IOutbox
         var bay = await db.Set<ChargingBay>().SingleAsync(x => x.Id == bayId, ct);
         if (reservation.VehicleArrivedAtUtc is not null)
             return bay.ParkingState == ParkingState.Occupied;
-        if (bay.ParkingState != ParkingState.Vacant) return false;
+        if (bay.ParkingState != ParkingState.Vacant || bay.EquipmentState != ChargerState.Active) return false;
 
         var now = clock.GetUtcNow();
         db.Entry(reservation).Property(x => x.VehicleArrivedAtUtc).CurrentValue = now;

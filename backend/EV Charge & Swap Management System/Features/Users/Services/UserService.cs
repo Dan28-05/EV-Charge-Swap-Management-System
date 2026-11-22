@@ -1,6 +1,7 @@
 using System.Data;
 using EVChargeSwap.Common.Results;
 using EVChargeSwap.Data;
+using EVChargeSwap.Features.Authentication.Services;
 using EVChargeSwap.Features.Authorization;
 using EVChargeSwap.Features.Users.Entities;
 using EVChargeSwap.Features.Users.Requests;
@@ -79,17 +80,31 @@ public sealed class UserService(
     public async Task RevokeSessionsAsync(Guid userId, string reason, CancellationToken cancellationToken)
     {
         var now = timeProvider.GetUtcNow().UtcDateTime;
-        var tokens = await db.RefreshTokens
+        var newStamp = Guid.NewGuid();
+        await db.RefreshTokens
             .Where(x => x.UserId == userId && x.RevokedAtUtc == null && x.ExpiresAtUtc > now)
-            .ToListAsync(cancellationToken);
-        foreach (var token in tokens) token.Revoke(now, reason);
-        await db.SaveChangesAsync(cancellationToken);
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(x => x.RevokedAtUtc, now)
+                .SetProperty(x => x.RevokedReason, reason)
+                .SetProperty(x => x.ConcurrencyStamp, newStamp), cancellationToken);
     }
 
     public async Task<OperationResult<UserResponse>> CreateOperatorAsync(
         CreateOperatorRequest request, CancellationToken cancellationToken)
     {
         var email = request.Email.Trim();
+        string? normalizedPhone = null;
+        if (!string.IsNullOrWhiteSpace(request.PhoneNumber))
+        {
+            normalizedPhone = PhoneNumberNormalizer.Normalize(request.PhoneNumber);
+            if (normalizedPhone is null)
+                return OperationResult<UserResponse>.Fail(
+                    OperationFailure.Validation, "Enter a valid Vietnamese mobile number.");
+            if (await db.Users.AnyAsync(x => x.PhoneNumber == normalizedPhone, cancellationToken))
+                return OperationResult<UserResponse>.Fail(
+                    OperationFailure.Conflict, "An account with this phone number already exists.");
+        }
+
         if (await userManager.FindByEmailAsync(email) is not null)
             return OperationResult<UserResponse>.Fail(
                 OperationFailure.Conflict, "An account with this email already exists.");
@@ -99,22 +114,30 @@ public sealed class UserService(
         var user = new ApplicationUser(email, request.FullName,
             timeProvider.GetUtcNow().UtcDateTime)
         {
-            PhoneNumber = string.IsNullOrWhiteSpace(request.PhoneNumber)
-                ? null
-                : request.PhoneNumber.Trim()
+            PhoneNumber = normalizedPhone
         };
 
-        var createResult = await userManager.CreateAsync(user, request.Password);
-        if (!createResult.Succeeded)
-            return OperationResult<UserResponse>.Fail(
-                OperationFailure.Validation, "Operator creation failed.", ToErrors(createResult));
+        try
+        {
+            var createResult = await userManager.CreateAsync(user, request.Password);
+            if (!createResult.Succeeded)
+                return OperationResult<UserResponse>.Fail(
+                    OperationFailure.Validation, "Operator creation failed.", ToErrors(createResult));
 
-        var roleResult = await userManager.AddToRoleAsync(user, AppRoles.Operator);
-        if (!roleResult.Succeeded)
-            return OperationResult<UserResponse>.Fail(
-                OperationFailure.Validation, "Could not assign the operator role.", ToErrors(roleResult));
+            var roleResult = await userManager.AddToRoleAsync(user, AppRoles.Operator);
+            if (!roleResult.Succeeded)
+                return OperationResult<UserResponse>.Fail(
+                    OperationFailure.Validation, "Could not assign the operator role.", ToErrors(roleResult));
 
-        await transaction.CommitAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch (DbUpdateException)
+        {
+            await transaction.RollbackAsync(CancellationToken.None);
+            return OperationResult<UserResponse>.Fail(
+                OperationFailure.Conflict, "An account with this email or phone number already exists.");
+        }
+
         return OperationResult<UserResponse>.Success(ToResponse(user, [AppRoles.Operator]));
     }
 

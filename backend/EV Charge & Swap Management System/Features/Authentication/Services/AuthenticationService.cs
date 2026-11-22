@@ -41,15 +41,24 @@ public sealed class AuthenticationService(
             PhoneNumber = phone
         };
 
-        var createResult = await userManager.CreateAsync(user, request.Password);
-        if (!createResult.Succeeded)
-            return OperationResult<bool>.Fail(OperationFailure.Validation, "Registration failed.", ToErrors(createResult));
+        try
+        {
+            var createResult = await userManager.CreateAsync(user, request.Password);
+            if (!createResult.Succeeded)
+                return OperationResult<bool>.Fail(OperationFailure.Validation, "Registration failed.", ToErrors(createResult));
 
-        var roleResult = await userManager.AddToRoleAsync(user, AppRoles.Customer);
-        if (!roleResult.Succeeded)
-            return OperationResult<bool>.Fail(OperationFailure.Validation, "Could not assign the customer role.", ToErrors(roleResult));
+            var roleResult = await userManager.AddToRoleAsync(user, AppRoles.Customer);
+            if (!roleResult.Succeeded)
+                return OperationResult<bool>.Fail(OperationFailure.Validation, "Could not assign the customer role.", ToErrors(roleResult));
 
-        await transaction.CommitAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch (DbUpdateException)
+        {
+            await transaction.RollbackAsync(CancellationToken.None);
+            return OperationResult<bool>.Fail(OperationFailure.Conflict,
+                "An account with this email or phone number already exists.");
+        }
         await TrySendVerificationAsync(user, "email", cancellationToken);
         await TrySendVerificationAsync(user, "phone", cancellationToken);
         return OperationResult<bool>.Success(true);
@@ -101,12 +110,14 @@ public sealed class AuthenticationService(
         {
             if (storedToken.ReplacedByTokenHash is not null)
             {
-                var activeFamilyTokens = await db.RefreshTokens
-                    .Where(x => x.UserId == storedToken.UserId && x.FamilyId == storedToken.FamilyId && x.RevokedAtUtc == null)
-                    .ToListAsync(cancellationToken);
-                foreach (var token in activeFamilyTokens.Where(x => x.ExpiresAtUtc > now))
-                    token.Revoke(now, "reuse_detected");
-                await db.SaveChangesAsync(cancellationToken);
+                var newStamp = Guid.NewGuid();
+                await db.RefreshTokens
+                    .Where(x => x.UserId == storedToken.UserId && x.FamilyId == storedToken.FamilyId &&
+                        x.RevokedAtUtc == null && x.ExpiresAtUtc > now)
+                    .ExecuteUpdateAsync(setters => setters
+                        .SetProperty(x => x.RevokedAtUtc, now)
+                        .SetProperty(x => x.RevokedReason, "reuse_detected")
+                        .SetProperty(x => x.ConcurrencyStamp, newStamp), cancellationToken);
                 await transaction.CommitAsync(cancellationToken);
             }
             return InvalidRefreshToken();
@@ -115,10 +126,7 @@ public sealed class AuthenticationService(
         if (!storedToken.IsActive(now) || !storedToken.User.IsActive)
             return InvalidRefreshToken();
 
-        var sessionExpiry = await db.RefreshTokens
-            .Where(x => x.UserId == storedToken.UserId && x.FamilyId == storedToken.FamilyId)
-            .Select(x => x.ExpiresAtUtc).ToListAsync(cancellationToken);
-        var fixedExpiry = DateTime.SpecifyKind(sessionExpiry.Min(), DateTimeKind.Utc);
+        var fixedExpiry = DateTime.SpecifyKind(storedToken.ExpiresAtUtc, DateTimeKind.Utc);
         if (fixedExpiry <= now) return InvalidRefreshToken();
         var replacement = tokenService.CreateRefreshToken(storedToken.UserId, storedToken.FamilyId, fixedExpiry);
         storedToken.Revoke(now, "rotated", replacement.Entity.TokenHash);

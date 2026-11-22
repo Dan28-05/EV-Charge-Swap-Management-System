@@ -52,7 +52,7 @@ public sealed class VerificationService(
         catch
         {
             db.VerificationChallenges.Remove(challenge);
-            await db.SaveChangesAsync(ct);
+            await db.SaveChangesAsync(CancellationToken.None);
             throw;
         }
     }
@@ -81,8 +81,12 @@ public sealed class VerificationService(
         var actual = Convert.FromHexString(Hash(user.Id, channel, code));
         if (!CryptographicOperations.FixedTimeEquals(expected, actual))
         {
-            challenge.Fail();
-            await db.SaveChangesAsync(ct);
+            var newStamp = Guid.NewGuid();
+            await db.VerificationChallenges
+                .Where(x => x.Id == challenge.Id && x.ConsumedAtUtc == null)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(x => x.FailedAttempts, x => x.FailedAttempts + 1)
+                    .SetProperty(x => x.ConcurrencyStamp, newStamp), ct);
             return false;
         }
 

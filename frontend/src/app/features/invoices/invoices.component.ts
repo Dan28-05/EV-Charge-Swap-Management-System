@@ -1,6 +1,6 @@
 import { CommonModule, DatePipe, DecimalPipe } from '@angular/common';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { Component, DestroyRef, OnInit, computed, inject, input, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, computed, inject, input, isDevMode, signal } from '@angular/core';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
@@ -51,6 +51,7 @@ export class InvoicesComponent implements OnInit {
   private readonly rows = signal<Invoice[]>([]);
 
   readonly auth = inject(AuthService);
+  protected readonly isDev = isDevMode();
   readonly stationMode = input(false);
   readonly focusInvoiceId = input<string | null>(null);
   private readonly focusChanges = toObservable(this.focusInvoiceId);

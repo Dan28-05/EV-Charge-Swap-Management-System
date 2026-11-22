@@ -150,4 +150,63 @@ describe('authInterceptor', () => {
     expect(refreshSpy).not.toHaveBeenCalled();
     expect(loginError).toBeDefined();
   });
+
+  it('should NOT attach Authorization header to external third-party URLs (e.g., Nominatim)', () => {
+    authService.saveSession(mockSession, false, 'test@evgo.vn');
+
+    http.get('https://nominatim.openstreetmap.org/search?q=hanoi').subscribe();
+
+    const req = httpMock.expectOne('https://nominatim.openstreetmap.org/search?q=hanoi');
+    expect(req.request.headers.has('Authorization')).toBe(false);
+    req.flush([]);
+  });
+
+  it('should NOT clear session or redirect when retried request fails with 404 after successful refresh', () => {
+    authService.saveSession(mockSession, false, 'test@evgo.vn');
+    vi.spyOn(authService, 'refreshToken').mockReturnValue(of(mockRefreshedSession));
+    const clearSessionSpy = vi.spyOn(authService, 'clearSession');
+
+    let receivedStatus = 0;
+    http.get('/api/reservations/active').subscribe({
+      next: () => {
+        throw new Error('Should have failed with 404');
+      },
+      error: (err) => {
+        receivedStatus = err.status;
+      },
+    });
+
+    const initialReq = httpMock.expectOne('/api/reservations/active');
+    initialReq.flush({ title: 'Token Expired' }, { status: 401, statusText: 'Unauthorized' });
+
+    const retriedReq = httpMock.expectOne('/api/reservations/active');
+    expect(retriedReq.request.headers.get('Authorization')).toBe('Bearer refreshed-access-token');
+    retriedReq.flush({ title: 'No active reservation' }, { status: 404, statusText: 'Not Found' });
+
+    expect(receivedStatus).toBe(404);
+    expect(clearSessionSpy).not.toHaveBeenCalled();
+    expect(router.navigate).not.toHaveBeenCalled();
+  });
+
+  it('should retry directly with latest token without calling refreshToken again if session already rotated', () => {
+    authService.saveSession(mockSession, false, 'test@evgo.vn');
+    const refreshSpy = vi.spyOn(authService, 'refreshToken').mockReturnValue(of(mockRefreshedSession));
+
+    let responseData: unknown;
+    http.get('/api/users/me').subscribe((res) => (responseData = res));
+
+    const initialReq = httpMock.expectOne('/api/users/me');
+    expect(initialReq.request.headers.get('Authorization')).toBe('Bearer initial-access-token');
+
+    // Simulate another concurrent request having already rotated the session token
+    authService.saveSession(mockRefreshedSession, false, 'test@evgo.vn');
+    initialReq.flush({ title: 'Token Expired' }, { status: 401, statusText: 'Unauthorized' });
+
+    expect(refreshSpy).not.toHaveBeenCalled();
+    const retriedReq = httpMock.expectOne('/api/users/me');
+    expect(retriedReq.request.headers.get('Authorization')).toBe('Bearer refreshed-access-token');
+    retriedReq.flush(mockRefreshedSession.user);
+
+    expect(responseData).toEqual(mockRefreshedSession.user);
+  });
 });

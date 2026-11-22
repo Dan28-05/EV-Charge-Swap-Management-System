@@ -25,6 +25,10 @@ function isAuthExcluded(url: string): boolean {
   return AUTH_EXCLUDED_URLS.some((excluded) => url.includes(excluded));
 }
 
+function isInternalApiRequest(url: string): boolean {
+  return url.startsWith('/api/') || url === '/api';
+}
+
 function attachToken(req: HttpRequest<unknown>, token: string): HttpRequest<unknown> {
   return req.clone({
     headers: req.headers.set('Authorization', `Bearer ${token}`),
@@ -49,7 +53,7 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
   const authService = inject(AuthService);
   const router = inject(Router);
 
-  if (req.context.get(SKIP_AUTH)) {
+  if (req.context.get(SKIP_AUTH) || !isInternalApiRequest(req.url)) {
     return next(req);
   }
 
@@ -66,6 +70,11 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
         return throwError(() => error);
       }
 
+      const latestToken = authService.session()?.accessToken;
+      if (latestToken && token && latestToken !== token) {
+        return next(attachToken(req, latestToken));
+      }
+
       if (!authService.session()?.refreshToken) {
         authService.clearSession();
         navigateToLogin(router);
@@ -73,14 +82,14 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
       }
 
       return authService.refreshToken().pipe(
-        switchMap((newSession) => {
-          const retriedReq = attachToken(req, newSession.accessToken);
-          return next(retriedReq);
-        }),
         catchError((refreshError) => {
           authService.clearSession();
           navigateToLogin(router);
           return throwError(() => refreshError);
+        }),
+        switchMap((newSession) => {
+          const retriedReq = attachToken(req, newSession.accessToken);
+          return next(retriedReq);
         })
       );
     })

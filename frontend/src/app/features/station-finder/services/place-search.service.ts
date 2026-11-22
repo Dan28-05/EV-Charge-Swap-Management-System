@@ -1,6 +1,7 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpContext } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { map, Observable } from 'rxjs';
+import { SKIP_AUTH } from '../../../core/interceptors/auth.interceptor';
 import { PlaceSearchResult } from '../models/place-search.model';
 import { STATION_FINDER_CONFIG } from '../station-finder.config';
 
@@ -18,6 +19,7 @@ export class PlaceSearchService {
 
   search(query: string): Observable<PlaceSearchResult[]> {
     return this.http.get<NominatimPlace[]>(this.url, {
+      context: new HttpContext().set(SKIP_AUTH, true),
       params: {
         q: query.trim(), format: 'jsonv2', limit: 5, countrycodes: 'vn', 'accept-language': 'vi',
       },

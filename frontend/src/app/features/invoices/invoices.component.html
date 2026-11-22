@@ -458,7 +458,8 @@
           </div>
         </div>
 
-        <!-- SANDBOX SIMULATION ACTIONS -->
+        <!-- SANDBOX SIMULATION ACTIONS (Development only) -->
+        @if (isDev) {
         <div class="sandbox-simulation-box">
           <div class="sandbox-header">
             <span class="sandbox-tag">Sandbox Testing</span>
@@ -496,6 +497,7 @@
             </div>
           </details>
         </div>
+        }
       </div>
 
       <footer class="qr-dialog-footer">

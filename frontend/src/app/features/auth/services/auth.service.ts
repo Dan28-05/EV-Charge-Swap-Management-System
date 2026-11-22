@@ -1,4 +1,4 @@
-import { HttpClient, HttpContext, HttpHeaders } from '@angular/common/http';
+import { HttpClient, HttpContext } from '@angular/common/http';
 import { Injectable, PLATFORM_ID, computed, inject, signal } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 import { Observable, catchError, finalize, of, shareReplay, tap, throwError } from 'rxjs';
@@ -30,8 +30,12 @@ export class AuthService {
     ? { path: '/operator/dashboard', label: 'Vận hành trạm' }
     : { path: '/', label: 'Bản đồ trạm' });
   readonly isOperator = computed<boolean>(() => {
-    const roles = this.currentUser()?.roles || [];
-    return roles.includes('Operator') || roles.includes('Admin');
+    const roles = this.currentUser()?.roles ?? [];
+    return roles.includes('Operator');
+  });
+  readonly isAdmin = computed<boolean>(() => {
+    const roles = this.currentUser()?.roles ?? [];
+    return roles.includes('Admin');
   });
 
   login(credentials: LoginCredentials): Observable<AuthenticationResponse> {
@@ -43,27 +47,23 @@ export class AuthService {
   }
 
   profile(): Observable<AuthenticatedUser> {
-    return this.http.get<AuthenticatedUser>('/api/users/me', { headers: this.authHeaders() });
+    return this.http.get<AuthenticatedUser>('/api/users/me');
   }
 
   updateProfile(fullName: string): Observable<AuthenticatedUser> {
-    return this.http.put<AuthenticatedUser>('/api/users/me', { fullName }, { headers: this.authHeaders() });
+    return this.http.put<AuthenticatedUser>('/api/users/me', { fullName });
   }
 
   changePassword(request: ChangePasswordRequest): Observable<void> {
-    return this.http.post<void>('/api/users/me/change-password', request, { headers: this.authHeaders() });
+    return this.http.post<void>('/api/users/me/change-password', request);
   }
 
   sendVerificationCode(channel: 'email' | 'phone'): Observable<void> {
-    return this.http.post<void>('/api/auth/verification/me/send', { channel }, {
-      headers: this.authHeaders(),
-    });
+    return this.http.post<void>('/api/auth/verification/me/send', { channel });
   }
 
   confirmVerificationCode(channel: 'email' | 'phone', code: string): Observable<void> {
-    return this.http.post<void>('/api/auth/verification/me/confirm', { channel, code }, {
-      headers: this.authHeaders(),
-    });
+    return this.http.post<void>('/api/auth/verification/me/confirm', { channel, code });
   }
 
   forgotPassword(identifier: string): Observable<void> {
@@ -142,10 +142,6 @@ export class AuthService {
     if (!isPlatformBrowser(this.platformId)) return;
     const storage = localStorage.getItem(this.authStorageKey) ? localStorage : sessionStorage;
     storage.setItem(this.authStorageKey, JSON.stringify(updated));
-  }
-
-  private authHeaders(): HttpHeaders {
-    return new HttpHeaders({ Authorization: `Bearer ${this.session()?.accessToken ?? ''}` });
   }
 
   saveSession(response: AuthenticationResponse, remember: boolean, identifier: string): void {

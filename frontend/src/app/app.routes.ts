@@ -1,5 +1,6 @@
 import { inject } from '@angular/core';
 import { Router, Routes } from '@angular/router';
+import { authGuard, guestGuard, roleGuard } from './core/guards/auth.guards';
 import { AuthService } from './features/auth/services/auth.service';
 import { LoginPageComponent } from './features/auth/login-page/login-page.component';
 import { LoginFormComponent } from './features/auth/login-page/login-form/login-form.component';
@@ -18,17 +19,19 @@ export const routes: Routes = [
   {
     path: '',
     component: LoginPageComponent,
+    canActivate: [guestGuard],
     children: [
       { path: 'login', component: LoginFormComponent, title: 'Đăng nhập — EVGo' },
       { path: 'register', component: RegisterFormComponent, title: 'Đăng ký — EVGo' },
       { path: 'forgot-password', loadComponent: () => import('./features/auth/forgot-password/forgot-password.component').then(m => m.ForgotPasswordComponent), title: 'Quên mật khẩu — EVGo' },
     ],
   },
-  { path: 'profile', loadComponent: () => import('./features/auth/profile/profile.component').then(m => m.ProfileComponent), title: 'Hồ sơ cá nhân — EVGo' },
-  { path: 'notifications', loadComponent: () => import('./features/notifications/notifications.component').then(m => m.NotificationsComponent), title: 'Thông báo — EVGo' },
-  { path: 'invoices', loadComponent: () => import('./features/invoices/invoices.component').then(m => m.InvoicesComponent), title: 'Hóa đơn — EVGo' },
+  { path: 'profile', canActivate: [authGuard], loadComponent: () => import('./features/auth/profile/profile.component').then(m => m.ProfileComponent), title: 'Hồ sơ cá nhân — EVGo' },
+  { path: 'notifications', canActivate: [authGuard], loadComponent: () => import('./features/notifications/notifications.component').then(m => m.NotificationsComponent), title: 'Thông báo — EVGo' },
+  { path: 'invoices', canActivate: [authGuard], loadComponent: () => import('./features/invoices/invoices.component').then(m => m.InvoicesComponent), title: 'Hóa đơn — EVGo' },
   {
     path: 'operator/dashboard',
+    canMatch: [roleGuard(['Operator'])],
     loadComponent: () =>
       import('./features/operator/operator-dashboard/operator-dashboard.component').then(
         (m) => m.OperatorDashboardComponent,
@@ -42,6 +45,7 @@ export const routes: Routes = [
   },
   {
     path: 'operator/check-in',
+    canMatch: [roleGuard(['Operator'])],
     loadComponent: () =>
       import('./features/reservations/operator-checkin/operator-checkin.component').then(
         (m) => m.OperatorCheckinComponent,

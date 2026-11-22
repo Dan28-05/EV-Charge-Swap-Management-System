@@ -16,6 +16,7 @@ Tài liệu nguồn của dự án:
 | Locations | Đã có entity, mapping EF Core, service, response DTO, API đọc/phân trang và trạng thái vận hành do Admin cập nhật |
 | PostgreSQL | Đã có cấu hình provider, migration đầu tiên, Docker Compose và seed local tùy chọn |
 | Redis | Container Redis 7 Alpine, cache thông tin trạm với explicit invalidation và fallback tự động |
+| Elasticsearch | Tìm trạm theo tên/địa chỉ có dấu hoặc không dấu, gợi ý khi gõ, đồng bộ chỉ mục qua RabbitMQ |
 | API trong Docker | Có Dockerfile multi-stage, runtime non-root và job migration riêng cho local |
 | Swagger UI | Có tại `/swagger`, chỉ trong Development |
 | Common | Đã có phân trang dùng chung và xử lý lỗi không lộ thông tin nội bộ |
@@ -281,7 +282,7 @@ Migration không tự chạy khi API khởi động. Container dùng volume `pos
 Từ root repo, khởi động API/PostgreSQL (cần `.env` ở mục 5):
 
 ```powershell
-docker compose up -d --build postgres migrate api
+docker compose up -d --build elasticsearch api
 cd frontend
 npm ci
 npm start
@@ -297,7 +298,7 @@ Mở **http://localhost:4200/**. Không cần đăng nhập để xem trạm. T�
 - Header dùng logo con hươu trong `frontend/public/favicon.png`. Danh sách có thể đóng/mở; khi chọn trạm, bản đồ giữ marker trong phần nhìn thấy, kể cả khi bảng chi tiết đang mở trên mobile. Mục Đặt chỗ/Lịch sử được ghi “Sắp có” trong giao diện; backend đặt chỗ đã có API riêng và chưa nối với nút Đặt chỗ.
 - Trạng thái trạm do Admin cập nhật qua trường `operatingStatus` khi `POST/PUT /api/locations`: `Unknown`, `Open`, `Closed`, `Maintenance`. Trạm cũ mặc định `Unknown` (giao diện ghi “Chưa có thông tin”). `isActive=false` ẩn trạm khỏi API công khai, còn `Closed`/`Maintenance` vẫn hiển thị với nhãn tương ứng. Trạng thái này không tự thay đổi theo giờ; giờ phục vụ và tình trạng thiết bị là dữ liệu riêng ở mốc sau.
 - Dữ liệu demo có lịch phục vụ 24/7 (`isOpen24Hours=true`), công suất sạc `chargingPowerKw` thuộc 30/60/150/250 kW nếu có sạc ô tô, và `batteryCapacityKwh=1.5` cho dịch vụ đổi pin LFP. Seed phân bổ thông số và trạng thái giả lập ổn định theo ID; đây không phải trạng thái thiết bị hay số pin còn thực tế. `Closed`/`Maintenance` là ngoại lệ tạm thời của lịch 24/7.
-- Thanh tìm kiếm tra tên hoặc địa chỉ trạm trên toàn bộ database, đồng thời cho phép tìm địa danh. Giao diện không còn nút chọn bán kính. Khi duyệt bản đồ, dữ liệu được tải trong phạm vi 50 km quanh tâm vùng đang xem bằng API nearby. Có lọc dịch vụ và hai bộ lọc khả dụng: **Đang mở** hoặc **Còn chỗ**. Chưa có giá, đặt chỗ hoặc lịch sử.
+- Thanh tìm kiếm gợi ý trạm theo tên và địa chỉ trên toàn mạng sau khi dừng nhập 300 ms. Gõ `vincom dong khoi` hoặc `vincom dong kh` vẫn có thể tìm thấy **Vincom Đồng Khởi**. Khi duyệt bản đồ, API nearby tải trạm theo vùng đang xem và áp dụng các bộ lọc hiện có.
 - Khi bấm Enter hoặc nút **Tìm**, thanh tìm kiếm còn gửi một truy vấn địa danh rõ ràng (ví dụ `Bình Sơn`) tới Nominatim/OpenStreetMap và cho người dùng chọn kết quả đầy đủ tỉnh/thành trước khi tải trạm quanh điểm đó. Không gọi theo từng ký tự. Nominatim công khai chỉ phù hợp cho demo có lưu lượng nhỏ; production cần nhà cung cấp geocoding có SLA hoặc một dịch vụ tự quản lý.
 
 Kiểm tra frontend (tại `frontend/`):
@@ -322,6 +323,8 @@ Browser test dùng Microsoft Edge đã cài, tự mở Angular cổng 4300, ch�
 | `https://localhost:7195/openapi/v1.json` | Tài liệu OpenAPI JSON |
 | `GET /api/locations?page=1&pageSize=20` | Danh sách địa điểm đang hoạt động |
 | `GET /api/locations/{id}` | Chi tiết địa điểm, 404 khi không có/đã ẩn |
+| `GET /api/locations/search?query=vincom%20dong%20kh&page=1&pageSize=20` | Tìm trên toàn mạng theo tên hoặc địa chỉ, có hỗ trợ tìm không dấu và khớp tiền tố |
+| `POST /api/locations/admin/search/rebuild` | Admin dựng lại chỉ mục, trả 204 khi alias mới sẵn sàng |
 | `GET /api/locations/nearby?latitude=13.766667&longitude=109.233333&radiusKm=10&service=charging&availability=available` | Tìm trạm trong bán kính, lọc dịch vụ/tên/địa chỉ; `availability` nhận `all`, `open`, hoặc `available` (đang mở và còn tài nguyên cho dịch vụ đã chọn). Mặc định ưu tiên trạm còn chỗ, rồi trạm đang mở, sau đó mới theo khoảng cách. |
 | `GET /api/locations/admin` | Admin xem cả trạm đang ẩn |
 | `POST /api/locations` | Admin tạo trạm |
@@ -344,6 +347,16 @@ Browser test dùng Microsoft Edge đã cài, tự mở Angular cổng 4300, ch�
 | `POST /api/users/operators` | Admin tạo tài khoản Operator |
 | `GET /health/live` | Process API đang phản hồi; không kiểm tra database |
 | `GET /health/ready` | Kiểm tra kết nối database; 503 nếu không sẵn sàng |
+
+### Vận hành chỉ mục tìm trạm
+
+Compose chạy Elasticsearch một node trong mạng nội bộ Docker. API dùng `LocationSearch__Endpoint=http://elasticsearch:9200`. Chạy API trên host dùng cấu hình PostgreSQL mặc định cho tìm kiếm, hoặc cung cấp một endpoint Elasticsearch có thể truy cập từ host. Triển khai thật cần HTTPS, quyền API key phù hợp và cấp `LocationSearch__ApiKey` qua kho secret.
+
+API tự tạo và nạp chỉ mục khi alias `charging-stations` chưa tồn tại. Sau khi Admin tạo, sửa, ẩn hoặc hiện trạm, một sự kiện Outbox chuyển qua RabbitMQ đến queue `ev.location-search.queue`. Consumer đọc bản ghi mới nhất, ghi theo ID trạm hoặc xóa tài liệu của trạm đã ẩn. Elasticsearch có thể chậm hơn PostgreSQL trong thời gian đồng bộ. Nếu search lỗi hoặc chưa có chỉ mục, API đọc từ PostgreSQL với cách xếp hạng đơn giản hơn.
+
+Sau khi nạp seed bằng SQL, sau thời gian tắt đồng bộ, hoặc khi cần khôi phục sự kiện đã vào DLQ, dùng Swagger đăng nhập bằng tài khoản Admin rồi gọi `POST /api/locations/admin/search/rebuild`. Rebuild dựng chỉ mục mới theo lô rồi chuyển alias sau khi nạp và refresh thành công. Chỉ mục cũ được giữ lại. Khi dọn chỉ mục cũ, xác nhận chỉ mục đó không còn được alias trỏ tới. Dùng `docker compose logs api elasticsearch` để kiểm tra lỗi dựng chỉ mục.
+
+Để thử fallback local, chạy `docker compose stop elasticsearch`, tìm lại tên không dấu qua API, rồi chạy `docker compose start elasticsearch`. Đặt `LOCATION_SEARCH_ENDPOINT=` trong `.env` để chạy API Compose ở chế độ dùng PostgreSQL cho tìm kiếm.
 
 Swagger UI và OpenAPI chỉ được mở trong **Development**. Khi đăng ký, nhập số di động Việt Nam (`09...` hoặc `+849...`). Lấy mã từ endpoint Development trên loopback, xác minh kênh `email` hoặc `phone`, rồi gọi `POST /api/auth/login` với `identifier` (email hoặc số điện thoại) và `password`. Để gọi endpoint cần đăng nhập, chọn **Authorize** và dán `accessToken` (Swagger tự thêm tiền tố `Bearer`). Không dùng endpoint lấy mã Development trong môi trường thật.
 
@@ -473,6 +486,7 @@ dotnet test '.\backend\EV Charge & Swap Management System.sln' -m:1
 - Test auth kiểm tra xác minh từng kênh, mã dùng một lần/khóa sau 5 lần sai, đăng nhập qua email hoặc số điện thoại, hạn phiên 30 ngày, refresh rotation và reuse detection, logout idempotent cùng quyền Admin tạo Operator.
 - Không cần Docker để chạy bộ test này. SQLite không chứng minh PostgreSQL migration hay constraint hoạt động giống hoàn toàn; kiểm thử PostgreSQL thật là bước riêng khi có Docker/database test.
 - Test project không được dùng làm nơi chứa code production. SQLite `EnsureCreated` chỉ dùng để tạo database test tạm thời; database ứng dụng dùng migrations.
+- Test tích hợp Elasticsearch thật chạy khi đặt `EV_LOCATION_SEARCH_TEST_ENDPOINT` trỏ đến instance Development **dành riêng cho test**. Bài test tạo một alias và chỉ mục riêng, xác minh đường đọc Elasticsearch, xử lý cập nhật/ẩn trạm và rebuild từ dữ liệu nghiệp vụ. Bộ test mặc định vẫn kiểm tra fallback khi Elasticsearch không kết nối được.
 
 ## 10. Thay đổi schema và quy ước code
 

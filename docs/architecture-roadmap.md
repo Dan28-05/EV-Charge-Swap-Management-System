@@ -108,34 +108,38 @@ RabbitMQ is unavailable
 → consumer processes it once logically
 ```
 
-## 4. Elasticsearch decisions
+## 4. Thiết kế Elasticsearch
 
-Approved use cases for the Location search read model:
+Elasticsearch phục vụ các chức năng tìm trạm sau đây.
 
-- Name and address full-text search.
-- Search-as-you-type/autocomplete.
-- Service and price filters.
-- `geo_point` indexing and distance/radius search.
-- Distance sorting.
-- Search result ranking independent from transactional tables.
+- Tìm kiếm toàn văn theo tên và địa chỉ trạm.
+- Gợi ý kết quả khi người dùng đang nhập.
+- Lọc theo dịch vụ và giá.
+- Lập chỉ mục tọa độ bằng kiểu `geo_point` để tìm theo khoảng cách hoặc bán kính.
+- Sắp xếp kết quả theo khoảng cách.
+- Xếp hạng kết quả độc lập với các bảng giao dịch.
 
-Synchronization flow:
+Luồng đồng bộ chỉ mục
 
 ```text
-Location changes in PostgreSQL
-→ LocationUpdated stored in Outbox
+Thông tin trạm thay đổi trong PostgreSQL
+→ Ghi sự kiện LocationUpdated vào Outbox
 → RabbitMQ
-→ Search Indexer Worker
-→ Elasticsearch index
+→ Tiến trình cập nhật chỉ mục
+→ Chỉ mục Elasticsearch
 ```
 
-Guardrails:
+Các nguyên tắc triển khai
 
-- PostgreSQL remains the source of truth.
-- Search results are eventually consistent.
-- Reservation and payment workflows never depend on Elasticsearch consistency.
-- Provide a repeatable full-index rebuild from PostgreSQL.
-- Indexer consumers are idempotent and use the Location ID as document ID.
+- PostgreSQL là nguồn dữ liệu chính.
+- Kết quả tìm kiếm có thể chậm hơn dữ liệu vừa ghi và sẽ đồng nhất sau khi đồng bộ.
+- Đặt chỗ và thanh toán dựa vào PostgreSQL.
+- Có quy trình tạo lại toàn bộ chỉ mục từ PostgreSQL và có thể chạy lại khi cần.
+- Tiến trình cập nhật dùng ID trạm làm ID tài liệu. Xử lý lại cùng một sự kiện cho ra cùng kết quả.
+
+Milestone tìm trạm dùng endpoint `GET /api/locations/search` với tên và địa chỉ, hỗ trợ tiền tố và bỏ dấu tiếng Việt. Elasticsearch trả ID theo thứ tự phù hợp. API đọc PostgreSQL theo các ID đó để kiểm tra lại quyền hiển thị công khai và lấy số tài nguyên hiện tại. Truy vấn theo bán kính tiếp tục qua API nearby. Bộ lọc giá và tìm theo khoảng cách bằng Elasticsearch thuộc phần mở rộng.
+
+Consumer chạy trong worker RabbitMQ của ứng dụng. Ghi tài liệu và dựng lại chỉ mục được tuần tự hóa bằng một advisory lock PostgreSQL dành riêng cho chỉ mục. Sự kiện tồn đọng sau khi Elasticsearch gián đoạn được thử lại có giới hạn trước khi chuyển vào DLQ. Rebuild nạp chỉ mục mới rồi chuyển alias nguyên tử. Khi không truy cập được chỉ mục, việc tìm kiếm tiếp tục qua PostgreSQL.
 
 ## 5. Observability
 
@@ -198,12 +202,12 @@ Charging bay and battery faults create an [incident report](incident-report-erd.
 2. Distributed rate limiting.
 3. Cache metrics and outage tests.
 
-### Phase 5 — Elasticsearch
+### Giai đoạn 5 — Elasticsearch
 
-1. Location index mapping.
-2. Search Indexer Worker.
-3. Full-text, autocomplete, filters, and geo-distance endpoints.
-4. Full-index rebuild and eventual-consistency tests.
+1. Định nghĩa các trường và kiểu dữ liệu trong chỉ mục trạm.
+2. Xây dựng tiến trình cập nhật chỉ mục từ sự kiện RabbitMQ.
+3. Bổ sung API tìm kiếm toàn văn, gợi ý khi nhập, lọc và tìm theo khoảng cách.
+4. Kiểm thử việc tạo lại toàn bộ chỉ mục và kiểm tra kết quả tìm kiếm đồng nhất sau khi đồng bộ.
 
 ### Phase 6 — Billing and observability completion
 

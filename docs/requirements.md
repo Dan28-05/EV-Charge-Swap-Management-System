@@ -39,6 +39,7 @@ Customers can read their own profile and update their full name. Email and phone
 - Angular displays locations on a map. A location offering both services still has one marker.
 - Customers can search by name/address and radius; filter by service, price, available charging bays, or ready batteries.
 - The station finder searches station names and addresses across the entire network; the customer interface does not expose a radius selector.
+- The station finder suggests matches while typing and accepts Vietnamese terms with or without diacritics. Search results only expose publicly visible stations, with availability from current transactional data.
 - Location details show available resource counts, pricing, and when operators last updated the physical data.
 - A **Directions** action opens Google Maps for the location coordinates.
 - Public location responses include a manually maintained operating status: `Unknown`, `Open`, `Closed`, or `Maintenance`. `Unknown` is used for existing locations until an Admin confirms their state. This status is independent of public visibility (`isActive`), service hours, and individual equipment availability. The UI must not infer 24/7 opening, charger power/connector, or swap duration from the offered-service flags.

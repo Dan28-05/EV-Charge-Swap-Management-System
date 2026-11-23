@@ -159,8 +159,19 @@ public sealed class ServiceBillingPostgresTests
         var wrongAmount = failure with { EventId = Guid.NewGuid(), Amount = first.Amount + 1m };
         Assert.Equal(409, Assert.IsType<ObjectResult>(await Payment(x => x.Webhook(
             wrongAmount, PaymentsController.Sign(wrongAmount, Secret), default))).StatusCode);
+        var underpaid = failure with { EventId = Guid.NewGuid(), Amount = first.Amount - 1m, Succeeded = true };
+        Assert.Equal(409, Assert.IsType<ObjectResult>(await Payment(x => x.Webhook(
+            underpaid, PaymentsController.Sign(underpaid, Secret), default))).StatusCode);
+        Assert.Equal(InvoiceStatus.Pending, await db.Invoices.Where(x => x.Id == invoice.Id).Select(x => x.Status).SingleAsync());
         Assert.IsType<NoContentResult>(await Payment(x => x.Webhook(failure, PaymentsController.Sign(failure, Secret), default)));
         await AssertBookingBlockedByInvoice();
+
+        // Req #9: Publishing a new tariff must never alter the amount of already-completed swaps/invoices.
+        var tariffEndpoint = new TariffsController(db, clock) { ControllerContext = Context(op.Id, AppRoles.Operator) };
+        Assert.IsType<ObjectResult>(await tariffEndpoint.Create(new(ReservationServiceType.BatterySwap, 40000m, null), default));
+        var unchangedInvoice = await db.Invoices.AsNoTracking().SingleAsync(x => x.Id == invoice.Id);
+        Assert.Equal(25000m, unchangedInvoice.TotalAmount);
+        Assert.Equal(25000m, unchangedInvoice.SwapRate);
         var retry = Assert.IsType<QrPaymentResponse>(Assert.IsType<ObjectResult>(await Payment(x => x.Create(invoice.Id, default))).Value);
         Assert.NotEqual(first.Id, retry.Id);
         var success = new MockPaymentEvent(Guid.NewGuid(), retry.Id, invoice.Id, retry.Amount, true);

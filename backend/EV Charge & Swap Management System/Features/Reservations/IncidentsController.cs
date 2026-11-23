@@ -22,27 +22,32 @@ public sealed class IncidentsController(IncidentService incidents, IStationNotif
 {
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<IncidentSummary>>> List(
-        [FromQuery, Range(1, int.MaxValue / 50)] int page = 1, CancellationToken ct = default) =>
-        Ok(await incidents.ForOperator(UserId()).Where(x => x.Resolution == null)
+        [FromQuery, Range(1, int.MaxValue / 50)] int page = 1, CancellationToken ct = default)
+    {
+        if (!TryGetUserId(out var operatorId)) return Unauthorized();
+        return Ok(await incidents.ForOperator(operatorId).Where(x => x.Resolution == null)
             .OrderBy(x => x.ReportedAtUtc).ThenBy(x => x.Id).Skip((page - 1) * 50).Take(50)
             .Select(x => new IncidentSummary(x.Id, x.ChargingBayId, x.BatteryId,
                 x.ReservationId, x.ChargingSessionId, x.Description, x.ReportedAtUtc)).ToListAsync(ct));
+    }
 
     [HttpGet("{id:guid}/options")]
     public async Task<ActionResult<IncidentOptions>> Options(Guid id, CancellationToken ct)
     {
-        var options = await incidents.GetOptionsAsync(id, UserId(), ct);
+        if (!TryGetUserId(out var operatorId)) return Unauthorized();
+        var options = await incidents.GetOptionsAsync(id, operatorId, ct);
         return options is null ? NotFound() : Ok(options);
     }
 
     [HttpPost("{id:guid}/resolve")]
     public async Task<IActionResult> Resolve(Guid id, ResolveIncidentRequest request, CancellationToken ct)
     {
+        if (!TryGetUserId(out var operatorId)) return Unauthorized();
         if (!Enum.IsDefined(request.Resolution) || request.ReplacementId == Guid.Empty ||
             (request.Resolution == IncidentResolution.Reassigned) != request.ReplacementId.HasValue)
             return Problem(statusCode: 400, detail: "Only reassignment requires a replacement resource ID.");
 
-        var result = await incidents.ResolveAsync(id, UserId(), request.Resolution, request.ReplacementId, ct);
+        var result = await incidents.ResolveAsync(id, operatorId, request.Resolution, request.ReplacementId, ct);
         if (result.LocationId is not { } locationId)
             return result.Conflict is null ? NotFound() : Problem(statusCode: 409, detail: result.Conflict);
 
@@ -51,5 +56,6 @@ public sealed class IncidentsController(IncidentService incidents, IStationNotif
         return NoContent();
     }
 
-    private Guid UserId() => Guid.Parse(User.FindFirst(JwtRegisteredClaimNames.Sub)!.Value);
+    private bool TryGetUserId(out Guid operatorId) =>
+        Guid.TryParse(User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value, out operatorId);
 }

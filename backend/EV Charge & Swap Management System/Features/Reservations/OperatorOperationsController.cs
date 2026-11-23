@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 using EVChargeSwap.Common.Messaging;
 using EVChargeSwap.Data;
 using EVChargeSwap.Features.Authorization;
@@ -30,7 +31,8 @@ public sealed class OperatorOperationsController(AppDbContext db, TimeProvider c
     [HttpGet("station")]
     public async Task<IActionResult> Station(CancellationToken ct)
     {
-        var locationId = await AssignedLocationAsync(ct);
+        if (!TryGetUserId(out var operatorId)) return Unauthorized();
+        var locationId = await AssignedLocationAsync(operatorId, ct);
         if (locationId is null) return NotFound();
         var location = await db.Locations.AsNoTracking().Where(x => x.Id == locationId).Select(x => new
         {
@@ -92,14 +94,15 @@ public sealed class OperatorOperationsController(AppDbContext db, TimeProvider c
     [HttpPatch("charging-bays/{id:guid}/equipment-state")]
     public async Task<IActionResult> ChangeBay(Guid id, ChangeBayStateRequest request, CancellationToken ct)
     {
+        if (!TryGetUserId(out var operatorId)) return Unauthorized();
         if (!Enum.IsDefined(request.State)) return BadRequest();
-        var locationId = await AssignedLocationAsync(ct);
+        var locationId = await AssignedLocationAsync(operatorId, ct);
         if (locationId is null) return NotFound();
         var now = clock.GetUtcNow();
         if (request.State is ChargerState.Faulted or ChargerState.Maintenance)
             await (reservationService ?? new ReservationService(db, clock, outbox)).ExpireAtStationAsync(locationId.Value, ct);
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        if (!await ReservationLocks.LockOperatorStationAsync(db, locationId.Value, UserId(), ct)) return Forbid();
+        if (!await ReservationLocks.LockOperatorStationAsync(db, locationId.Value, operatorId, ct)) return Forbid();
         var bay = await db.Set<ChargingBay>().SingleOrDefaultAsync(x => x.Id == id && x.LocationId == locationId, ct);
         if (bay is null) return NotFound();
         if (request.State == ChargerState.Maintenance)
@@ -114,10 +117,10 @@ public sealed class OperatorOperationsController(AppDbContext db, TimeProvider c
         }
         if (request.State == ChargerState.Faulted && (bay.EquipmentState != ChargerState.Faulted ||
             !await db.IncidentReports.AnyAsync(x => x.ChargingBayId == id, ct)))
-            await IncidentService.RecordFaultAsync(db, outbox, locationId.Value, id, null, UserId(), now,
+            await IncidentService.RecordFaultAsync(db, outbox, locationId.Value, id, null, operatorId, now,
                 FaultDescription(request.Description), ct);
         db.Entry(bay).Property(x => x.EquipmentState).CurrentValue = request.State;
-        bay.StateUpdatedById = UserId();
+        bay.StateUpdatedById = operatorId;
         bay.StateUpdatedAtUtc = now;
 
         await db.SaveChangesAsync(ct);
@@ -129,14 +132,15 @@ public sealed class OperatorOperationsController(AppDbContext db, TimeProvider c
     [HttpPatch("batteries/{id:guid}/state")]
     public async Task<IActionResult> ChangeBattery(Guid id, ChangeBatteryStateRequest request, CancellationToken ct)
     {
+        if (!TryGetUserId(out var operatorId)) return Unauthorized();
         if (!Enum.IsDefined(request.State)) return BadRequest();
-        var locationId = await AssignedLocationAsync(ct);
+        var locationId = await AssignedLocationAsync(operatorId, ct);
         if (locationId is null) return NotFound();
         var now = clock.GetUtcNow();
         if (request.State == BatteryState.Faulted)
             await (reservationService ?? new ReservationService(db, clock, outbox)).ExpireAtStationAsync(locationId.Value, ct);
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        if (!await ReservationLocks.LockOperatorStationAsync(db, locationId.Value, UserId(), ct)) return Forbid();
+        if (!await ReservationLocks.LockOperatorStationAsync(db, locationId.Value, operatorId, ct)) return Forbid();
         var battery = await db.Set<Battery>().SingleOrDefaultAsync(x => x.Id == id && x.LocationId == locationId, ct);
         if (battery is null) return NotFound();
         var next = request.State;
@@ -144,7 +148,7 @@ public sealed class OperatorOperationsController(AppDbContext db, TimeProvider c
         {
             if (next == BatteryState.Faulted && !await db.IncidentReports.AnyAsync(x => x.BatteryId == id, ct))
             {
-                await IncidentService.RecordFaultAsync(db, outbox, locationId.Value, null, id, UserId(),
+                await IncidentService.RecordFaultAsync(db, outbox, locationId.Value, null, id, operatorId,
                     clock.GetUtcNow(), FaultDescription(request.Description), ct);
                 await db.SaveChangesAsync(ct);
                 await transaction.CommitAsync(ct);
@@ -153,7 +157,7 @@ public sealed class OperatorOperationsController(AppDbContext db, TimeProvider c
             return NoContent();
         }
         if (battery.State == BatteryState.WithCustomer || next == BatteryState.WithCustomer)
-            return Conflict("Customer battery assignments must be processed via the swap workflow.");
+            return Problem(statusCode: 409, detail: "Customer battery assignments must be processed via the swap workflow.");
 
         var allowed = (battery.State, next) switch
         {
@@ -163,15 +167,16 @@ public sealed class OperatorOperationsController(AppDbContext db, TimeProvider c
             (BatteryState.Faulted, BatteryState.Inspection) => true,
             _ => false
         };
-        if (!allowed) return Conflict("This battery transition requires a service or inspection workflow.");
+        if (!allowed)
+            return Problem(statusCode: 409, detail: "This battery transition requires a service or inspection workflow.");
         if (next != BatteryState.Faulted && await db.Set<Reservation>().AnyAsync(x => x.BatteryId == id &&
             (x.Status == ReservationStatus.Held || x.Status == ReservationStatus.CheckedIn), ct))
-            return Conflict("Resolve the existing reservation before changing this battery.");
+            return Problem(statusCode: 409, detail: "Resolve the existing reservation before changing this battery.");
         if (next == BatteryState.Faulted)
-            await IncidentService.RecordFaultAsync(db, outbox, locationId.Value, null, id, UserId(), now,
+            await IncidentService.RecordFaultAsync(db, outbox, locationId.Value, null, id, operatorId, now,
                 FaultDescription(request.Description), ct);
         db.Entry(battery).Property(x => x.State).CurrentValue = next;
-        battery.StateUpdatedById = UserId();
+        battery.StateUpdatedById = operatorId;
         battery.StateUpdatedAtUtc = now;
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
@@ -182,16 +187,17 @@ public sealed class OperatorOperationsController(AppDbContext db, TimeProvider c
     [HttpPut("service-hours")]
     public async Task<IActionResult> ReplaceHours(ReplaceHoursRequest request, CancellationToken ct)
     {
+        if (!TryGetUserId(out var operatorId)) return Unauthorized();
         if (!Enum.IsDefined(request.ServiceType) || !Enum.IsDefined(request.Day) || request.Intervals is null ||
             request.Intervals.Any(x => x.OpensAtMinute < 0 || x.ClosesAtMinute > 1440 ||
                 x.OpensAtMinute >= x.ClosesAtMinute)) return BadRequest();
         var ordered = request.Intervals.OrderBy(x => x.OpensAtMinute).ToArray();
         if (ordered.Skip(1).Where((x, i) => x.OpensAtMinute < ordered[i].ClosesAtMinute).Any())
-            return BadRequest("Service intervals overlap.");
-        var locationId = await AssignedLocationAsync(ct);
+            return Problem(statusCode: 400, detail: "Service intervals overlap.");
+        var locationId = await AssignedLocationAsync(operatorId, ct);
         if (locationId is null) return NotFound();
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        if (!await ReservationLocks.LockOperatorStationAsync(db, locationId.Value, UserId(), ct)) return Forbid();
+        if (!await ReservationLocks.LockOperatorStationAsync(db, locationId.Value, operatorId, ct)) return Forbid();
         var station = await db.Locations.AsNoTracking().SingleAsync(x => x.Id == locationId, ct);
         if (request.ServiceType == ReservationServiceType.Charging && !station.OffersCarCharging ||
             request.ServiceType == ReservationServiceType.BatterySwap && !station.OffersBatterySwap)
@@ -202,7 +208,7 @@ public sealed class OperatorOperationsController(AppDbContext db, TimeProvider c
         {
             LocationId = locationId.Value, ServiceType = request.ServiceType, Day = request.Day,
             OpensAtMinute = x.OpensAtMinute, ClosesAtMinute = x.ClosesAtMinute,
-            UpdatedById = UserId(), UpdatedAtUtc = clock.GetUtcNow()
+            UpdatedById = operatorId, UpdatedAtUtc = clock.GetUtcNow()
         }));
         await db.SaveChangesAsync(ct);
         var offeredServices = new List<ReservationServiceType>();
@@ -224,16 +230,13 @@ public sealed class OperatorOperationsController(AppDbContext db, TimeProvider c
     private static string FaultDescription(string? description) =>
         string.IsNullOrWhiteSpace(description) ? "Operator reported an equipment fault." : description.Trim();
 
-    private Guid UserId() => Guid.Parse(User.FindFirst(JwtRegisteredClaimNames.Sub)!.Value);
+    private bool TryGetUserId(out Guid userId)
+    {
+        var raw = User.FindFirstValue(JwtRegisteredClaimNames.Sub) ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
+        return Guid.TryParse(raw, out userId);
+    }
 
-    private Task<Guid?> AssignedLocationAsync(CancellationToken ct) => db.Set<OperatorAssignment>()
-        .Where(x => x.OperatorId == UserId() && x.EndedAtUtc == null)
+    private Task<Guid?> AssignedLocationAsync(Guid operatorId, CancellationToken ct) => db.Set<OperatorAssignment>()
+        .Where(x => x.OperatorId == operatorId && x.EndedAtUtc == null)
         .Select(x => (Guid?)x.LocationId).SingleOrDefaultAsync(ct);
-
-    private Task<bool> StillAssignedAsync(Guid locationId, CancellationToken ct) => db.Set<OperatorAssignment>()
-        .AnyAsync(x => x.OperatorId == UserId() && x.LocationId == locationId && x.EndedAtUtc == null, ct);
-
-    private async Task LockLocationAsync(Guid id, CancellationToken ct) =>
-        await db.Locations.FromSqlInterpolated($"SELECT * FROM locations WHERE id = {id} FOR UPDATE")
-            .AsNoTracking().Select(x => x.Id).SingleAsync(ct);
 }

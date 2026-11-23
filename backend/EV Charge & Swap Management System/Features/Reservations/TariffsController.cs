@@ -21,7 +21,9 @@ public sealed class TariffsController(AppDbContext db, TimeProvider clock) : Con
     [HttpGet("current")]
     public async Task<ActionResult<CurrentStationTariffsResponse>> Current(CancellationToken ct)
     {
-        var station = await StationAsync(ct);
+        if (!TryGetUserId(out var operatorId)) return Unauthorized();
+        var station = await StationAsync(operatorId, ct);
+        if (station is null) return NotFound();
         var location = await db.Locations.AsNoTracking().SingleOrDefaultAsync(x => x.Id == station, ct);
         if (location is null) return NotFound();
 
@@ -39,7 +41,8 @@ public sealed class TariffsController(AppDbContext db, TimeProvider clock) : Con
     [HttpGet]
     public async Task<IActionResult> List(CancellationToken ct)
     {
-        var station = await StationAsync(ct);
+        if (!TryGetUserId(out var operatorId)) return Unauthorized();
+        var station = await StationAsync(operatorId, ct);
         if (station is null) return NotFound();
         return Ok(await db.Tariffs.AsNoTracking().Where(x => x.LocationId == station)
             .OrderByDescending(x => x.EffectiveFromUtc).Take(50).ToListAsync(ct));
@@ -48,15 +51,16 @@ public sealed class TariffsController(AppDbContext db, TimeProvider clock) : Con
     [HttpPost]
     public async Task<IActionResult> Create(CreateTariffRequest request, CancellationToken ct)
     {
+        if (!TryGetUserId(out var operatorId)) return Unauthorized();
         var maximum = request.ServiceType == ReservationServiceType.Charging ? 10_000m : 999_999m;
         if (!Enum.IsDefined(request.ServiceType) || request.UnitPrice < 0 || request.UnitPrice > maximum ||
             decimal.Round(request.UnitPrice, 2) != request.UnitPrice)
             return Problem(statusCode: 400, detail: "Invalid service or unit price.");
 
-        var station = await StationAsync(ct);
+        var station = await StationAsync(operatorId, ct);
         if (station is not { } id) return NotFound();
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        if (!await ReservationLocks.LockOperatorStationAsync(db, id, UserId(), ct)) return NotFound();
+        if (!await ReservationLocks.LockOperatorStationAsync(db, id, operatorId, ct)) return NotFound();
         var location = await db.Locations.AsNoTracking().SingleAsync(x => x.Id == id, ct);
         if (request.ServiceType == ReservationServiceType.Charging ? !location.OffersCarCharging : !location.OffersBatterySwap)
             return Problem(statusCode: 409, detail: "The station does not offer this service.");
@@ -70,16 +74,17 @@ public sealed class TariffsController(AppDbContext db, TimeProvider clock) : Con
             return Problem(statusCode: 409, detail: "A tariff already has this effective time.");
 
         var tariff = new Tariff { LocationId = id, ServiceType = request.ServiceType, UnitPrice = request.UnitPrice,
-            EffectiveFromUtc = effective, CreatedAtUtc = now, CreatedById = UserId() };
+            EffectiveFromUtc = effective, CreatedAtUtc = now, CreatedById = operatorId };
         db.Tariffs.Add(tariff);
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
         return StatusCode(201, tariff);
     }
 
-    private Guid UserId() => Guid.Parse(User.FindFirst(JwtRegisteredClaimNames.Sub)!.Value);
+    private bool TryGetUserId(out Guid operatorId) =>
+        Guid.TryParse(User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value, out operatorId);
 
-    private Task<Guid?> StationAsync(CancellationToken ct) => db.Set<OperatorAssignment>()
-        .Where(x => x.OperatorId == UserId() && x.EndedAtUtc == null)
+    private Task<Guid?> StationAsync(Guid operatorId, CancellationToken ct) => db.Set<OperatorAssignment>()
+        .Where(x => x.OperatorId == operatorId && x.EndedAtUtc == null)
         .Select(x => (Guid?)x.LocationId).SingleOrDefaultAsync(ct);
 }

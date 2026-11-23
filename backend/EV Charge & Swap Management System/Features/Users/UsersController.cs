@@ -16,22 +16,28 @@ namespace EVChargeSwap.Features.Users;
 public sealed class UsersController(UserService service) : ControllerBase
 {
     [HttpGet("me")]
-    public async Task<ActionResult<UserResponse>> Me()
+    public async Task<ActionResult<UserResponse>> Me(CancellationToken cancellationToken)
     {
-        var subject = User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
-        if (!Guid.TryParse(subject, out var userId)) return Unauthorized();
-        var result = await service.GetAsync(userId);
+        if (!TryGetUserId(out var userId)) return Unauthorized();
+        var result = await service.GetAsync(userId, cancellationToken);
         return result.Succeeded ? Ok(result.Value) : NotFound();
     }
 
     [HttpPut("me")]
-    public async Task<ActionResult<UserResponse>> UpdateMe(UpdateProfileRequest request)
+    public async Task<ActionResult<UserResponse>> UpdateMe(UpdateProfileRequest request, CancellationToken cancellationToken)
     {
         if (!TryGetUserId(out var userId)) return Unauthorized();
-        var result = await service.UpdateProfileAsync(userId, request);
+        var result = await service.UpdateProfileAsync(userId, request, cancellationToken);
         if (result.Succeeded) return Ok(result.Value);
         if (result.Failure == OperationFailure.NotFound) return NotFound();
-        return BadRequest(new ProblemDetails { Title = "Profile update failed.", Detail = result.Detail });
+        var problem = new ProblemDetails
+        {
+            Status = StatusCodes.Status400BadRequest,
+            Title = "Profile update failed.",
+            Detail = result.Detail
+        };
+        if (result.Errors.Count > 0) problem.Extensions["errors"] = result.Errors;
+        return BadRequest(problem);
     }
 
     [HttpPost("me/change-password")]

@@ -16,8 +16,9 @@ public sealed class UserService(
     AppDbContext db,
     TimeProvider timeProvider)
 {
-    public async Task<OperationResult<UserResponse>> GetAsync(Guid userId)
+    public async Task<OperationResult<UserResponse>> GetAsync(Guid userId, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var user = await userManager.FindByIdAsync(userId.ToString());
         if (user is null || !user.IsActive)
             return OperationResult<UserResponse>.Fail(OperationFailure.NotFound, "User was not found.");
@@ -27,8 +28,9 @@ public sealed class UserService(
     }
 
     public async Task<OperationResult<UserResponse>> UpdateProfileAsync(
-        Guid userId, UpdateProfileRequest request)
+        Guid userId, UpdateProfileRequest request, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (request.FullName.Trim().Length is < 2 or > 160)
             return OperationResult<UserResponse>.Fail(OperationFailure.Validation,
                 "Full name must contain 2 to 160 characters.");

@@ -2,6 +2,8 @@ using System.ComponentModel.DataAnnotations;
 using System.IdentityModel.Tokens.Jwt;
 using EVChargeSwap.Data;
 using EVChargeSwap.Features.Authorization;
+using EVChargeSwap.Features.Locations.Caching;
+using EVChargeSwap.Features.Locations.Services;
 using EVChargeSwap.Features.Reservations.Entities;
 using EVChargeSwap.Features.Reservations.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -23,7 +25,11 @@ public sealed record AssignOperatorRequest(Guid OperatorId);
 [ApiController]
 [Authorize(Roles = AppRoles.Admin)]
 [Route("api/locations/{locationId:guid}")]
-public sealed class ReservationSetupController(AppDbContext db, OperatorAssignmentService assignments) : ControllerBase
+public sealed class ReservationSetupController(
+    AppDbContext db,
+    OperatorAssignmentService assignments,
+    ILocationCache? cache = null,
+    IStationNotifier? notifier = null) : ControllerBase
 {
     [HttpPost("charging-bays")]
     public Task<IActionResult> CreateBay(Guid locationId, CreateBayRequest request, CancellationToken ct) =>
@@ -40,19 +46,56 @@ public sealed class ReservationSetupController(AppDbContext db, OperatorAssignme
         }, ct);
 
     [HttpPost("service-hours")]
-    public Task<IActionResult> CreateHours(Guid locationId, CreateHoursRequest request, CancellationToken ct)
+    public async Task<IActionResult> CreateHours(Guid locationId, CreateHoursRequest request, CancellationToken ct)
     {
         if (request.OpensAtMinute >= request.ClosesAtMinute)
-            return Task.FromResult<IActionResult>(Problem(statusCode: 400, detail: "Opening must precede closing."));
+            return Problem(statusCode: 400, detail: "Opening must precede closing.");
 
-        return AddResourceAsync(locationId, request.ServiceType, new ServiceHours
+        var location = await db.Locations.AsNoTracking().SingleOrDefaultAsync(x => x.Id == locationId, ct);
+        if (location is null) return NotFound();
+
+        var offered = request.ServiceType == ReservationServiceType.Charging
+            ? location.OffersCarCharging
+            : location.OffersBatterySwap;
+        if (!offered)
+            return Problem(statusCode: 409, detail: "The location does not offer this service.");
+
+        var overlaps = await db.Set<ServiceHours>().AsNoTracking().AnyAsync(x =>
+            x.LocationId == locationId &&
+            x.ServiceType == request.ServiceType &&
+            x.Day == request.Day &&
+            x.OpensAtMinute < request.ClosesAtMinute &&
+            request.OpensAtMinute < x.ClosesAtMinute, ct);
+        if (overlaps)
+            return Problem(statusCode: 409, detail: "Service hours overlap an existing interval.");
+
+        var entity = new ServiceHours
         {
             LocationId = locationId,
             ServiceType = request.ServiceType,
             Day = request.Day,
             OpensAtMinute = request.OpensAtMinute,
             ClosesAtMinute = request.ClosesAtMinute
-        }, ct);
+        };
+
+        var inserted = await InsertAsync(entity, ct);
+        if (inserted is ObjectResult { StatusCode: StatusCodes.Status201Created })
+        {
+            var offeredServices = new List<ReservationServiceType>();
+            if (location.OffersCarCharging) offeredServices.Add(ReservationServiceType.Charging);
+            if (location.OffersBatterySwap) offeredServices.Add(ReservationServiceType.BatterySwap);
+            var allHours = await db.Set<ServiceHours>().AsNoTracking()
+                .Where(x => x.LocationId == locationId).ToListAsync(ct);
+            var isOpen24Hours = offeredServices.All(service => Enumerable.Range(0, 7).All(day =>
+                allHours.Any(x => x.ServiceType == service && (int)x.Day == day &&
+                    x.OpensAtMinute == 0 && x.ClosesAtMinute == 1440)));
+            await db.Locations.Where(x => x.Id == locationId)
+                .ExecuteUpdateAsync(x => x.SetProperty(l => l.IsOpen24Hours, isOpen24Hours), ct);
+            if (cache is not null) await cache.InvalidateLocationAsync(locationId, ct);
+            if (notifier is not null) await notifier.NotifyStationInventoryChangedAsync(locationId, ct);
+        }
+
+        return inserted;
     }
 
     [HttpPost("operators")]
@@ -75,8 +118,13 @@ public sealed class ReservationSetupController(AppDbContext db, OperatorAssignme
         var offered = serviceType == ReservationServiceType.Charging
             ? location.OffersCarCharging
             : location.OffersBatterySwap;
-        return offered ? await InsertAsync(resource, ct)
-            : Problem(statusCode: 409, detail: "The location does not offer this service.");
+        if (!offered)
+            return Problem(statusCode: 409, detail: "The location does not offer this service.");
+
+        var inserted = await InsertAsync(resource, ct);
+        if (inserted is ObjectResult { StatusCode: StatusCodes.Status201Created } && notifier is not null)
+            await notifier.NotifyStationInventoryChangedAsync(locationId, ct);
+        return inserted;
     }
 
     private async Task<IActionResult> InsertAsync(object entity, CancellationToken ct)

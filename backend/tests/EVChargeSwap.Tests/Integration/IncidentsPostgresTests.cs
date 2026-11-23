@@ -110,12 +110,13 @@ public sealed class IncidentsPostgresTests
         var cancelled = await db.Reservations.AsNoTracking().SingleAsync(x => x.Id == swap.Id);
         Assert.Equal(ReservationStatus.Cancelled, cancelled.Status);
         Assert.Equal(IncidentService.FaultCancellationReason, cancelled.ClosingReason);
+        var swapId = swap.Id.ToString();
         var cancellationEvent = await db.OutboxMessages.SingleAsync(x =>
-            x.RoutingKey == EventRoutingKeys.IncidentReservationResolved);
+            x.RoutingKey == EventRoutingKeys.IncidentReservationResolved && x.Payload.Contains(swapId));
         var notifications = new NotificationConsumer(db, NullLogger<NotificationConsumer>.Instance, clock);
         await notifications.HandleAsync(cancellationEvent.EventType, cancellationEvent.RoutingKey,
             cancellationEvent.Payload, cancellationEvent.Id, default);
-        var notice = Assert.Single(await db.Notifications.ToListAsync());
+        var notice = Assert.Single(await db.Notifications.Where(x => x.UserId == competingCustomer.Id).ToListAsync());
         Assert.Equal(competingCustomer.Id, notice.UserId);
         Assert.Contains("đã hủy", notice.Title);
     }

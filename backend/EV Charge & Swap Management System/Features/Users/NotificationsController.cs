@@ -31,8 +31,10 @@ public sealed record NotificationsListResponse(
 [ApiController]
 [Authorize]
 [Route("api/notifications")]
-public sealed class NotificationsController(AppDbContext db) : ControllerBase
+public sealed class NotificationsController(AppDbContext db, TimeProvider? clock = null) : ControllerBase
 {
+    private readonly TimeProvider _clock = clock ?? TimeProvider.System;
+
     [HttpGet]
     public async Task<ActionResult<NotificationsListResponse>> GetNotifications(CancellationToken ct,
         [FromQuery] int page = 1, [FromQuery] string category = "all")
@@ -41,7 +43,7 @@ public sealed class NotificationsController(AppDbContext db) : ControllerBase
 
         const int pageSize = 20;
         if (page < 1 || page > int.MaxValue / pageSize || category is not ("all" or "booking" or "charging" or "payment"))
-            return BadRequest();
+            return Problem(statusCode: StatusCodes.Status400BadRequest, detail: "Invalid pagination or category filter.");
 
         var query = db.Notifications.AsNoTracking().Where(x => x.UserId == userId);
         if (category != "all")
@@ -95,9 +97,12 @@ public sealed class NotificationsController(AppDbContext db) : ControllerBase
 
         if (notification is null) return NotFound();
 
-        notification.IsRead = true;
-        notification.ReadAtUtc = DateTimeOffset.UtcNow;
-        await db.SaveChangesAsync(ct);
+        if (!notification.IsRead)
+        {
+            notification.IsRead = true;
+            notification.ReadAtUtc = _clock.GetUtcNow();
+            await db.SaveChangesAsync(ct);
+        }
 
         return NoContent();
     }
@@ -107,7 +112,7 @@ public sealed class NotificationsController(AppDbContext db) : ControllerBase
     {
         if (!TryGetUserId(out var userId)) return Unauthorized();
 
-        var now = DateTimeOffset.UtcNow;
+        var now = _clock.GetUtcNow();
         await db.Notifications
             .Where(x => x.UserId == userId && !x.IsRead)
             .ExecuteUpdateAsync(update => update

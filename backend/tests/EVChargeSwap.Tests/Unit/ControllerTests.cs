@@ -10,6 +10,7 @@ using EVChargeSwap.Features.Authorization;
 using EVChargeSwap.Features.Locations.Entities;
 using EVChargeSwap.Features.Reservations;
 using EVChargeSwap.Features.Reservations.Entities;
+using EVChargeSwap.Features.Reservations.Services;
 using EVChargeSwap.Features.Users;
 using EVChargeSwap.Features.Users.Entities;
 using Microsoft.AspNetCore.Http;
@@ -20,14 +21,14 @@ using Xunit;
 
 public sealed class ControllerTests
 {
-    private static async Task<AppDbContext> CreateInMemoryDbContextAsync()
+    private static async Task<(AppDbContext Db, SqliteConnection Connection)> CreateInMemoryDbContextAsync()
     {
         var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync();
         var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlite(connection).Options;
         var db = new AppDbContext(options);
         await db.Database.EnsureCreatedAsync();
-        return db;
+        return (db, connection);
     }
 
     private static ApplicationUser CreateTestUser(Guid id, string email)
@@ -54,7 +55,9 @@ public sealed class ControllerTests
     [Fact]
     public async Task NotificationsController_GetNotifications_ReturnsUserNotificationsAndUnreadCount()
     {
-        await using var db = await CreateInMemoryDbContextAsync();
+        var (db, connection) = await CreateInMemoryDbContextAsync();
+        await using var dbScope = db;
+        await using var connectionScope = connection;
         var controller = new NotificationsController(db);
         var userId = Guid.NewGuid();
         var otherUserId = Guid.NewGuid();
@@ -105,9 +108,11 @@ public sealed class ControllerTests
     }
 
     [Fact]
-    public async Task NotificationsController_MarkAsRead_UpdatesIsRead()
+    public async Task NotificationsController_MarkAsRead_UpdatesIsRead_AndIsIdempotent()
     {
-        await using var db = await CreateInMemoryDbContextAsync();
+        var (db, connection) = await CreateInMemoryDbContextAsync();
+        await using var dbScope = db;
+        await using var connectionScope = connection;
         var controller = new NotificationsController(db);
         var userId = Guid.NewGuid();
         db.Users.Add(CreateTestUser(userId, "reader@example.com"));
@@ -133,13 +138,21 @@ public sealed class ControllerTests
         var updated = await db.Notifications.FindAsync(notification.Id);
         Assert.NotNull(updated);
         Assert.True(updated.IsRead);
-        Assert.NotNull(updated.ReadAtUtc);
+        var firstReadAt = updated.ReadAtUtc;
+        Assert.NotNull(firstReadAt);
+
+        await Task.Delay(15);
+        Assert.IsType<NoContentResult>(await controller.MarkAsRead(notification.Id, CancellationToken.None));
+        var reread = await db.Notifications.FindAsync(notification.Id);
+        Assert.Equal(firstReadAt, reread!.ReadAtUtc);
     }
 
     [Fact]
     public async Task InvoicesController_Returns_Pending_Invoice_Details()
     {
-        await using var db = await CreateInMemoryDbContextAsync();
+        var (db, connection) = await CreateInMemoryDbContextAsync();
+        await using var dbScope = db;
+        await using var connectionScope = connection;
         var controller = new InvoicesController(db);
         var customerId = Guid.NewGuid();
         controller.ControllerContext = new ControllerContext
@@ -203,5 +216,50 @@ public sealed class ControllerTests
         var current = Assert.IsType<InvoiceDetailResponse>(Assert.IsType<OkObjectResult>(detail.Result).Value);
         Assert.Equal("Pending", current.Status);
         Assert.Null(current.PaymentReference);
+    }
+
+    [Fact]
+    public void MockVietQr_Encode_ProducesValidEmvCoTlvAndCrc16Checksum()
+    {
+        var payment = new Payment
+        {
+            Id = Guid.Parse("12345678-9abc-def0-1234-56789abcdef0"),
+            InvoiceId = Guid.NewGuid(),
+            Amount = 57870m
+        };
+
+        var payload = MockVietQr.Encode(payment);
+
+        // Parse top-level EMVCo TLV fields and ensure exact length accounting.
+        var fields = new Dictionary<string, string>(StringComparer.Ordinal);
+        var index = 0;
+        while (index < payload.Length)
+        {
+            var tag = payload.Substring(index, 2);
+            var length = int.Parse(payload.Substring(index + 2, 2));
+            var value = payload.Substring(index + 4, length);
+            fields[tag] = value;
+            index += 4 + length;
+        }
+
+        Assert.Equal(payload.Length, index);
+        Assert.Equal("01", fields["00"]);
+        Assert.Equal("12", fields["01"]);
+        Assert.Equal("704", fields["53"]);
+        Assert.Equal("57870", fields["54"]);
+        Assert.Equal("VN", fields["58"]);
+        Assert.Equal("0524123456789ABCDEF012345678", fields["62"]);
+
+        // Recompute CRC-16/CCITT-FALSE over payload excluding the 4-char CRC value.
+        var bodyWithoutCrc = payload[..^4];
+        Assert.EndsWith("6304", bodyWithoutCrc, StringComparison.Ordinal);
+        ushort crc = 0xFFFF;
+        foreach (var b in System.Text.Encoding.ASCII.GetBytes(bodyWithoutCrc))
+        {
+            crc ^= (ushort)(b << 8);
+            for (var bit = 0; bit < 8; bit++)
+                crc = (ushort)((crc << 1) ^ ((crc & 0x8000) == 0 ? 0 : 0x1021));
+        }
+        Assert.Equal(crc.ToString("X4"), fields["63"]);
     }
 }

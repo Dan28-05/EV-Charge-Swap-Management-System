@@ -37,7 +37,8 @@ public sealed class BatterySwapsController(AppDbContext db, TimeProvider clock, 
     [HttpPost("{reservationId:guid}/complete")]
     public async Task<IActionResult> Complete(Guid reservationId, CompleteBatterySwapRequest request, CancellationToken ct)
     {
-        var operatorId = Guid.Parse(User.FindFirst(JwtRegisteredClaimNames.Sub)!.Value);
+        if (!Guid.TryParse(User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value, out var operatorId))
+            return Unauthorized();
         var returnedSerial = request.ReturnedSerial.Trim().ToUpperInvariant();
         var issuedSerial = request.IssuedSerial.Trim().ToUpperInvariant();
         if (returnedSerial == issuedSerial || returnedSerial.Length is 0 or > 64 || issuedSerial.Length is 0 or > 64 ||
@@ -58,22 +59,22 @@ public sealed class BatterySwapsController(AppDbContext db, TimeProvider clock, 
                 join returnedBattery in db.Batteries on priorSwap.ReturnedBatteryId equals returnedBattery.Id
                 join issuedBattery in db.Batteries on priorSwap.IssuedBatteryId equals issuedBattery.Id
                 join savedInvoice in db.Invoices on priorSwap.ReservationId equals savedInvoice.ReservationId
-                where priorSwap.ReservationId == reservationId && returnedBattery.Serial == returnedSerial &&
-                    issuedBattery.Serial == issuedSerial && priorSwap.InspectionResult == inspection
+                where priorSwap.ReservationId == reservationId && returnedBattery.Serial.ToUpper() == returnedSerial &&
+                    issuedBattery.Serial.ToUpper() == issuedSerial && priorSwap.InspectionResult == inspection
                 select new { Swap = priorSwap, Invoice = savedInvoice }).SingleOrDefaultAsync(ct);
             return previous is null
-                ? Conflict("The completed swap does not match this request.")
+                ? Problem(statusCode: 409, detail: "The completed swap does not match this request.")
                 : Ok(BatterySwapCompletionResponse.From(previous.Swap, previous.Invoice));
         }
 
         if (reservation.Status != ReservationStatus.CheckedIn)
             return Problem(statusCode: 409, detail: "The battery reservation must be checked in.");
         var issued = await db.Batteries.SingleOrDefaultAsync(x => x.Id == reservation.BatteryId &&
-            x.LocationId == id && x.Serial == issuedSerial && x.State == BatteryState.Ready, ct);
+            x.LocationId == id && x.Serial.ToUpper() == issuedSerial && x.State == BatteryState.Ready, ct);
         if (issued is null) return Problem(statusCode: 409, detail: "The reserved battery must be ready at this station.");
 
         var returned = await db.Batteries.FromSqlInterpolated(
-            $"""SELECT * FROM batteries WHERE "Serial" = {returnedSerial} FOR UPDATE""").SingleOrDefaultAsync(ct);
+            $"""SELECT * FROM batteries WHERE UPPER("Serial") = {returnedSerial} FOR UPDATE""").SingleOrDefaultAsync(ct);
         if (returned is not null && (returned.State != BatteryState.WithCustomer ||
             returned.CustodianCustomerId != reservation.CustomerId))
             return Problem(statusCode: 409, detail: "The returned battery is not in this customer's custody.");

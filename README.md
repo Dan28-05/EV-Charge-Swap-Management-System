@@ -21,6 +21,7 @@ Tài liệu nguồn của dự án:
 | Swagger UI | Có tại `/swagger`, chỉ trong Development |
 | Common | Đã có phân trang dùng chung và xử lý lỗi không lộ thông tin nội bộ |
 | Middleware | Ghi method/path/status/thời gian xử lý và request ID; không ghi body, query string hoặc thông tin đăng nhập |
+| Observability | `Serilog.AspNetCore` structured logging kèm `OpenTelemetry` (ASP.NET Core, HttpClient, Npgsql, W3C `traceparent` qua RabbitMQ) xuất qua `OTEL_EXPORTER_OTLP_ENDPOINT` |
 | Health | Liveness của API và readiness kiểm tra kết nối database |
 | Tests | Unit test và HTTP integration test; integration dùng SQLite trong bộ nhớ |
 | GitHub Actions | Workflow backend chạy test với PostgreSQL riêng trên CI |
@@ -292,8 +293,8 @@ Mở **http://localhost:4200/**. Không cần đăng nhập để xem trạm. T�
 
 - Cấu hình URL API và tile map: `frontend/src/app/features/station-finder/station-finder.config.ts`. Mặc định API là `/api`.
 - Khi chạy Angular local, `frontend/proxy.conf.json` chuyển cả `/api/**` và `/hubs/**` sang `http://localhost:8080`. Nếu chạy API bằng Visual Studio, đổi cả hai target theo cổng của API rồi khởi động lại Angular. Nếu cả `GET /api/operator/me/incidents` và `POST /hubs/notifications/negotiate?negotiateVersion=1` trả 404 khi gọi trực tiếp cổng 8080, kiểm tra phiên bản API và chạy lại `docker compose up -d --build postgres migrate api`. Hai đường dẫn này trả 401 khi gọi đúng API mà chưa đăng nhập.
-- Khi chạy Docker Compose, Nginx chuyển `/api/` sang `api:8080`; đường dẫn SPA vẫn trả về `index.html`. Build frontend dùng `npm ci` và output Angular `dist/*/browser`.
-- Nạp seed demo theo mục 8: 10 trạm trọng điểm mẫu hoặc 100 trạm sạc & đổi pin thực tế trải khắp các đô thị toàn quốc (TP.HCM, Hà Nội, Đà Nẵng, Quy Nhơn, Hải Phòng, Bình Dương, Cần Thơ, Nha Trang, Vũng Tàu...). Sau đó tải lại dashboard; nút **Tải thêm địa điểm** lấy 20 trạm mỗi lần. Danh sách và marker luôn dùng chung tập dữ liệu, loại trùng theo ID.
+- Khi chạy Docker Compose, frontend chạy bằng image non-root `nginxinc/nginx-unprivileged` trên cổng `8080` (ánh xạ ra host `127.0.0.1:4200:8080`), đi kèm `frontend/nginx-security-headers.conf` (CSP, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`) và proxy `/api/`, `/hubs/` sang `api:8080`; đường dẫn SPA vẫn trả về `index.html`. Build frontend dùng `npm ci` và output Angular `dist/*/browser`.
+- Nạp seed demo theo mục 8: 10 trạm trọng điểm mẫu hoặc 100 trạm sạc & đổi pin thực tế trải khắp các đô thị toàn quốc (TP.HCM, Hà Nội, Đà Nẵng, Quy Nhơn, Hải Phòng, Bình Dương, Cần Thơ, Nha Trang, Vũng Tàu...). Sau đó tải lại dashboard; nút **Tải thêm trạm** lấy 20 trạm mỗi lần. Danh sách và marker luôn dùng chung tập dữ liệu đã lọc, loại trùng theo ID.
 - Feature nằm trong `features/station-finder/`: page điều phối trạng thái, `station-list/` hiển thị danh sách, `station-map/` quản lý Leaflet, `services/` gọi API và `models/` định nghĩa DTO. Chọn thẻ hoặc marker mở chi tiết từ API; Chỉ đường mở Google Maps bằng tọa độ đích.
 - Header dùng logo con hươu trong `frontend/public/favicon.png`. Danh sách có thể đóng/mở; khi chọn trạm, bản đồ giữ marker trong phần nhìn thấy, kể cả khi bảng chi tiết đang mở trên mobile. Mục Đặt chỗ/Lịch sử được ghi “Sắp có” trong giao diện; backend đặt chỗ đã có API riêng và chưa nối với nút Đặt chỗ.
 - Trạng thái trạm do Admin cập nhật qua trường `operatingStatus` khi `POST/PUT /api/locations`: `Unknown`, `Open`, `Closed`, `Maintenance`. Trạm cũ mặc định `Unknown` (giao diện ghi “Chưa có thông tin”). `isActive=false` ẩn trạm khỏi API công khai, còn `Closed`/`Maintenance` vẫn hiển thị với nhãn tương ứng. Trạng thái này không tự thay đổi theo giờ; giờ phục vụ và tình trạng thiết bị là dữ liệu riêng ở mốc sau.
@@ -350,7 +351,14 @@ Browser test dùng Microsoft Edge đã cài, tự mở Angular cổng 4300, ch�
 
 ### Vận hành chỉ mục tìm trạm
 
-Compose chạy Elasticsearch một node trong mạng nội bộ Docker. API dùng `LocationSearch__Endpoint=http://elasticsearch:9200`. Chạy API trên host dùng cấu hình PostgreSQL mặc định cho tìm kiếm, hoặc cung cấp một endpoint Elasticsearch có thể truy cập từ host. Triển khai thật cần HTTPS, quyền API key phù hợp và cấp `LocationSearch__ApiKey` qua kho secret.
+Compose chạy Elasticsearch một node trong mạng nội bộ Docker. API dùng `LocationSearch__Endpoint=http://elasticsearch:9200`. Chạy API trên host dùng cấu hình PostgreSQL mặc định cho tìm kiếm, hoặc cung cấp một endpoint Elasticsearch có thể truy cập từ host. Triển khai ngoài Development bắt buộc HTTPS, quyền API key phù hợp và phải cấp `LocationSearch__ApiKey` qua kho secret (API sẽ từ chối khởi động nếu cấu hình `LocationSearch__Endpoint` mà thiếu `LocationSearch__ApiKey`).
+
+Các cấu hình vận hành và bảo mật bổ sung cho môi trường Production / nhiều instance:
+
+- `ForwardedHeaders:KnownProxies` và `ForwardedHeaders:KnownNetworks`: danh sách proxy tin cậy cho `X-Forwarded-For` / `X-Forwarded-Proto` (không tin cậy proxy tùy ý).
+- `SignalR:UseRedisBackplane=true`: bật Redis backplane cho SignalR khi chạy nhiều instance API kèm `ConnectionStrings:Redis`.
+- `OTEL_EXPORTER_OTLP_ENDPOINT`: bật xuất OpenTelemetry traces/metrics qua OTLP (ví dụ Aspire Dashboard local); kết hợp `Serilog.AspNetCore` và lan truyền W3C `traceparent` qua RabbitMQ.
+- Migration `HardenIndexesAndBillingConstraints`: bổ sung composite index cho truy vấn nóng (active reservations, inbox/outbox, invoices, tariffs), mở rộng precision đơn giá VND lên `numeric(14,2)` và thêm CHECK constraints chống số tiền âm trên bảng `invoices`.
 
 API tự tạo và nạp chỉ mục khi alias `charging-stations` chưa tồn tại. Sau khi Admin tạo, sửa, ẩn hoặc hiện trạm, một sự kiện Outbox chuyển qua RabbitMQ đến queue `ev.location-search.queue`. Consumer đọc bản ghi mới nhất, ghi theo ID trạm hoặc xóa tài liệu của trạm đã ẩn. Elasticsearch có thể chậm hơn PostgreSQL trong thời gian đồng bộ. Nếu search lỗi hoặc chưa có chỉ mục, API đọc từ PostgreSQL với cách xếp hạng đơn giản hơn.
 

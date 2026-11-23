@@ -1,6 +1,6 @@
 # Architecture and Technology Roadmap
 
-Last updated: 2026-11-21
+Last updated: 2026-11-23
 
 This document records the intended architecture and the approved use of portfolio technologies. Technology is introduced to solve a concrete problem, not to increase the tool count.
 
@@ -157,6 +157,15 @@ Minimum telemetry:
 
 Propagate trace context through message headers so an API request can be correlated with background consumers. Use the standalone Aspire Dashboard locally through OTLP; choose a production backend later without changing application instrumentation.
 
+Current implementation details:
+
+- `Serilog.AspNetCore` handles structured logging across HTTP requests and background workers.
+- `OpenTelemetry` instruments ASP.NET Core, `HttpClient`, Npgsql (`Npgsql.OpenTelemetry`), and custom RabbitMQ publish/consume `ActivitySource` spans with W3C `traceparent` / `tracestate` header propagation. OTLP export activates automatically when `OTEL_EXPORTER_OTLP_ENDPOINT` is configured.
+- SignalR supports multi-instance scale-out via `Microsoft.AspNetCore.SignalR.StackExchangeRedis`, enabled explicitly via `SignalR:UseRedisBackplane=true` when Redis is configured.
+- `ForwardedHeaders` honors explicit `ForwardedHeaders:KnownProxies` and `ForwardedHeaders:KnownNetworks` allow-lists rather than trusting arbitrary upstream proxies.
+- Non-Development environments require `LocationSearch:ApiKey` whenever `LocationSearch:Endpoint` is configured.
+- Frontend Docker deployment runs non-root `nginxinc/nginx-unprivileged` on port `8080` (bound to `127.0.0.1:4200:8080` in local Compose) with strict CSP and security headers in `frontend/nginx-security-headers.conf`.
+
 ## 6. Delivery order
 
 ### Customer Station Finder milestone
@@ -212,7 +221,7 @@ Charging bay and battery faults create an [incident report](incident-report-erd.
 ### Phase 6 — Billing and observability completion
 
 1. Tariffs, immutable applied prices, invoices, and payments.
-   Operators publish effective-dated tariffs at their assigned station. Charging snapshots the tariff at start and retains the demo rate as a fallback at stations without a charging tariff. Swap snapshots the tariff at handover and requires a configured rate. See the [service billing ERD](swap-billing-payment-erd.md).
+   Operators publish effective-dated tariffs at their assigned station. Charging snapshots the tariff at start and retains the demo rate as a fallback at stations without a charging tariff. Swap snapshots the tariff at handover and requires a configured rate. Migration `HardenIndexesAndBillingConstraints` widens VND currency rates to `numeric(14,2)`, adds non-negative invoice amount check constraints, and indexes hot reservation/invoice/outbox queries. See the [service billing ERD](swap-billing-payment-erd.md).
 2. Verified idempotent payment webhooks.
    Development mock callbacks use HMAC-SHA256 and persist the provider event ID alongside the payment and invoice update. PostgreSQL serializes each invoice's attempts and allows one successful payment per invoice.
 3. OpenTelemetry traces and business/infrastructure metrics.

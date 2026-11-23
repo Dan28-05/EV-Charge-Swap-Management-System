@@ -215,9 +215,11 @@
       </section>
 
       <!-- NAVIGATION TABS -->
-      <nav class="dashboard-tabs" aria-label="Vận hành trạm">
+      <nav class="dashboard-tabs" role="tablist" aria-label="Vận hành trạm">
         <button
           type="button"
+          role="tab"
+          [attr.aria-selected]="currentTab() === 'operations'"
           class="tab-btn"
           [class.active]="currentTab() === 'operations'"
           (click)="setTab('operations')"
@@ -237,6 +239,8 @@
 
         <button
           type="button"
+          role="tab"
+          [attr.aria-selected]="currentTab() === 'bays'"
           class="tab-btn"
           [class.active]="currentTab() === 'bays'"
           (click)="setTab('bays')"
@@ -250,6 +254,8 @@
 
         <button
           type="button"
+          role="tab"
+          [attr.aria-selected]="currentTab() === 'batteries'"
           class="tab-btn"
           [class.active]="currentTab() === 'batteries'"
           (click)="setTab('batteries')"
@@ -262,7 +268,7 @@
           <span class="tab-count">{{ data.batteries.length }}</span>
         </button>
 
-        <button type="button" class="tab-btn" [class.active]="currentTab() === 'checkout'" (click)="openCheckout()">
+        <button type="button" role="tab" [attr.aria-selected]="currentTab() === 'checkout'" class="tab-btn" [class.active]="currentTab() === 'checkout'" (click)="openCheckout()">
           Thanh toán
         </button>
       </nav>
@@ -897,7 +903,7 @@
   <!-- MODAL GHI SỐ CÔNG TƠ ĐIỆN (START / COMPLETE CHARGING) -->
   @if (meterModalOpen()) {
     <div class="modal-backdrop" (click)="closeMeterModal()">
-      <div class="meter-modal" (click)="$event.stopPropagation()">
+      <div class="meter-modal" role="dialog" aria-modal="true" aria-labelledby="meter-modal-title" (click)="$event.stopPropagation()">
         <div class="modal-hdr">
           <div class="title-wrap">
             <div class="icon-wrap" [class.end]="meterModalMode() === 'complete'">
@@ -906,13 +912,13 @@
               </svg>
             </div>
             <div>
-              <h3>{{ meterModalMode() === 'start' ? 'Bắt đầu phiên sạc' : 'Kết thúc phiên sạc' }}</h3>
+              <h3 id="meter-modal-title">{{ meterModalMode() === 'start' ? 'Bắt đầu phiên sạc' : 'Kết thúc phiên sạc' }}</h3>
               <p class="sub">
                 {{ meterModalMode() === 'start' ? 'Ghi nhận số công tơ ban đầu' : 'Ghi nhận số công tơ khi hoàn tất sạc' }}
               </p>
             </div>
           </div>
-          <button type="button" class="btn-close" (click)="closeMeterModal()">✕</button>
+          <button type="button" class="btn-close" aria-label="Đóng cửa sổ công tơ" (click)="closeMeterModal()">✕</button>
         </div>
 
         <div class="modal-body">

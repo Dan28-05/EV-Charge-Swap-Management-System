@@ -1,4 +1,4 @@
-import { Component, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 import {
   directionsUrl,
   formatDistance,
@@ -9,6 +9,7 @@ import {
 
 @Component({
   selector: 'app-station-list',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <ul class="stations" aria-label="Danh sách trạm">
       @for (station of stations(); track station.id) {
@@ -101,23 +102,22 @@ import {
                 }
               </div>
             </div>
-
-            <!-- Direction link: Subtle icon button on the right -->
-            <a
-              class="directions directions-link"
-              [href]="directionsUrl(station)"
-              target="_blank"
-              rel="noopener noreferrer"
-              (click)="$event.stopPropagation()"
-              [attr.aria-label]="'Chỉ đường đến ' + station.name + ' (mở tab mới)'"
-              title="Chỉ đường trên Google Maps"
-            >
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="7" y1="17" x2="17" y2="7"></line>
-                <polyline points="7 7 17 7 17 17"></polyline>
-              </svg>
-            </a>
           </button>
+
+          <!-- Direction link: Sibling interactive element (valid HTML5 / WCAG) -->
+          <a
+            class="directions directions-link"
+            [href]="directionsUrl(station)"
+            target="_blank"
+            rel="noopener noreferrer"
+            [attr.aria-label]="'Chỉ đường đến ' + station.name + ' (mở tab mới)'"
+            title="Chỉ đường trên Google Maps"
+          >
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="7" y1="17" x2="17" y2="7"></line>
+              <polyline points="7 7 17 7 17 17"></polyline>
+            </svg>
+          </a>
         </li>
       }
     </ul>
@@ -132,6 +132,9 @@ import {
       gap: 8px;
     }
     .station-card {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
       border: 1px solid #e2e8f0;
       border-radius: 10px;
       background: #ffffff;
@@ -164,7 +167,8 @@ import {
       display: flex;
       align-items: flex-start;
       gap: 12px;
-      width: 100%;
+      flex: 1;
+      min-width: 0;
       padding: 0;
       text-align: left;
       border: 0;

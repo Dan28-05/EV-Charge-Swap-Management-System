@@ -1,5 +1,6 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { ChangeDetectionStrategy, Component, inject, OnInit, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, inject, OnInit, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { finalize } from 'rxjs';
@@ -7,6 +8,8 @@ import { AuthenticatedUser, ProblemDetails } from '../models/authentication.mode
 import { AuthService } from '../services/auth.service';
 
 export type ProfileTab = 'personal' | 'security' | 'mobility';
+
+const STRONG_PASSWORD_PATTERN = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/;
 
 @Component({
   selector: 'app-profile',
@@ -18,6 +21,8 @@ export type ProfileTab = 'personal' | 'security' | 'mobility';
 export class ProfileComponent implements OnInit {
   protected readonly auth = inject(AuthService);
   private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
+  private copiedTimer?: ReturnType<typeof setTimeout>;
 
   protected readonly user = signal<AuthenticatedUser | null>(null);
   protected readonly loading = signal(true);
@@ -47,7 +52,12 @@ export class ProfileComponent implements OnInit {
     currentPassword: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
     newPassword: new FormControl('', {
       nonNullable: true,
-      validators: [Validators.required, Validators.minLength(8), Validators.maxLength(128)],
+      validators: [
+        Validators.required,
+        Validators.minLength(8),
+        Validators.maxLength(128),
+        Validators.pattern(STRONG_PASSWORD_PATTERN),
+      ],
     }),
     confirmPassword: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
   });
@@ -58,6 +68,10 @@ export class ProfileComponent implements OnInit {
       validators: [Validators.required, Validators.pattern(/^\d{6}$/)],
     }),
   });
+
+  constructor() {
+    this.destroyRef.onDestroy(() => clearTimeout(this.copiedTimer));
+  }
 
   ngOnInit(): void {
     if (!this.auth.isAuthenticated()) {
@@ -97,12 +111,13 @@ export class ProfileComponent implements OnInit {
     if (typeof navigator !== 'undefined' && navigator.clipboard) {
       navigator.clipboard.writeText(id);
       this.copiedId.set(true);
-      setTimeout(() => this.copiedId.set(false), 2000);
+      clearTimeout(this.copiedTimer);
+      this.copiedTimer = setTimeout(() => this.copiedId.set(false), 2000);
     }
   }
 
   protected logout(): void {
-    this.auth.logout().subscribe({
+    this.auth.logout().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => this.router.navigate(['/login']),
       error: () => this.router.navigate(['/login']),
     });
@@ -128,7 +143,10 @@ export class ProfileComponent implements OnInit {
     this.error.set('');
     this.auth
       .profile()
-      .pipe(finalize(() => this.loading.set(false)))
+      .pipe(
+        takeUntilDestroyed(this.destroyRef),
+        finalize(() => this.loading.set(false)),
+      )
       .subscribe({
         next: (user) => {
           this.user.set(user);
@@ -149,7 +167,10 @@ export class ProfileComponent implements OnInit {
     this.error.set('');
     this.auth
       .updateProfile(this.profileForm.getRawValue().fullName.trim())
-      .pipe(finalize(() => this.saving.set(false)))
+      .pipe(
+        takeUntilDestroyed(this.destroyRef),
+        finalize(() => this.saving.set(false)),
+      )
       .subscribe({
         next: (user) => {
           this.user.set(user);
@@ -176,7 +197,10 @@ export class ProfileComponent implements OnInit {
     this.error.set('');
     this.auth
       .changePassword({ currentPassword, newPassword })
-      .pipe(finalize(() => this.changingPassword.set(false)))
+      .pipe(
+        takeUntilDestroyed(this.destroyRef),
+        finalize(() => this.changingPassword.set(false)),
+      )
       .subscribe({
         next: () => {
           this.auth.clearSession();
@@ -193,7 +217,10 @@ export class ProfileComponent implements OnInit {
     this.error.set('');
     this.auth
       .sendVerificationCode(channel)
-      .pipe(finalize(() => this.verificationBusy.set(false)))
+      .pipe(
+        takeUntilDestroyed(this.destroyRef),
+        finalize(() => this.verificationBusy.set(false)),
+      )
       .subscribe({
         next: () => {
           this.verificationChannel.set(channel);
@@ -219,7 +246,10 @@ export class ProfileComponent implements OnInit {
     this.error.set('');
     this.auth
       .confirmVerificationCode(channel, this.verificationForm.controls.code.value)
-      .pipe(finalize(() => this.verificationBusy.set(false)))
+      .pipe(
+        takeUntilDestroyed(this.destroyRef),
+        finalize(() => this.verificationBusy.set(false)),
+      )
       .subscribe({
         next: () => {
           this.verificationChannel.set(null);

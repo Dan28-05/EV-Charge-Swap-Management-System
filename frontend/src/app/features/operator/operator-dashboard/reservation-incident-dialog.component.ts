@@ -1,10 +1,11 @@
-import { Component, DestroyRef, ElementRef, inject, output, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, inject, output, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { catchError, finalize, of, Subject, switchMap } from 'rxjs';
 import { IncidentOptions, IncidentResolution, OperatorService } from '../services/operator.service';
 
 @Component({
   selector: 'app-reservation-incident-dialog',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <dialog #panel aria-labelledby="incident-title" (cancel)="lockWhileSaving($event)">
       <header>

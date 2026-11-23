@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { Component, DestroyRef, ElementRef, OnInit, computed, inject, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, HostListener, OnInit, computed, inject, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -15,6 +15,7 @@ import {
 import { OperatorService } from '../services/operator.service';
 import { EMPTY, auditTime, catchError, filter, finalize, merge, switchMap, tap, timer } from 'rxjs';
 import { extractApiError } from '../../../core/utils/api-error.util';
+import { DialogService } from '../../../core/services/dialog.service';
 import { AuthService } from '../../auth/services/auth.service';
 import { ReservationRealtimeService } from '../../reservations/services/reservation-realtime.service';
 
@@ -28,6 +29,7 @@ type DashboardTab = 'operations' | 'bays' | 'batteries' | 'checkout';
 @Component({
   selector: 'app-operator-dashboard',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, FormsModule, InvoicesComponent, StationPricingComponent,
     ReservationIncidentDialogComponent, NotificationBellComponent],
   templateUrl: './operator-dashboard.component.html',
@@ -40,6 +42,16 @@ export class OperatorDashboardComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly realtime = inject(ReservationRealtimeService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly dialog = inject(DialogService);
+
+  @HostListener('document:keydown.escape')
+  onEscape(): void {
+    if (this.meterModalOpen()) {
+      this.closeMeterModal();
+    } else if (this.swapReservation() && !this.billingBusy()) {
+      this.swapReservation.set(null);
+    }
+  }
 
   readonly currentTab = signal<DashboardTab>('operations');
   readonly checkoutInvoiceId = signal<string | null>(null);
@@ -346,7 +358,10 @@ export class OperatorDashboardComponent implements OnInit {
     ).subscribe({
       error: (err: unknown) => {
         if ((err as { status?: number })?.status === 409) this.refresh();
-        alert(extractApiError(err, 'Không thể xác nhận xe vào bãi.'));
+        void this.dialog.alert(extractApiError(err, 'Không thể xác nhận xe vào bãi.'), {
+          title: 'Không thể thực hiện',
+          tone: 'error',
+        });
       },
     });
   }
@@ -419,47 +434,65 @@ export class OperatorDashboardComponent implements OnInit {
     }
   }
 
-  confirmNoCharge(res: OperatorActiveReservation): void {
+  async confirmNoCharge(res: OperatorActiveReservation): Promise<void> {
     if (this.actionBusy()) return;
-    if (confirm('Xác nhận khách đã vào chỗ đỗ nhưng quyết định không sạc?')) {
-      this.actionBusy.set(true);
-      this.operatorService.confirmNoCharge(res.id).pipe(
-        takeUntilDestroyed(this.destroyRef),
-        finalize(() => this.actionBusy.set(false)),
-      ).subscribe({
-        next: () => {},
-        error: (err: unknown) => alert(extractApiError(err, 'Không thể xác nhận không sạc.')),
-      });
-    }
+    const confirmed = await this.dialog.confirm(
+      'Xác nhận khách đã vào chỗ đỗ nhưng quyết định không sạc?',
+      { title: 'Xác nhận khách không sạc', tone: 'warning', confirmText: 'Xác nhận không sạc' },
+    );
+    if (!confirmed || this.actionBusy()) return;
+    this.actionBusy.set(true);
+    this.operatorService.confirmNoCharge(res.id).pipe(
+      takeUntilDestroyed(this.destroyRef),
+      finalize(() => this.actionBusy.set(false)),
+    ).subscribe({
+      next: () => {},
+      error: (err: unknown) => void this.dialog.alert(extractApiError(err, 'Không thể xác nhận không sạc.'), {
+        title: 'Không thể thực hiện',
+        tone: 'error',
+      }),
+    });
   }
 
-  confirmVehicleDeparted(res: OperatorActiveReservation): void {
+  async confirmVehicleDeparted(res: OperatorActiveReservation): Promise<void> {
     if (this.actionBusy()) return;
-    if (confirm('Xác nhận xe đã rời chỗ đỗ? Thao tác này sẽ giải phóng trụ sạc về trạng thái Trống.')) {
-      this.actionBusy.set(true);
-      this.operatorService.confirmVehicleDeparted(res.id).pipe(
-        takeUntilDestroyed(this.destroyRef),
-        finalize(() => this.actionBusy.set(false)),
-      ).subscribe({
-        next: () => {},
-        error: (err: unknown) => alert(extractApiError(err, 'Không thể xác nhận xe rời bãi.')),
-      });
-    }
+    const confirmed = await this.dialog.confirm(
+      'Xác nhận xe đã rời chỗ đỗ? Thao tác này sẽ giải phóng trụ sạc về trạng thái Trống.',
+      { title: 'Xác nhận xe rời bãi', tone: 'primary', confirmText: 'Xác nhận rời bãi' },
+    );
+    if (!confirmed || this.actionBusy()) return;
+    this.actionBusy.set(true);
+    this.operatorService.confirmVehicleDeparted(res.id).pipe(
+      takeUntilDestroyed(this.destroyRef),
+      finalize(() => this.actionBusy.set(false)),
+    ).subscribe({
+      next: () => {},
+      error: (err: unknown) => void this.dialog.alert(extractApiError(err, 'Không thể xác nhận xe rời bãi.'), {
+        title: 'Không thể thực hiện',
+        tone: 'error',
+      }),
+    });
   }
 
-  closeWithoutService(res: OperatorActiveReservation): void {
+  async closeWithoutService(res: OperatorActiveReservation): Promise<void> {
     const location = this.stationData()?.location;
     if (!location || this.actionBusy()) return;
-    if (confirm('Đóng lượt giữ chỗ này do khách không sử dụng dịch vụ?')) {
-      this.actionBusy.set(true);
-      this.operatorService.closeWithoutService(res.id, location.id).pipe(
-        takeUntilDestroyed(this.destroyRef),
-        finalize(() => this.actionBusy.set(false)),
-      ).subscribe({
-        next: () => {},
-        error: (err: unknown) => alert(extractApiError(err, 'Không thể đóng lượt giữ chỗ.')),
-      });
-    }
+    const confirmed = await this.dialog.confirm(
+      'Đóng lượt giữ chỗ này do khách không sử dụng dịch vụ?',
+      { title: 'Đóng lượt giữ chỗ', tone: 'danger', confirmText: 'Đóng lượt' },
+    );
+    if (!confirmed || this.actionBusy()) return;
+    this.actionBusy.set(true);
+    this.operatorService.closeWithoutService(res.id, location.id).pipe(
+      takeUntilDestroyed(this.destroyRef),
+      finalize(() => this.actionBusy.set(false)),
+    ).subscribe({
+      next: () => {},
+      error: (err: unknown) => void this.dialog.alert(extractApiError(err, 'Không thể đóng lượt giữ chỗ.'), {
+        title: 'Không thể thực hiện',
+        tone: 'error',
+      }),
+    });
   }
 
   // --- Bay Equipment Management ---
@@ -475,7 +508,10 @@ export class OperatorDashboardComponent implements OnInit {
       finalize(() => this.actionBusy.set(false)),
     ).subscribe({
       next: () => {},
-      error: (err: unknown) => alert(extractApiError(err, 'Không thể cập nhật trạng thái trụ sạc.')),
+      error: (err: unknown) => void this.dialog.alert(extractApiError(err, 'Không thể cập nhật trạng thái trụ sạc.'), {
+        title: 'Không thể thực hiện',
+        tone: 'error',
+      }),
     });
   }
 
@@ -493,7 +529,10 @@ export class OperatorDashboardComponent implements OnInit {
     ).subscribe({
       next: () => {},
       error: (err: unknown) => {
-        alert(extractApiError(err, 'Không thể cập nhật trạng thái viên pin.'));
+        void this.dialog.alert(extractApiError(err, 'Không thể cập nhật trạng thái viên pin.'), {
+          title: 'Không thể thực hiện',
+          tone: 'error',
+        });
       },
     });
   }

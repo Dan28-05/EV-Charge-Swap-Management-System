@@ -1,13 +1,17 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { finalize } from 'rxjs';
 import { ProblemDetails } from '../models/authentication.models';
 import { AuthService } from '../services/auth.service';
 
+const STRONG_PASSWORD_PATTERN = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/;
+
 @Component({
   selector: 'app-forgot-password',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [ReactiveFormsModule, RouterLink],
   templateUrl: './forgot-password.component.html',
   styleUrl: './forgot-password.component.scss',
@@ -15,6 +19,7 @@ import { AuthService } from '../services/auth.service';
 export class ForgotPasswordComponent {
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
 
   protected readonly codeRequested = signal(false);
   protected readonly busy = signal(false);
@@ -23,7 +28,15 @@ export class ForgotPasswordComponent {
   protected readonly form = new FormGroup({
     identifier: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
     code: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.pattern(/^\d{6}$/)] }),
-    newPassword: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.minLength(8), Validators.maxLength(128)] }),
+    newPassword: new FormControl('', {
+      nonNullable: true,
+      validators: [
+        Validators.required,
+        Validators.minLength(8),
+        Validators.maxLength(128),
+        Validators.pattern(STRONG_PASSWORD_PATTERN),
+      ],
+    }),
     confirmPassword: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
   });
 
@@ -35,7 +48,10 @@ export class ForgotPasswordComponent {
     this.busy.set(true);
     this.error.set('');
     this.auth.forgotPassword(this.form.controls.identifier.value.trim())
-      .pipe(finalize(() => this.busy.set(false)))
+      .pipe(
+        takeUntilDestroyed(this.destroyRef),
+        finalize(() => this.busy.set(false)),
+      )
       .subscribe({
         next: () => {
           this.codeRequested.set(true);
@@ -58,7 +74,10 @@ export class ForgotPasswordComponent {
     this.busy.set(true);
     this.error.set('');
     this.auth.resetPassword({ identifier: identifier.trim(), code, newPassword })
-      .pipe(finalize(() => this.busy.set(false)))
+      .pipe(
+        takeUntilDestroyed(this.destroyRef),
+        finalize(() => this.busy.set(false)),
+      )
       .subscribe({
         next: () => {
           this.auth.clearSession();

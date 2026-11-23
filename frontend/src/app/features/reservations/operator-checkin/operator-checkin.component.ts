@@ -1,5 +1,6 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { RouterModule } from '@angular/router';
 import { AuthService } from '../../auth/services/auth.service';
@@ -11,6 +12,7 @@ import { ReservationService } from '../services/reservation.service';
 @Component({
   selector: 'app-operator-checkin',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, FormsModule, RouterModule],
   templateUrl: './operator-checkin.component.html',
   styleUrl: './operator-checkin.component.scss',
@@ -19,6 +21,7 @@ export class OperatorCheckinComponent implements OnInit {
   private readonly reservationService = inject(ReservationService);
   private readonly authService = inject(AuthService);
   private readonly locationsApi = inject(LocationsApiService);
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly currentUser = this.authService.currentUser;
   readonly loading = signal<boolean>(false);
@@ -48,6 +51,7 @@ export class OperatorCheckinComponent implements OnInit {
     this.stationsLoading.set(true);
     this.locationsApi
       .list(1, 100)
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
           this.stationsLoading.set(false);
@@ -121,6 +125,7 @@ export class OperatorCheckinComponent implements OnInit {
         locationId: station.id,
         code,
       })
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
           this.loading.set(false);
@@ -150,7 +155,10 @@ export class OperatorCheckinComponent implements OnInit {
     if (!res || !station) return;
 
     this.loading.set(true);
-    this.reservationService.closeWithoutService(res.id, station.id).subscribe({
+    this.reservationService
+      .closeWithoutService(res.id, station.id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
       next: () => {
         this.loading.set(false);
         this.showCloseConfirm.set(false);

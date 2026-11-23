@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { RouterLink } from '@angular/router';
 
 interface NetworkMetric {
   value: string;
@@ -15,6 +16,7 @@ interface MobilityFeature {
 
 @Component({
   selector: 'app-brand-showcase',
+  imports: [RouterLink],
   templateUrl: './brand-showcase.component.html',
   styleUrl: './brand-showcase.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

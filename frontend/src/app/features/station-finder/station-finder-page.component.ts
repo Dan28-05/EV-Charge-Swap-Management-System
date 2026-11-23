@@ -1,4 +1,4 @@
-import { Component, computed, DestroyRef, effect, inject, OnInit, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, DestroyRef, effect, inject, OnInit, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
@@ -24,6 +24,7 @@ import { NotificationBellComponent } from '../notifications/notification-bell.co
 
 @Component({
   selector: 'app-station-finder-page',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     FormsModule,
     RouterLink,
@@ -47,6 +48,9 @@ export class StationFinderPageComponent implements OnInit {
   private stationRequest?: Subscription;
   private searchDelay?: Subscription;
   private placeRequest?: Subscription;
+  private inventoryHighlightTimer?: ReturnType<typeof setTimeout>;
+  private copiedTimer?: ReturnType<typeof setTimeout>;
+  private mobileViewTimer?: ReturnType<typeof setTimeout>;
   private globalQuery = '';
   private page = 0;
 
@@ -85,11 +89,9 @@ export class StationFinderPageComponent implements OnInit {
   readonly userLocation = signal<{ lat: number; lng: number } | null>(null);
   readonly searchCenter = signal<{ lat: number; lng: number } | null>(null);
   readonly selectedRadiusKm = signal<number>(50); // Tải trạm trong 50 km quanh khu vực đang xem
-  readonly radiusOptions = [5, 10, 25, 50]; // Lựa chọn bán kính km
 
   // Tiện ích tìm kiếm & bộ lọc kiểu Google Maps
   readonly searchQuery = signal('');
-  readonly activeSearchSource = signal<'header' | 'sidebar'>('header');
   readonly activeServiceFilter = signal<'all' | 'charging' | 'swap'>('all');
   readonly availabilityFilter = signal<'all' | 'open' | 'available'>('all');
   readonly sidebarCollapsed = signal(false);
@@ -126,12 +128,19 @@ export class StationFinderPageComponent implements OnInit {
         ...this.stations().map((station) => station.id),
       ]);
     });
+
+    this.destroyRef.onDestroy(() => {
+      clearTimeout(this.inventoryHighlightTimer);
+      clearTimeout(this.copiedTimer);
+      clearTimeout(this.mobileViewTimer);
+      this.realtimeService.watchStations([]);
+    });
   }
 
   ngOnInit() {
     this.autoDetectLocationAndLoad();
     if (this.currentUser()) {
-      this.reservationService.getActive().subscribe();
+      this.reservationService.getActive().pipe(takeUntilDestroyed(this.destroyRef)).subscribe();
     }
 
     // Lắng nghe sự kiện cập nhật thời gian thực từ SignalR
@@ -152,7 +161,8 @@ export class StationFinderPageComponent implements OnInit {
           });
           // Kích hoạt hiệu ứng flash highlight
           this.hasRecentInventoryUpdate.set(true);
-          setTimeout(() => this.hasRecentInventoryUpdate.set(false), 2000);
+          clearTimeout(this.inventoryHighlightTimer);
+          this.inventoryHighlightTimer = setTimeout(() => this.hasRecentInventoryUpdate.set(false), 2000);
         }
 
         // Cập nhật trong danh sách hiển thị trên bản đồ & danh sách bên
@@ -181,14 +191,13 @@ export class StationFinderPageComponent implements OnInit {
       document.addEventListener('visibilitychange', onVisibilityChange);
       this.destroyRef.onDestroy(() => {
         document.removeEventListener('visibilitychange', onVisibilityChange);
-        this.realtimeService.watchStations([]);
       });
     }
   }
 
   openReservationModal(serviceType?: ReservationServiceType) {
     if (this.currentUser()) {
-      this.reservationService.getActive().subscribe();
+      this.reservationService.getActive().pipe(takeUntilDestroyed(this.destroyRef)).subscribe();
     }
     if (serviceType) {
       this.modalInitialServiceType.set(serviceType);
@@ -285,12 +294,6 @@ export class StationFinderPageComponent implements OnInit {
   onMapAreaChanged(coords: { lat: number; lng: number }) {
     this.searchCenter.set(coords);
     if (!this.searchQuery().trim()) this.searchNearby(coords.lat, coords.lng, this.selectedRadiusKm(), true);
-  }
-
-  setRadius(radiusKm: number) {
-    this.selectedRadiusKm.set(radiusKm);
-    const center = this.searchCenter();
-    if (center) this.searchNearby(center.lat, center.lng, radiusKm, true);
   }
 
   setServiceFilter(filter: 'all' | 'charging' | 'swap') {
@@ -412,7 +415,8 @@ export class StationFinderPageComponent implements OnInit {
     if (typeof navigator !== 'undefined' && navigator.clipboard) {
       navigator.clipboard.writeText(address);
       this.copied.set(true);
-      setTimeout(() => this.copied.set(false), 2000);
+      clearTimeout(this.copiedTimer);
+      this.copiedTimer = setTimeout(() => this.copied.set(false), 2000);
     }
   }
 
@@ -439,7 +443,10 @@ export class StationFinderPageComponent implements OnInit {
   selectStation(id: string) {
     if (typeof window !== 'undefined' && window.innerWidth < 1050) {
       this.sidebarCollapsed.set(true);
-      if (window.innerWidth <= 768) setTimeout(() => this.mobileView.set('map'), 0);
+      if (window.innerWidth <= 768) {
+        clearTimeout(this.mobileViewTimer);
+        this.mobileViewTimer = setTimeout(() => this.mobileView.set('map'), 0);
+      }
     }
     this.detailRequest?.unsubscribe();
     this.selectedId.set(id);
@@ -451,10 +458,12 @@ export class StationFinderPageComponent implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (station) => {
+          if (this.selectedId() !== id) return;
           this.detail.set(station);
           this.detailLoading.set(false);
         },
         error: () => {
+          if (this.selectedId() !== id) return;
           this.detailError.set(
             'Không thể tải chi tiết. Trạm có thể đã được ẩn hoặc kết nối bị gián đoạn.',
           );
@@ -468,6 +477,7 @@ export class StationFinderPageComponent implements OnInit {
     this.selectedId.set(null);
     this.detail.set(null);
     this.detailLoading.set(false);
+    this.isRefreshing.set(false);
   }
 
   refreshDetail(silent = false) {
@@ -475,18 +485,21 @@ export class StationFinderPageComponent implements OnInit {
     if (!id || this.isRefreshing()) return;
     if (!silent) this.isRefreshing.set(true);
 
-    this.api
+    this.detailRequest?.unsubscribe();
+    this.detailRequest = this.api
       .detail(id)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (station) => {
+          if (this.selectedId() !== id) return;
           this.detail.set(station);
           this.stations.update((list) =>
             list.map((st) => (st.id === id ? station : st)),
           );
           if (!silent) {
             this.hasRecentInventoryUpdate.set(true);
-            setTimeout(() => this.hasRecentInventoryUpdate.set(false), 1500);
+            clearTimeout(this.inventoryHighlightTimer);
+            this.inventoryHighlightTimer = setTimeout(() => this.hasRecentInventoryUpdate.set(false), 1500);
           }
           this.isRefreshing.set(false);
         },
@@ -497,6 +510,6 @@ export class StationFinderPageComponent implements OnInit {
   }
 
   logout() {
-    this.authService.logout().subscribe();
+    this.authService.logout().pipe(takeUntilDestroyed(this.destroyRef)).subscribe();
   }
 }

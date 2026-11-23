@@ -1,13 +1,10 @@
-import { DecimalPipe, registerLocaleData } from '@angular/common';
-import localeVi from '@angular/common/locales/vi';
-import { Component, DestroyRef, computed, inject, input, signal } from '@angular/core';
+import { DecimalPipe } from '@angular/common';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, input, signal } from '@angular/core';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { Subject, catchError, finalize, merge, of, switchMap } from 'rxjs';
 import { OperatorLocationInfo } from '../models/operator.models';
 import { CurrentStationTariffs, OperatorService } from '../services/operator.service';
-
-registerLocaleData(localeVi);
 
 const services = [
   { id: 1, key: 'charging', label: 'Sạc ô tô', unit: 'kWh', maximum: 10000 },
@@ -16,6 +13,7 @@ const services = [
 
 @Component({
   selector: 'app-station-pricing',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [DecimalPipe, FormsModule],
   template: `
     <button type="button" class="price-trigger" aria-haspopup="dialog" (click)="open(editor)" title="Xem và điều chỉnh bảng giá tại trạm">

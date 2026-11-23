@@ -147,7 +147,7 @@
       aria-label="Bản đồ địa điểm"
     >
       <app-station-map
-        [stations]="stations()"
+        [stations]="displayedStations()"
         [selectedId]="selectedId()"
         [sidebarCollapsed]="sidebarCollapsed()"
         [userLocation]="userLocation()"
@@ -266,18 +266,20 @@
         <div class="service-filter-row" role="tablist" aria-label="Lọc theo dịch vụ">
           <button
             type="button"
+            role="tab"
             class="service-pill"
             [class.active]="activeServiceFilter() === 'all'"
-            [attr.aria-pressed]="activeServiceFilter() === 'all'"
+            [attr.aria-selected]="activeServiceFilter() === 'all'"
             (click)="setServiceFilter('all')"
           >
             Tất cả
           </button>
           <button
             type="button"
+            role="tab"
             class="service-pill"
             [class.active]="activeServiceFilter() === 'charging'"
-            [attr.aria-pressed]="activeServiceFilter() === 'charging'"
+            [attr.aria-selected]="activeServiceFilter() === 'charging'"
             (click)="setServiceFilter('charging')"
           >
             <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor">
@@ -287,9 +289,10 @@
           </button>
           <button
             type="button"
+            role="tab"
             class="service-pill"
             [class.active]="activeServiceFilter() === 'swap'"
-            [attr.aria-pressed]="activeServiceFilter() === 'swap'"
+            [attr.aria-selected]="activeServiceFilter() === 'swap'"
             (click)="setServiceFilter('swap')"
           >
             <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor">

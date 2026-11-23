@@ -1,12 +1,13 @@
 import { CommonModule, DatePipe, DecimalPipe } from '@angular/common';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { Component, DestroyRef, OnInit, computed, inject, input, isDevMode, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, HostListener, OnInit, computed, inject, input, isDevMode, signal } from '@angular/core';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { EMPTY, Subject, catchError, finalize, merge, of, startWith, switchMap, timer } from 'rxjs';
 import * as QRCode from 'qrcode';
 import { AuthService } from '../auth/services/auth.service';
+import { DialogService } from '../../core/services/dialog.service';
 import { ReservationRealtimeService } from '../reservations/services/reservation-realtime.service';
 
 export interface Invoice {
@@ -39,6 +40,7 @@ export type InvoiceFilterTab = 'all' | 'pending' | 'paid';
 
 @Component({
   selector: 'app-invoices',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, DatePipe, DecimalPipe, FormsModule, RouterLink],
   templateUrl: './invoices.component.html',
   styleUrl: './invoices.component.scss',
@@ -47,8 +49,10 @@ export class InvoicesComponent implements OnInit {
   private readonly http = inject(HttpClient);
   private readonly destroyRef = inject(DestroyRef);
   private readonly realtime = inject(ReservationRealtimeService);
+  private readonly dialog = inject(DialogService);
   private readonly reload = new Subject<void>();
   private readonly rows = signal<Invoice[]>([]);
+  private copiedTimer?: ReturnType<typeof setTimeout>;
 
   readonly auth = inject(AuthService);
   protected readonly isDev = isDevMode();
@@ -116,12 +120,13 @@ export class InvoicesComponent implements OnInit {
 
   readonly paidCount = computed(() => this.rows().filter((inv) => inv.status === 'Paid').length);
   readonly pendingCount = computed(() => this.rows().filter((inv) => inv.status === 'Pending').length);
+  readonly hasMorePages = computed(() => this.rows().length >= 100);
 
   readonly attempt = signal<(QrAttempt & { image: string }) | null>(null);
   readonly activeInvoiceForQr = computed(() => {
     const att = this.attempt();
     if (!att) return null;
-    return this.rows().find((r) => r.id === att.invoiceId) || null;
+    return this.invoices().find((r) => r.id === att.invoiceId) || null;
   });
 
   readonly busy = signal(false);
@@ -129,6 +134,17 @@ export class InvoicesComponent implements OnInit {
   readonly page = signal(1);
   readonly error = signal<string | null>(null);
   readonly notice = signal<string | null>(null);
+
+  constructor() {
+    this.destroyRef.onDestroy(() => clearTimeout(this.copiedTimer));
+  }
+
+  @HostListener('document:keydown.escape')
+  onEscape(): void {
+    if (this.attempt()) {
+      this.closeQrModal();
+    }
+  }
 
   ngOnInit(): void {
     this.focusChanges.pipe(
@@ -181,7 +197,8 @@ export class InvoicesComponent implements OnInit {
     if (typeof navigator !== 'undefined' && navigator.clipboard) {
       navigator.clipboard.writeText(code).then(() => {
         this.copiedCode.set(code);
-        setTimeout(() => this.copiedCode.set(null), 2000);
+        clearTimeout(this.copiedTimer);
+        this.copiedTimer = setTimeout(() => this.copiedCode.set(null), 2000);
       }).catch(() => {});
     }
   }
@@ -212,14 +229,19 @@ export class InvoicesComponent implements OnInit {
       succeeded ? undefined : 'Lượt thử thất bại. Bạn có thể tạo lại mã QR.');
   }
 
-  update(invoice: Invoice, action: 'cash' | 'defer'): void {
+  async update(invoice: Invoice, action: 'cash' | 'defer'): Promise<void> {
     const amount = new Intl.NumberFormat('vi-VN').format(invoice.totalAmount);
     const operatorName = this.auth.currentUser()?.fullName || this.auth.currentUser()?.email || 'Nhân viên trạm';
     const customerLabel = invoice.customerName || invoice.reservationCode || 'khách hàng';
     const prompt = action === 'cash'
       ? `Xác nhận nhân viên ${operatorName} đã thu đủ ${amount} đ tiền mặt từ khách hàng ${customerLabel}?`
       : `Xác nhận cho khách hàng ${customerLabel} trả sau ${amount} đ trong vòng 7 ngày?`;
-    if (confirm(prompt)) this.submit(`/api/operator/me/invoices/${invoice.id}/${action}`, {});
+    const confirmed = await this.dialog.confirm(prompt, {
+      title: action === 'cash' ? 'Xác nhận thu tiền mặt' : 'Xác nhận cho trả sau 7 ngày',
+      tone: action === 'cash' ? 'primary' : 'warning',
+      confirmText: action === 'cash' ? 'Xác nhận đã thu' : 'Cho trả sau',
+    });
+    if (confirmed) this.submit(`/api/operator/me/invoices/${invoice.id}/${action}`, {});
   }
 
   private submit(url: string, body: object, notice?: string): void {

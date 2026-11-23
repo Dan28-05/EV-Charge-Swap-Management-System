@@ -6,9 +6,17 @@ const stations = Array.from({ length: 21 }, (_, i) => ({
   address: 'Quy Nhơn',
   latitude: 13.766667 + i * 0.005,
   longitude: 109.233333,
+  operatingStatus: 'Open',
   offersCarCharging: i % 3 !== 1,
   offersBatterySwap: i % 3 !== 0,
+  availableChargingBays: 3,
+  availableBatteries: 5,
 }));
+
+test.use({
+  permissions: ['geolocation'],
+  geolocation: { latitude: 13.766667, longitude: 109.233333 },
+});
 
 test('pages, shared selection, directions and responsive layout', async ({
   page,
@@ -16,28 +24,34 @@ test('pages, shared selection, directions and responsive layout', async ({
 }, info) => {
   await page.route('**/api/locations**', async (route) => {
     const url = new URL(route.request().url());
-    const id = url.pathname.split('/').pop();
-    if (id !== 'locations') return route.fulfill({ json: stations.find((s) => s.id === id) });
-    const number = Number(url.searchParams.get('page'));
-    return route.fulfill({
-      json: {
-        items: stations.slice((number - 1) * 20, number * 20),
-        page: number,
-        pageSize: 20,
-        totalCount: 21,
-      },
-    });
+    const lastSegment = url.pathname.split('/').pop();
+    if (lastSegment === 'nearby') {
+      const pageNumber = Number(url.searchParams.get('page') ?? '1');
+      const slice = stations.slice((pageNumber - 1) * 20, pageNumber * 20);
+      return route.fulfill({
+        json: {
+          items: slice.map((location, index) => ({
+            location,
+            distanceKm: Number(((pageNumber - 1) * 20 + index) * 0.4),
+          })),
+          page: pageNumber,
+          pageSize: 20,
+          totalCount: 21,
+        },
+      });
+    }
+    return route.fulfill({ json: stations.find((s) => s.id === lastSegment) });
   });
   await page.goto('/');
   await expect(page.locator('.station-card')).toHaveCount(20);
   await expect(page.locator('.station-marker')).toHaveCount(20);
-  await page.getByRole('button', { name: 'Tải thêm địa điểm' }).click();
+  await page.getByRole('button', { name: 'Tải thêm trạm' }).click();
   await expect(page.locator('.station-card')).toHaveCount(21);
   await expect(page.locator('.station-marker')).toHaveCount(21);
   await page.locator('.choose').nth(20).focus();
   await page.locator('.choose').nth(20).press('Enter');
   await expect(page.locator('.detail h2')).toHaveText('Trạm thử 20');
-  const url = new URL((await page.locator('.directions').getAttribute('href'))!);
+  const url = new URL((await page.locator('.detail .directions').getAttribute('href'))!);
   expect(url.searchParams.get('destination')).toBe(
     `${stations[20].latitude},${stations[20].longitude}`,
   );
@@ -50,7 +64,7 @@ test('pages, shared selection, directions and responsive layout', async ({
     await page.locator('.station-marker').nth(19).click();
   }
   await expect(page.locator('.detail h2')).toHaveText('Trạm thử 19');
-  await expect(page.locator('.station-card.selected strong')).toHaveText('Trạm thử 19');
+  await expect(page.locator('.station-card.selected .card-name')).toHaveText('Trạm thử 19');
   await page.getByRole('button', { name: 'Đóng chi tiết' }).click();
   await page.locator('.station-marker').nth(18).focus();
   await page.locator('.station-marker').nth(18).press('Enter');
@@ -68,7 +82,7 @@ test('pages, shared selection, directions and responsive layout', async ({
 
 test('API error, retry and empty state', async ({ page }) => {
   let failed = false;
-  await page.route('**/api/locations?**', (route) => {
+  await page.route('**/api/locations/nearby**', (route) => {
     if (!failed) {
       failed = true;
       return route.fulfill({ status: 503, json: {} });
@@ -76,7 +90,7 @@ test('API error, retry and empty state', async ({ page }) => {
     return route.fulfill({ json: { items: [], page: 1, pageSize: 20, totalCount: 0 } });
   });
   await page.goto('/');
-  await expect(page.getByRole('alert')).toContainText('Không thể tải');
+  await expect(page.getByRole('alert')).toContainText('Không thể tìm kiếm trạm');
   await page.getByRole('button', { name: 'Thử lại', exact: true }).click();
   await expect(page.getByText('Chưa có địa điểm', { exact: true })).toBeVisible();
   await expect(page.locator('.station-marker')).toHaveCount(0);
@@ -89,12 +103,12 @@ test('live API returns PostgreSQL stations beyond page one', async ({ page }, in
   );
   await page.goto('/');
   await expect(page.locator('.station-card')).toHaveCount(20);
-  await page.getByRole('button', { name: 'Tải thêm địa điểm' }).click();
+  await page.getByRole('button', { name: 'Tải thêm trạm' }).click();
   await expect(page.locator('.station-card')).toHaveCount(40);
   await expect(page.locator('.station-marker')).toHaveCount(40);
   await page.locator('.choose').nth(25).click();
   await expect(page.locator('.detail h2')).toHaveText(
-    (await page.locator('.station-card strong').nth(25).textContent())!,
+    (await page.locator('.station-card .card-name').nth(25).textContent())!,
   );
   await page.screenshot({ path: info.outputPath('live-api.png'), fullPage: true });
 });

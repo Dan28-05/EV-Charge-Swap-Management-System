@@ -101,12 +101,12 @@
     }
 
     <!-- CATEGORY FILTER TABS -->
-    <section class="filter-tabs-bar" role="tablist">
-      <button type="button" class="tab-btn" [class.active]="activeCategory() === 'all'" (click)="setCategory('all')">
+    <section class="filter-tabs-bar" role="tablist" aria-label="Phân loại thông báo">
+      <button type="button" role="tab" [attr.aria-selected]="activeCategory() === 'all'" class="tab-btn" [class.active]="activeCategory() === 'all'" (click)="setCategory('all')">
         <span>Tất cả</span>
       </button>
 
-      <button type="button" class="tab-btn" [class.active]="activeCategory() === 'booking'"
+      <button type="button" role="tab" [attr.aria-selected]="activeCategory() === 'booking'" class="tab-btn" [class.active]="activeCategory() === 'booking'"
         (click)="setCategory('booking')">
         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
           <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
@@ -117,7 +117,7 @@
         <span>Đặt giữ chỗ</span>
       </button>
 
-      <button type="button" class="tab-btn" [class.active]="activeCategory() === 'charging'"
+      <button type="button" role="tab" [attr.aria-selected]="activeCategory() === 'charging'" class="tab-btn" [class.active]="activeCategory() === 'charging'"
         (click)="setCategory('charging')">
         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
           <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
@@ -125,7 +125,7 @@
         <span>Phiên sạc pin</span>
       </button>
 
-      <button type="button" class="tab-btn" [class.active]="activeCategory() === 'payment'"
+      <button type="button" role="tab" [attr.aria-selected]="activeCategory() === 'payment'" class="tab-btn" [class.active]="activeCategory() === 'payment'"
         (click)="setCategory('payment')">
         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
           <rect x="2" y="4" width="20" height="16" rx="2"></rect>
@@ -138,7 +138,8 @@
     <!-- NOTIFICATIONS STREAM LIST -->
     <section class="notifications-stream" aria-label="Danh sách thông báo">
       @for (item of categorizedItems(); track item.id) {
-      <article class="notification-card" [class.unread]="!item.isRead" (click)="onItemClick(item)">
+      <article class="notification-card" [class.unread]="!item.isRead" tabindex="0"
+        (click)="onItemClick(item)" (keydown.enter)="onItemClick(item)">
         <!-- UNIFIED ICON BOX (MATCHES OPERATOR DASHBOARD) -->
         <div class="item-icon-box" [ngClass]="item.category">
           @switch (item.category) {
@@ -185,7 +186,11 @@
           <p class="item-msg">{{ item.message }}</p>
 
           @if (item.extractedCode; as code) {
-          <div class="code-action-pill" (click)="$event.stopPropagation(); copyCode(code)" title="Bấm để sao chép mã">
+          <div class="code-action-pill" role="button" tabindex="0"
+            (click)="$event.stopPropagation(); copyCode(code)"
+            (keydown.enter)="$event.stopPropagation(); copyCode(code)"
+            (keydown.space)="$event.preventDefault(); $event.stopPropagation(); copyCode(code)"
+            title="Bấm để sao chép mã">
             <span class="code-lbl">Mã:</span>
             <span class="code-text">{{ code }}</span>
             <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">

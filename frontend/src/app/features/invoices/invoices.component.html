@@ -158,16 +158,16 @@
 
     <!-- TOOLBAR: FILTER TABS & SEARCH & PAGINATION -->
     <section class="toolbar-section">
-      <div class="filter-tabs" role="tablist">
-        <button type="button" class="tab-btn" [class.active]="activeTab() === 'all'" (click)="setFilter('all')">
+      <div class="filter-tabs" role="tablist" aria-label="Lọc trạng thái hóa đơn">
+        <button type="button" role="tab" [attr.aria-selected]="activeTab() === 'all'" class="tab-btn" [class.active]="activeTab() === 'all'" (click)="setFilter('all')">
           Tất cả
           <span class="tab-badge">{{ invoices().length }}</span>
         </button>
-        <button type="button" class="tab-btn" [class.active]="activeTab() === 'pending'" (click)="setFilter('pending')">
+        <button type="button" role="tab" [attr.aria-selected]="activeTab() === 'pending'" class="tab-btn" [class.active]="activeTab() === 'pending'" (click)="setFilter('pending')">
           Chờ thanh toán
           <span class="tab-badge" [class.badge-pending]="pendingCount() > 0">{{ pendingCount() }}</span>
         </button>
-        <button type="button" class="tab-btn" [class.active]="activeTab() === 'paid'" (click)="setFilter('paid')">
+        <button type="button" role="tab" [attr.aria-selected]="activeTab() === 'paid'" class="tab-btn" [class.active]="activeTab() === 'paid'" (click)="setFilter('paid')">
           Đã thanh toán
           <span class="tab-badge badge-paid">{{ paidCount() }}</span>
         </button>
@@ -195,7 +195,7 @@
             <span>Trước</span>
           </button>
           <span class="page-indicator">Trang {{ page() }}</span>
-          <button type="button" class="btn-page" [disabled]="invoices().length < 100" (click)="goToPage(page() + 1)"
+          <button type="button" class="btn-page" [disabled]="!hasMorePages()" (click)="goToPage(page() + 1)"
             title="Trang sau">
             <span>Sau</span>
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
@@ -229,7 +229,10 @@
             </span>
 
             @if (invoice.reservationCode) {
-            <div class="code-pill" title="Bấm để sao chép mã" (click)="copyCode(invoice.reservationCode)">
+            <div class="code-pill" role="button" tabindex="0" title="Bấm để sao chép mã"
+              (click)="copyCode(invoice.reservationCode)"
+              (keydown.enter)="copyCode(invoice.reservationCode)"
+              (keydown.space)="$event.preventDefault(); copyCode(invoice.reservationCode)">
               <span class="code-label">MÃ:</span>
               <span class="code-val">{{ invoice.reservationCode }}</span>
               <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2">
@@ -402,13 +405,13 @@
   <!-- ENTERPRISE QR PAYMENT MODAL -->
   @if (attempt(); as qr) {
   <div class="qr-modal-backdrop" (click)="closeQrModal()">
-    <div class="qr-modal-dialog" (click)="$event.stopPropagation()">
+    <div class="qr-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="qr-dialog-title" (click)="$event.stopPropagation()">
       <header class="qr-dialog-header">
         <div class="dialog-title-group">
           <span class="qr-dialog-badge">Cổng thanh toán EVGo Pay</span>
-          <h3>Thanh toán qua mã QR</h3>
+          <h3 id="qr-dialog-title">Thanh toán qua mã QR</h3>
         </div>
-        <button type="button" class="btn-close-dialog" (click)="closeQrModal()" title="Đóng">✕</button>
+        <button type="button" class="btn-close-dialog" aria-label="Đóng cửa sổ QR" (click)="closeQrModal()" title="Đóng">✕</button>
       </header>
 
       <div class="qr-dialog-body">

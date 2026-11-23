@@ -2,9 +2,6 @@ import { inject } from '@angular/core';
 import { Router, Routes } from '@angular/router';
 import { authGuard, guestGuard, roleGuard } from './core/guards/auth.guards';
 import { AuthService } from './features/auth/services/auth.service';
-import { LoginPageComponent } from './features/auth/login-page/login-page.component';
-import { LoginFormComponent } from './features/auth/login-page/login-form/login-form.component';
-import { RegisterFormComponent } from './features/auth/login-page/register-form/register-form.component';
 
 export const routes: Routes = [
   {
@@ -18,11 +15,11 @@ export const routes: Routes = [
   },
   {
     path: '',
-    component: LoginPageComponent,
+    loadComponent: () => import('./features/auth/login-page/login-page.component').then(m => m.LoginPageComponent),
     canActivate: [guestGuard],
     children: [
-      { path: 'login', component: LoginFormComponent, title: 'Đăng nhập — EVGo' },
-      { path: 'register', component: RegisterFormComponent, title: 'Đăng ký — EVGo' },
+      { path: 'login', loadComponent: () => import('./features/auth/login-page/login-form/login-form.component').then(m => m.LoginFormComponent), title: 'Đăng nhập — EVGo' },
+      { path: 'register', loadComponent: () => import('./features/auth/login-page/register-form/register-form.component').then(m => m.RegisterFormComponent), title: 'Đăng ký — EVGo' },
       { path: 'forgot-password', loadComponent: () => import('./features/auth/forgot-password/forgot-password.component').then(m => m.ForgotPasswordComponent), title: 'Quên mật khẩu — EVGo' },
     ],
   },

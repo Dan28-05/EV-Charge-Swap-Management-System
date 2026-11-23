@@ -1,6 +1,6 @@
 import { CommonModule, DatePipe } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
-import { Component, DestroyRef, ElementRef, HostListener, computed, inject, input, output, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, HostListener, computed, inject, input, output, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
 import { EMPTY, Subject, auditTime, catchError, finalize, merge, switchMap, timer } from 'rxjs';
@@ -13,6 +13,7 @@ interface Inbox {
 
 @Component({
   selector: 'app-notification-bell',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, DatePipe],
   template: `
     <!-- BELL BUTTON TRIGGER -->
@@ -122,12 +123,12 @@ interface Inbox {
         </header>
 
         <!-- FILTER TABS -->
-        <div class="panel-tabs">
-          <button type="button" class="tab-btn" [class.active]="activeFilter() === 'all'" (click)="activeFilter.set('all')">
+        <div class="panel-tabs" role="tablist" aria-label="Lọc thông báo">
+          <button type="button" role="tab" [attr.aria-selected]="activeFilter() === 'all'" class="tab-btn" [class.active]="activeFilter() === 'all'" (click)="activeFilter.set('all')">
             <span>Tất cả</span>
             <span class="tab-count">{{ inbox().items.length }}</span>
           </button>
-          <button type="button" class="tab-btn" [class.active]="activeFilter() === 'unread'" (click)="activeFilter.set('unread')">
+          <button type="button" role="tab" [attr.aria-selected]="activeFilter() === 'unread'" class="tab-btn" [class.active]="activeFilter() === 'unread'" (click)="activeFilter.set('unread')">
             <span>Chưa đọc</span>
             @if (inbox().unreadCount > 0) {
               <span class="tab-count badge-unread">{{ inbox().unreadCount }}</span>

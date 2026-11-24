@@ -158,13 +158,17 @@ public sealed class LocationService(AppDbContext db, ILocationCache? cache = nul
         var location = new Location(request.Name, request.Address, request.Latitude!.Value, request.Longitude!.Value,
             request.OffersCarCharging, request.OffersBatterySwap);
         if (request.OperatingStatus is { } status) location.SetOperatingStatus(status);
+        if (request.IsActive == false) location.Deactivate();
         location.SetServiceDetails(request.IsOpen24Hours, request.ChargingPowerKw, request.BatteryCapacityKwh, request.AvailableBatteries, request.AvailableChargingBays);
         db.Locations.Add(location);
         await SaveLocationAsync(location.Id, cancellationToken);
 
         var response = (await WithLiveCountsAsync([ToResponse(location)], cancellationToken))[0];
         await _cache.InvalidateAllAsync(cancellationToken);
-        await _cache.SetAsync(response, cancellationToken);
+        if (location.IsActive)
+        {
+            await _cache.SetAsync(response, cancellationToken);
+        }
         return response;
     }
 

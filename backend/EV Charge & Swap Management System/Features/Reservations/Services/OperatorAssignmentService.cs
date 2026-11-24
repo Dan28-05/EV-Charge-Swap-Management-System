@@ -12,8 +12,10 @@ public sealed class OperatorAssignmentService(AppDbContext db, TimeProvider cloc
         Guid operatorId, Guid locationId, Guid adminId, bool transfer, CancellationToken ct)
     {
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        var user = await db.Users.FromSqlInterpolated($"SELECT * FROM users WHERE id = {operatorId} FOR UPDATE")
-            .AsNoTracking().SingleOrDefaultAsync(ct);
+        var user = db.Database.IsNpgsql()
+            ? await db.Users.FromSqlInterpolated($"SELECT * FROM users WHERE id = {operatorId} FOR UPDATE")
+                .AsNoTracking().SingleOrDefaultAsync(ct)
+            : await db.Users.AsNoTracking().SingleOrDefaultAsync(x => x.Id == operatorId, ct);
         if (user is null || !user.IsActive ||
             !await db.UserRoles.AnyAsync(x => x.UserId == operatorId && x.RoleId == AppRoles.OperatorId, ct))
             return (null, "The Operator account is missing or inactive.");

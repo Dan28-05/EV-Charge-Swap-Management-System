@@ -20,6 +20,7 @@ public sealed class LocationUpsertRequest : IValidatableObject
     public bool OffersCarCharging { get; init; }
     public bool OffersBatterySwap { get; init; }
     public LocationOperatingStatus? OperatingStatus { get; init; }
+    public bool? IsActive { get; init; }
     public bool IsOpen24Hours { get; init; }
     public int? ChargingPowerKw { get; init; }
     public decimal? BatteryCapacityKwh { get; init; }

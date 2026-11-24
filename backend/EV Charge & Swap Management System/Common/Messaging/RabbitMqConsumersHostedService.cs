@@ -227,7 +227,10 @@ public sealed class RabbitMqConsumersHostedService : BackgroundService
                     consumer: consumer,
                     cancellationToken: ct);
 
-                _activeConsumers.Add((channel, consumerTag));
+                lock (_activeConsumers)
+                {
+                    _activeConsumers.Add((channel, consumerTag));
+                }
                 _logger.LogInformation("Consumer {Consumer} registered on queue '{Queue}'.", consumerName, queueName);
             }
             catch
@@ -321,7 +324,14 @@ public sealed class RabbitMqConsumersHostedService : BackgroundService
 
     private async Task CloseActiveConsumersAsync()
     {
-        foreach (var (channel, consumerTag) in _activeConsumers)
+        List<(IChannel Channel, string ConsumerTag)> snapshot;
+        lock (_activeConsumers)
+        {
+            snapshot = [.. _activeConsumers];
+            _activeConsumers.Clear();
+        }
+
+        foreach (var (channel, consumerTag) in snapshot)
         {
             try
             {
@@ -342,6 +352,5 @@ public sealed class RabbitMqConsumersHostedService : BackgroundService
                 // Ignore channel cleanup errors on shutdown.
             }
         }
-        _activeConsumers.Clear();
     }
 }

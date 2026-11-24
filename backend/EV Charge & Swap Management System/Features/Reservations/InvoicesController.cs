@@ -15,7 +15,10 @@ public sealed record InvoiceDetailResponse(
     DateTimeOffset CreatedAtUtc, DateTimeOffset? PaidAtUtc, decimal? SwapRate,
     DateTimeOffset? DueAtUtc, string? PaymentMethod, Guid? CollectedByOperatorId,
     string? CustomerName = null, string? CustomerPhone = null, string? CustomerEmail = null,
-    string? CollectorName = null);
+    string? CollectorName = null,
+    string? LocationName = null, string? LocationAddress = null,
+    string? BayCode = null, string? BatterySerial = null,
+    DateTimeOffset? ReservedAtUtc = null);
 
 [ApiController]
 [Authorize]
@@ -55,6 +58,15 @@ public sealed class InvoicesController(AppDbContext db) : ControllerBase
                join reservation in db.Reservations.AsNoTracking()
                    on invoice.ReservationId equals reservation.Id into reservations
                from reservation in reservations.DefaultIfEmpty()
+               join location in db.Locations.AsNoTracking()
+                   on reservation.LocationId equals location.Id into locations
+               from location in locations.DefaultIfEmpty()
+               join bay in db.ChargingBays.AsNoTracking()
+                   on reservation.ChargingBayId equals bay.Id into bays
+               from bay in bays.DefaultIfEmpty()
+               join battery in db.Batteries.AsNoTracking()
+                   on reservation.BatteryId equals battery.Id into batteries
+               from battery in batteries.DefaultIfEmpty()
                join customer in db.Users.AsNoTracking()
                    on invoice.CustomerId equals customer.Id into customers
                from customer in customers.DefaultIfEmpty()
@@ -68,7 +80,7 @@ public sealed class InvoicesController(AppDbContext db) : ControllerBase
                    (isAdmin || invoice.CustomerId == userId || (isOperator && reservation != null &&
                    db.Set<OperatorAssignment>().Any(a => a.OperatorId == userId &&
                        a.LocationId == reservation.LocationId && a.EndedAtUtc == null)))
-               select new { invoice, reservation, customer, payment, collector };
+               select new { invoice, reservation, location, bay, battery, customer, payment, collector };
 
         if (offset is not null)
             rows = rows.OrderByDescending(x => x.invoice.CreatedAtUtc).ThenByDescending(x => x.invoice.Id)
@@ -77,6 +89,9 @@ public sealed class InvoicesController(AppDbContext db) : ControllerBase
         return from row in rows
                let invoice = row.invoice
                let reservation = row.reservation
+               let location = row.location
+               let bay = row.bay
+               let battery = row.battery
                let customer = row.customer
                let payment = row.payment
                let collector = row.collector
@@ -92,7 +107,12 @@ public sealed class InvoicesController(AppDbContext db) : ControllerBase
                    customer != null ? customer.Email : null,
                    (isOperator || isAdmin) && collector != null
                        ? (!string.IsNullOrWhiteSpace(collector.FullName) ? collector.FullName : collector.Email)
-                       : null);
+                       : null,
+                   location != null ? location.Name : null,
+                   location != null ? location.Address : null,
+                   bay != null ? bay.Code : null,
+                   battery != null ? battery.Serial : null,
+                   reservation != null ? reservation.CreatedAtUtc : (DateTimeOffset?)null);
     }
 
     private bool TryGetUserId(out Guid id) =>

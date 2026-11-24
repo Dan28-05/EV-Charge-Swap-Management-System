@@ -1,0 +1,401 @@
+<dialog #wizardDialog class="onboarding-dialog" aria-labelledby="wizard-title" (cancel)="$event.preventDefault(); close()">
+  <div class="wizard-shell">
+    <!-- HEADER -->
+    <header class="wizard-header">
+      <div>
+        <h2 id="wizard-title">{{ stationId() ? 'Khởi tạo trạm: ' + (resources()?.station?.location?.name || name()) : 'Thêm trạm mới vào mạng lưới EVGo' }}</h2>
+        <p class="wizard-subtitle">Quy trình chuẩn Draft-First: Tạo nháp → Cấp tài nguyên → Cài lịch & Nhân sự → Công bố Go-Live</p>
+      </div>
+      <button type="button" class="close-btn" aria-label="Đóng" (click)="close()">×</button>
+    </header>
+
+    <!-- STEPPER -->
+    <nav class="wizard-stepper" aria-label="Các bước khởi tạo trạm">
+      <button type="button" class="step-item" [class.active]="step() === 1" [class.done]="!!stationId()" (click)="goToStep(1)">
+        <span class="step-num">1</span>
+        <span>Thông tin & Vị trí</span>
+      </button>
+      <span class="step-line" aria-hidden="true"></span>
+      <button type="button" class="step-item" [class.active]="step() === 2" [class.done]="!!resources()?.readiness?.hasRequiredResources" [disabled]="!stationId()" (click)="goToStep(2)">
+        <span class="step-num">2</span>
+        <span>Trụ sạc & Kho pin</span>
+      </button>
+      <span class="step-line" aria-hidden="true"></span>
+      <button type="button" class="step-item" [class.active]="step() === 3" [class.done]="!!resources()?.readiness?.hasServiceHours && !!resources()?.readiness?.hasAssignedOperator" [disabled]="!stationId()" (click)="goToStep(3)">
+        <span class="step-num">3</span>
+        <span>Lịch & Nhân sự</span>
+      </button>
+      <span class="step-line" aria-hidden="true"></span>
+      <button type="button" class="step-item" [class.active]="step() === 4" [class.done]="!!resources()?.station?.isActive" [disabled]="!stationId()" (click)="goToStep(4)">
+        <span class="step-num">4</span>
+        <span>Công bố Go-Live</span>
+      </button>
+    </nav>
+
+    <!-- FEEDBACK BANNERS -->
+    @if (error(); as msg) {
+      <div class="wizard-alert error" role="alert">{{ msg }}</div>
+    }
+    @if (notice(); as msg) {
+      <div class="wizard-alert success" role="status">{{ msg }}</div>
+    }
+
+    <!-- BODY -->
+    <div class="wizard-body">
+      <!-- STEP 1: INFO + INTERACTIVE MAP PICKER -->
+      @if (step() === 1) {
+        <div class="step1-grid">
+          <div class="form-col">
+            <div class="field-group">
+              <label for="wiz-name">Tên trạm *</label>
+              <input id="wiz-name" type="text" maxlength="160" placeholder="VD: EVGo Vincom Quy Nhơn"
+                [ngModel]="name()" (ngModelChange)="name.set($event)" />
+            </div>
+
+            <div class="field-group">
+              <label for="wiz-address">Địa chỉ trạm *</label>
+              <input id="wiz-address" type="text" maxlength="300" placeholder="VD: 78 Lý Thường Kiệt, Quy Nhơn, Bình Định"
+                [ngModel]="address()" (ngModelChange)="address.set($event)" />
+            </div>
+
+            <div class="field-group">
+              <span class="group-label">Dịch vụ cung cấp *</span>
+              <div class="service-checks">
+                <label class="check-box">
+                  <input type="checkbox" [ngModel]="offersCarCharging()" (ngModelChange)="offersCarCharging.set($event)" />
+                  <span>Sạc ô tô điện</span>
+                </label>
+                <label class="check-box">
+                  <input type="checkbox" [ngModel]="offersBatterySwap()" (ngModelChange)="offersBatterySwap.set($event)" />
+                  <span>Đổi pin xe máy (1.5 kWh LFP)</span>
+                </label>
+              </div>
+            </div>
+
+            @if (offersCarCharging()) {
+              <div class="field-group">
+                <label for="wiz-power">Công suất trụ sạc tiêu chuẩn</label>
+                <select id="wiz-power" [ngModel]="chargingPowerKw()" (ngModelChange)="chargingPowerKw.set(+$event)">
+                  <option [ngValue]="30">30 kW (Sạc nhanh AC/DC)</option>
+                  <option [ngValue]="60">60 kW (Sạc nhanh DC)</option>
+                  <option [ngValue]="150">150 kW (Siêu nhanh DC)</option>
+                  <option [ngValue]="250">250 kW (Cực nhanh DC)</option>
+                </select>
+              </div>
+            }
+
+            <div class="coord-row">
+              <div class="field-group">
+                <label for="wiz-lat">Vĩ độ (Latitude)</label>
+                <input id="wiz-lat" type="number" step="0.000001" [ngModel]="latitude()" (ngModelChange)="latitude.set(+$event)" />
+              </div>
+              <div class="field-group">
+                <label for="wiz-lng">Kinh độ (Longitude)</label>
+                <input id="wiz-lng" type="number" step="0.000001" [ngModel]="longitude()" (ngModelChange)="longitude.set(+$event)" />
+              </div>
+            </div>
+
+            <p class="draft-note">
+              Trạm mới sẽ được tạo ở trạng thái <strong>Nháp (Ẩn khỏi bản đồ công khai)</strong> cho tới khi bạn hoàn tất hạ tầng và bấm Công bố ở Bước 4.
+            </p>
+          </div>
+
+          <div class="map-col">
+            <div class="place-search-bar">
+              <input type="text" placeholder="Tìm địa chỉ để tự động định vị trên bản đồ..."
+                [ngModel]="placeQuery()" (ngModelChange)="placeQuery.set($event)"
+                (keydown.enter)="$event.preventDefault(); searchPlaces()" />
+              <button type="button" class="btn-secondary" [disabled]="placeSearching()" (click)="searchPlaces()">
+                {{ placeSearching() ? 'Đang tìm...' : 'Tìm vị trí' }}
+              </button>
+            </div>
+
+            @if (placeResults().length > 0) {
+              <ul class="place-results">
+                @for (p of placeResults(); track p.id) {
+                  <li>
+                    <button type="button" (click)="pickPlace(p)">{{ p.label }}</button>
+                  </li>
+                }
+              </ul>
+            }
+
+            <div #pickerMap class="picker-map" aria-label="Bản đồ chọn tọa độ trạm"></div>
+            <p class="map-hint">Click trực tiếp lên bản đồ hoặc kéo ghim xanh để đặt đúng tọa độ cổng vào trạm.</p>
+          </div>
+        </div>
+      }
+
+      <!-- STEP 2: BATCH PROVISIONING -->
+      @if (step() === 2) {
+        <div class="step2-grid">
+          @if (resources()?.station?.location?.offersCarCharging) {
+            <section class="provision-panel">
+              <div class="panel-head">
+                <div>
+                  <h3>Khởi tạo Trụ sạc ô tô theo lô</h3>
+                  <p>Hiện có <strong>{{ resources()?.bays?.length ?? 0 }}</strong> trụ sạc tại trạm.</p>
+                </div>
+              </div>
+
+              <div class="batch-form-grid">
+                <div class="field-group">
+                  <label for="bay-prefix">Tiền tố mã trụ</label>
+                  <input id="bay-prefix" type="text" maxlength="20" [ngModel]="bayPrefix()" (ngModelChange)="bayPrefix.set($event)" />
+                </div>
+                <div class="field-group">
+                  <label for="bay-start">Số bắt đầu</label>
+                  <input id="bay-start" type="number" min="1" max="999" [ngModel]="bayStartNumber()" (ngModelChange)="bayStartNumber.set(+$event)" />
+                </div>
+                <div class="field-group">
+                  <label for="bay-count">Số lượng (1–20)</label>
+                  <input id="bay-count" type="number" min="1" max="20" [ngModel]="bayCount()" (ngModelChange)="bayCount.set(+$event)" />
+                </div>
+                <div class="field-group">
+                  <label for="bay-kw">Công suất (kW)</label>
+                  <select id="bay-kw" [ngModel]="bayPowerKw()" (ngModelChange)="bayPowerKw.set(+$event)">
+                    <option [ngValue]="30">30 kW</option>
+                    <option [ngValue]="60">60 kW</option>
+                    <option [ngValue]="150">150 kW</option>
+                    <option [ngValue]="250">250 kW</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="preview-bar">
+                <span>Xem trước: <strong class="font-mono">{{ bayPreview() }}</strong></span>
+                <button type="button" class="btn-primary-sm" [disabled]="busy()" (click)="provisionBays()">
+                  + Tạo lô trụ sạc
+                </button>
+              </div>
+
+              @if ((resources()?.bays?.length ?? 0) > 0) {
+                <div class="inventory-list">
+                  @for (bay of resources()!.bays; track bay.id) {
+                    <span class="inv-tag font-mono">{{ bay.code }} · {{ bay.powerKw }}kW</span>
+                  }
+                </div>
+              }
+            </section>
+          }
+
+          @if (resources()?.station?.location?.offersBatterySwap) {
+            <section class="provision-panel">
+              <div class="panel-head">
+                <div>
+                  <h3>Nhập kho Pin xe máy theo lô</h3>
+                  <p>Hiện có <strong>{{ resources()?.batteries?.length ?? 0 }}</strong> viên pin trong kho trạm.</p>
+                </div>
+              </div>
+
+              <div class="batch-form-grid three-cols">
+                <div class="field-group">
+                  <label for="bat-prefix">Tiền tố Serial pin</label>
+                  <input id="bat-prefix" type="text" maxlength="30" [ngModel]="batPrefix()" (ngModelChange)="batPrefix.set($event)" />
+                </div>
+                <div class="field-group">
+                  <label for="bat-start">Số bắt đầu</label>
+                  <input id="bat-start" type="number" min="1" max="999" [ngModel]="batStartNumber()" (ngModelChange)="batStartNumber.set(+$event)" />
+                </div>
+                <div class="field-group">
+                  <label for="bat-count">Số lượng (1–50)</label>
+                  <input id="bat-count" type="number" min="1" max="50" [ngModel]="batCount()" (ngModelChange)="batCount.set(+$event)" />
+                </div>
+              </div>
+
+              <div class="preview-bar">
+                <span>Xem trước: <strong class="font-mono">{{ batteryPreview() }}</strong></span>
+                <button type="button" class="btn-primary-sm" [disabled]="busy()" (click)="provisionBatteries()">
+                  + Nhập lô pin sẵn sàng
+                </button>
+              </div>
+
+              @if ((resources()?.batteries?.length ?? 0) > 0) {
+                <div class="inventory-list">
+                  @for (bat of resources()!.batteries; track bat.id) {
+                    <span class="inv-tag font-mono">{{ bat.serial }}</span>
+                  }
+                </div>
+              }
+            </section>
+          }
+        </div>
+      }
+
+      <!-- STEP 3: HOURS PRESET & OPERATOR ASSIGNMENT -->
+      @if (step() === 3) {
+        <div class="step3-grid">
+          <section class="provision-panel">
+            <div class="panel-head">
+              <div>
+                <h3>Thiết lập Giờ hoạt động (7 ngày)</h3>
+                <p>Hiện đã cấu hình <strong>{{ resources()?.serviceHours?.length ?? 0 }}</strong> khung giờ dịch vụ.</p>
+              </div>
+            </div>
+
+            <div class="preset-options">
+              <label class="preset-card" [class.selected]="selectedPreset() === '24/7'">
+                <input type="radio" name="hoursPreset" value="24/7" [ngModel]="selectedPreset()" (ngModelChange)="selectedPreset.set($event)" />
+                <div>
+                  <strong>Hoạt động 24/7</strong>
+                  <span>Mở cửa cả ngày 00:00 – 24:00 từ Thứ 2 đến Chủ Nhật</span>
+                </div>
+              </label>
+
+              <label class="preset-card" [class.selected]="selectedPreset() === 'extended'">
+                <input type="radio" name="hoursPreset" value="extended" [ngModel]="selectedPreset()" (ngModelChange)="selectedPreset.set($event)" />
+                <div>
+                  <strong>Giờ mở rộng (06:00 – 22:00)</strong>
+                  <span>Phù hợp trạm trung tâm thương mại & bãi đỗ đô thị</span>
+                </div>
+              </label>
+
+              <label class="preset-card" [class.selected]="selectedPreset() === 'business'">
+                <input type="radio" name="hoursPreset" value="business" [ngModel]="selectedPreset()" (ngModelChange)="selectedPreset.set($event)" />
+                <div>
+                  <strong>Giờ tiêu chuẩn (07:00 – 21:00)</strong>
+                  <span>Vận hành ban ngày có nhân viên trực quầy</span>
+                </div>
+              </label>
+            </div>
+
+            <div class="panel-action-row">
+              <button type="button" class="btn-primary-sm" [disabled]="busy()" (click)="applyHoursPreset()">
+                Áp dụng khung giờ cho trạm
+              </button>
+            </div>
+          </section>
+
+          <section class="provision-panel">
+            <div class="panel-head">
+              <div>
+                <h3>Phân công Nhân viên trực trạm (Operator)</h3>
+                <p>Hiện có <strong>{{ resources()?.assignedOperators?.length ?? 0 }}</strong> nhân viên phụ trách trạm này.</p>
+              </div>
+            </div>
+
+            <div class="assign-row">
+              <select aria-label="Chọn nhân viên trực trạm" [ngModel]="selectedOperatorId()" (ngModelChange)="selectedOperatorId.set($event)">
+                <option value="">— Chọn nhân viên vận hành —</option>
+                @for (op of operators(); track op.id) {
+                  <option [value]="op.id">
+                    {{ op.fullName }} ({{ op.email }}){{ op.assignedLocationName ? ' — Đang trực: ' + op.assignedLocationName : ' — Chưa phân công' }}
+                  </option>
+                }
+              </select>
+              <button type="button" class="btn-primary-sm" [disabled]="busy() || !selectedOperatorId()" (click)="assignSelectedOperator()">
+                Phân công
+              </button>
+            </div>
+
+            @if ((resources()?.assignedOperators?.length ?? 0) > 0) {
+              <ul class="assigned-list">
+                @for (op of resources()!.assignedOperators; track op.operatorId) {
+                  <li>
+                    <div>
+                      <strong>{{ op.fullName }}</strong>
+                      <span>{{ op.email }}{{ op.phoneNumber ? ' · ' + op.phoneNumber : '' }}</span>
+                    </div>
+                    <span class="assigned-badge">Đang trực</span>
+                  </li>
+                }
+              </ul>
+            } @else {
+              <p class="empty-hint">Chưa có nhân viên nào được gán cho trạm này. Nếu chưa có tài khoản Operator, bạn có thể tạo ở tab <strong>Nhân viên trạm</strong>.</p>
+            }
+          </section>
+        </div>
+      }
+
+      <!-- STEP 4: GO-LIVE READINESS CHECKLIST -->
+      @if (step() === 4 && resources(); as res) {
+        <div class="golive-container">
+          <div class="golive-summary">
+            <h3>Kiểm tra Sẵn sàng Vận hành (Go-Live Readiness)</h3>
+            <p>Hệ thống xác nhận đầy đủ 4 điều kiện vận hành tối thiểu trước khi công bố <strong>{{ res.station.location.name }}</strong> lên bản đồ khách hàng.</p>
+          </div>
+
+          <ul class="checklist">
+            <li [class.passed]="res.readiness.hasValidCoordinates">
+              <span class="chk-mark">{{ res.readiness.hasValidCoordinates ? '✓' : '!' }}</span>
+              <div class="chk-body">
+                <strong>Vị trí & Tọa độ hợp lệ trên bản đồ</strong>
+                <span>{{ res.station.location.address }} ({{ res.station.location.latitude | number:'1.4-6' }}, {{ res.station.location.longitude | number:'1.4-6' }})</span>
+              </div>
+            </li>
+
+            <li [class.passed]="res.readiness.hasRequiredResources">
+              <span class="chk-mark">{{ res.readiness.hasRequiredResources ? '✓' : '!' }}</span>
+              <div class="chk-body">
+                <strong>Hạ tầng Trụ sạc & Kho pin tối thiểu</strong>
+                <span>
+                  @if (res.station.location.offersCarCharging) { {{ res.bays.length }} trụ sạc }
+                  @if (res.station.location.offersCarCharging && res.station.location.offersBatterySwap) { · }
+                  @if (res.station.location.offersBatterySwap) { {{ res.batteries.length }} viên pin sẵn sàng }
+                </span>
+              </div>
+              @if (!res.readiness.hasRequiredResources) {
+                <button type="button" class="btn-link" (click)="goToStep(2)">Bổ sung →</button>
+              }
+            </li>
+
+            <li [class.passed]="res.readiness.hasServiceHours">
+              <span class="chk-mark">{{ res.readiness.hasServiceHours ? '✓' : '!' }}</span>
+              <div class="chk-body">
+                <strong>Lịch giờ hoạt động dịch vụ</strong>
+                <span>{{ res.serviceHours.length > 0 ? 'Đã thiết lập ' + res.serviceHours.length + ' khung giờ hoạt động' : 'Chưa cấu hình khung giờ mở cửa' }}</span>
+              </div>
+              @if (!res.readiness.hasServiceHours) {
+                <button type="button" class="btn-link" (click)="goToStep(3)">Thiết lập →</button>
+              }
+            </li>
+
+            <li [class.passed]="res.readiness.hasAssignedOperator">
+              <span class="chk-mark">{{ res.readiness.hasAssignedOperator ? '✓' : '!' }}</span>
+              <div class="chk-body">
+                <strong>Nhân viên trực trạm (Operator)</strong>
+                <span>{{ res.assignedOperators.length > 0 ? res.assignedOperators.length + ' nhân viên đang được phân công' : 'Chưa có nhân viên trực trạm' }}</span>
+              </div>
+              @if (!res.readiness.hasAssignedOperator) {
+                <button type="button" class="btn-link" (click)="goToStep(3)">Phân công →</button>
+              }
+            </li>
+          </ul>
+        </div>
+      }
+    </div>
+
+    <!-- FOOTER -->
+    <footer class="wizard-footer">
+      <button type="button" class="btn-ghost" (click)="close()">
+        {{ stationId() ? 'Lưu bản nháp & Đóng' : 'Hủy bỏ' }}
+      </button>
+
+      <div class="footer-right">
+        @if (step() > 1) {
+          <button type="button" class="btn-secondary" [disabled]="busy()" (click)="goToStep((step() - 1) === 1 ? 1 : (step() - 1) === 2 ? 2 : 3)">
+            ← Quay lại
+          </button>
+        }
+
+        @if (step() === 1) {
+          <button type="button" class="btn-primary" [disabled]="busy() || !canSubmitStep1()" (click)="saveStep1Draft()">
+            {{ busy() ? 'Đang lưu...' : (stationId() ? 'Lưu & Tiếp tục →' : 'Tạo trạm nháp & Tiếp tục →') }}
+          </button>
+        } @else if (step() === 2) {
+          <button type="button" class="btn-primary" [disabled]="busy()" (click)="goToStep(3)">
+            Tiếp tục: Lịch & Nhân sự →
+          </button>
+        } @else if (step() === 3) {
+          <button type="button" class="btn-primary" [disabled]="busy()" (click)="goToStep(4)">
+            Kiểm tra Go-Live →
+          </button>
+        } @else {
+          <button type="button" class="btn-primary golive-btn" [disabled]="busy() || !resources()?.readiness?.canGoLive" (click)="publishGoLive()">
+            {{ busy() ? 'Đang công bố...' : 'Công bố trạm lên Bản đồ (Go-Live)' }}
+          </button>
+        }
+      </div>
+    </footer>
+  </div>
+</dialog>

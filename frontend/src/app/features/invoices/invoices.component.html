@@ -1,36 +1,124 @@
 <div class="invoices-page-wrapper" [class.station-embedded]="stationMode()">
-  <!-- TOP APP BAR (Only in Customer Standalone Mode) -->
+  <!-- TOP FLOATING PILL APP BAR (Synchronized with Operator & Map Header) -->
   @if (!stationMode()) {
   <header class="app-header">
     <div class="header-container">
       <div class="header-left">
-        <a routerLink="/" class="back-btn" title="Quay lại Bản đồ trạm">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2"
+        <a routerLink="/" class="brand-pill" title="EVGo Charge & Swap">
+          <div class="brand-logo-frame">
+            <img src="favicon.png" alt="EVGo Logo" width="26" height="26" />
+          </div>
+          <span class="brand-name">EVGo</span>
+          <span class="brand-tag">Charge & Swap</span>
+        </a>
+
+        <a routerLink="/" class="back-pill" title="Quay lại Bản đồ trạm">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2"
             stroke-linecap="round" stroke-linejoin="round">
             <line x1="19" y1="12" x2="5" y2="12"></line>
             <polyline points="12 19 5 12 12 5"></polyline>
           </svg>
           <span>Bản đồ trạm</span>
         </a>
-        <div class="header-divider"></div>
-        <div class="brand-badge">
-          <span class="brand-name">EVGo</span>
-          <span class="brand-tag">Charge & Swap</span>
-        </div>
       </div>
 
       <div class="header-right">
-        <button type="button" class="btn-refresh" [class.spinning]="busy()" (click)="refresh()" title="Làm mới dữ liệu">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+        <button type="button" class="icon-pill" [class.spinning]="busy()" (click)="refresh()" title="Làm mới dữ liệu" aria-label="Làm mới dữ liệu">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
           </svg>
-          <span>Làm mới</span>
         </button>
 
         @if (auth.currentUser(); as user) {
-        <div class="user-pill">
-          <span class="user-avatar">{{ user.fullName.charAt(0).toUpperCase() }}</span>
-          <span class="user-name">{{ user.fullName }}</span>
+        <a routerLink="/notifications" class="icon-pill" title="Trung tâm thông báo" aria-label="Trung tâm thông báo">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+            <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+          </svg>
+        </a>
+
+        <div class="account-menu">
+          <button
+            type="button"
+            class="account-trigger-pill"
+            [class.open]="userMenuOpen()"
+            [attr.aria-expanded]="userMenuOpen()"
+            aria-haspopup="menu"
+            (click)="toggleUserMenu()"
+            title="Mở menu tài khoản"
+          >
+            <span class="account-avatar" aria-hidden="true">
+              {{ user.fullName.charAt(0).toUpperCase() }}
+              <span class="online-dot"></span>
+            </span>
+            <span class="account-short-name">{{ shortDisplayName(user.fullName) }}</span>
+            <svg class="account-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </button>
+
+          @if (userMenuOpen()) {
+          <div class="account-dropdown" role="menu" aria-label="Menu tài khoản">
+            <div class="dropdown-profile-head">
+              <div class="dropdown-avatar" aria-hidden="true">{{ user.fullName.charAt(0).toUpperCase() }}</div>
+              <div class="dropdown-identity">
+                <div class="dropdown-name">{{ user.fullName }}</div>
+                <div class="dropdown-meta-row">
+                  <span class="dropdown-role-badge">{{ roleDisplayLabel(user.roles) }}</span>
+                </div>
+                @if (user.email) {
+                <div class="dropdown-email">{{ user.email }}</div>
+                }
+              </div>
+            </div>
+
+            <div class="dropdown-items">
+              <a class="dropdown-item" routerLink="/profile" role="menuitem" (click)="closeUserMenu()">
+                <span class="item-icon-box">
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                    <circle cx="12" cy="7" r="4"></circle>
+                  </svg>
+                </span>
+                <span class="item-label">Hồ sơ & Cài đặt</span>
+                <svg class="item-arrow" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+              </a>
+
+              <a class="dropdown-item" routerLink="/notifications" role="menuitem" (click)="closeUserMenu()">
+                <span class="item-icon-box">
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                    <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+                  </svg>
+                </span>
+                <span class="item-label">Trung tâm thông báo</span>
+                <svg class="item-arrow" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+              </a>
+
+              <a class="dropdown-item" routerLink="/profile" [queryParams]="{ tab: 'security' }" role="menuitem" (click)="closeUserMenu()">
+                <span class="item-icon-box">
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                  </svg>
+                </span>
+                <span class="item-label">Bảo mật & Mật khẩu</span>
+                <svg class="item-arrow" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+              </a>
+            </div>
+
+            <div class="dropdown-footer">
+              <button type="button" class="dropdown-logout-btn" role="menuitem" (click)="logout()">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                  <polyline points="16 17 21 12 16 7"></polyline>
+                  <line x1="21" y1="12" x2="9" y2="12"></line>
+                </svg>
+                <span>Đăng xuất</span>
+              </button>
+            </div>
+          </div>
+          }
         </div>
         }
       </div>
@@ -72,63 +160,39 @@
       }
     </section>
 
-    <!-- KPI METRIC CARDS BANNER -->
+    <!-- KPI METRIC SUMMARY STRIP (Clean Flat Ledger Style) -->
     <section class="kpi-grid">
       <div class="kpi-card paid-kpi">
-        <div class="kpi-icon-wrap emerald">
-          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
-            <polyline points="22 4 12 14.01 9 11.01"></polyline>
-          </svg>
-        </div>
         <div class="kpi-content">
           <span class="kpi-label">Tổng đã thanh toán</span>
-          <span class="kpi-value text-emerald">{{ totalPaidAmount() | number }} <small>đ</small></span>
-          <span class="kpi-subtext">{{ paidCount() }} hóa đơn thành công</span>
+          <span class="kpi-value">{{ totalPaidAmount() | number }} <small>đ</small></span>
+          <span class="kpi-subtext">{{ paidCount() }} hóa đơn hoàn tất</span>
         </div>
       </div>
 
       <div class="kpi-card pending-kpi">
-        <div class="kpi-icon-wrap amber">
-          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="10"></circle>
-            <polyline points="12 6 12 12 16 14"></polyline>
-          </svg>
-        </div>
         <div class="kpi-content">
           <span class="kpi-label">Chờ thanh toán / Trả sau</span>
-          <span class="kpi-value text-amber">{{ totalPendingAmount() | number }} <small>đ</small></span>
-          <span class="kpi-subtext">{{ pendingCount() }} hóa đơn còn nợ</span>
+          <span class="kpi-value" [class.text-amber]="totalPendingAmount() > 0">{{ totalPendingAmount() | number }} <small>đ</small></span>
+          <span class="kpi-subtext">{{ pendingCount() }} hóa đơn chưa thu</span>
         </div>
       </div>
 
       <div class="kpi-card energy-kpi">
-        <div class="kpi-icon-wrap blue">
-          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2">
-            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-          </svg>
-        </div>
         <div class="kpi-content">
-          <span class="kpi-label">Tổng điện năng nạp</span>
-          <span class="kpi-value text-blue">{{ totalKwhCharged() | number:'1.1-2' }} <small>kWh</small></span>
-          <span class="kpi-subtext">Năng lượng xanh sạch</span>
+          <span class="kpi-label">Phiên Sạc & Đổi pin</span>
+          <span class="kpi-value">
+            {{ chargingCount() }} <small>sạc</small> <span class="kpi-sep">/</span> {{ swapCount() }} <small>đổi pin</small>
+          </span>
+          <span class="kpi-subtext">Phân bổ theo dịch vụ</span>
         </div>
       </div>
 
       <div class="kpi-card total-kpi">
-        <div class="kpi-icon-wrap slate">
-          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-            <polyline points="14 2 14 8 20 8"></polyline>
-            <line x1="16" y1="13" x2="8" y2="13"></line>
-            <line x1="16" y1="17" x2="8" y2="17"></line>
-            <polyline points="10 9 9 9 8 9"></polyline>
-          </svg>
-        </div>
         <div class="kpi-content">
-          <span class="kpi-label">Tổng giao dịch</span>
-          <span class="kpi-value">{{ invoices().length }} <small>phiếu</small></span>
-          <span class="kpi-subtext">Trang số {{ page() }}</span>
+          <span class="kpi-label">Số khách hàng</span>
+          <span class="kpi-value">{{ uniqueCustomerCount() }} <small>khách</small></span>
+          <span class="kpi-subtext">Trên {{ invoices().length }} giao dịch</span>
         </div>
       </div>
     </section>
@@ -179,7 +243,7 @@
             <circle cx="11" cy="11" r="8"></circle>
             <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
           </svg>
-          <input type="text" placeholder="Tìm theo mã đặt chỗ..." [ngModel]="searchQuery()"
+          <input type="text" placeholder="Tìm theo tên trạm, trụ/pin, mã đặt..." [ngModel]="searchQuery()"
             (ngModelChange)="searchQuery.set($event)" />
           @if (searchQuery()) {
           <button type="button" class="btn-clear-search" (click)="searchQuery.set('')">✕</button>
@@ -214,72 +278,67 @@
         <!-- CARD HEADER -->
         <div class="card-header">
           <div class="service-info">
-            <span class="service-pill" [class.swap]="invoice.swapRate != null">
-              @if (invoice.swapRate == null) {
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
-                <path d="M7 2v11h3v9l7-12h-4l4-8z" />
-              </svg>
-              <span>Sạc ô tô điện</span>
+            <div class="booking-headline">
+              @if (invoice.locationName) {
+                <span class="booking-station-name" [title]="invoice.locationAddress || invoice.locationName">{{ invoice.locationName }}</span>
+              } @else if (invoice.reservationCode) {
+                <span class="booking-station-name font-mono">{{ invoice.reservationCode }}</span>
               } @else {
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
-              </svg>
-              <span>Đổi pin EV</span>
-              }
-            </span>
-
-            @if (invoice.reservationCode) {
-            <div class="code-pill" role="button" tabindex="0" title="Bấm để sao chép mã"
-              (click)="copyCode(invoice.reservationCode)"
-              (keydown.enter)="copyCode(invoice.reservationCode)"
-              (keydown.space)="$event.preventDefault(); copyCode(invoice.reservationCode)">
-              <span class="code-label">MÃ:</span>
-              <span class="code-val">{{ invoice.reservationCode }}</span>
-              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2">
-                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-              </svg>
-              @if (copiedCode() === invoice.reservationCode) {
-              <span class="copy-tooltip">✓ Đã chép</span>
+                <span class="booking-station-name">{{ invoice.swapRate == null ? 'Phiên sạc ô tô điện' : 'Phiên đổi pin EV' }}</span>
               }
             </div>
-            }
+
+            <div class="booking-subline">
+              <span class="service-label" [class.swap]="invoice.swapRate != null">
+                {{ invoice.swapRate == null ? 'Sạc ô tô điện' : 'Đổi pin EV' }}
+              </span>
+              @if (invoice.bayCode) {
+                <span class="dot-sep" aria-hidden="true">·</span>
+                <span class="resource-text font-mono">Trụ {{ invoice.bayCode }}</span>
+              } @else if (invoice.batterySerial) {
+                <span class="dot-sep" aria-hidden="true">·</span>
+                <span class="resource-text font-mono">Pin {{ invoice.batterySerial }}</span>
+              }
+              @if (invoice.reservedAtUtc || invoice.createdAtUtc; as bookedAt) {
+                <span class="dot-sep" aria-hidden="true">·</span>
+                <span class="booking-time-text">{{ bookedAt | date:'dd/MM/yyyy HH:mm' }}</span>
+              }
+            </div>
           </div>
 
           <div class="status-badge-wrap">
             @if (invoice.status === 'Paid') {
-            <span class="badge badge-success">
-              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5">
-                <polyline points="20 6 9 17 4 12"></polyline>
-              </svg>
-              Đã thanh toán
-            </span>
-            @if (invoice.paymentMethod) {
-            <span class="method-tag">
-              {{ invoice.paymentMethod === 'Cash' ? '💵 Tiền mặt' : '📱 Quét QR' }}
-            </span>
-            }
+              @if (invoice.paymentMethod) {
+                <span class="method-tag" [class.method-cash]="invoice.paymentMethod === 'Cash'" [class.method-qr]="invoice.paymentMethod !== 'Cash'">
+                  {{ invoice.paymentMethod === 'Cash' ? 'TIỀN MẶT' : 'CHUYỂN KHOẢN QR' }}
+                </span>
+              }
+              <span class="status-dot-label paid">
+                <span class="s-dot" aria-hidden="true"></span>
+                Đã thanh toán
+              </span>
             } @else if (invoice.status === 'Pending') {
-            @if (invoice.dueAtUtc) {
-            <span class="badge badge-warning">
-              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="10"></circle>
-                <polyline points="12 6 12 12 16 14"></polyline>
-              </svg>
-              Trả sau 7 ngày
-            </span>
+              @if (invoice.dueAtUtc && overdueDays(invoice.dueAtUtc) > 0) {
+                <span class="status-dot-label overdue">
+                  <span class="s-dot" aria-hidden="true"></span>
+                  Quá hạn {{ overdueDays(invoice.dueAtUtc) }} ngày
+                </span>
+              } @else if (invoice.dueAtUtc) {
+                <span class="status-dot-label warning">
+                  <span class="s-dot" aria-hidden="true"></span>
+                  Trả sau 7 ngày
+                </span>
+              } @else {
+                <span class="status-dot-label pending">
+                  <span class="s-dot" aria-hidden="true"></span>
+                  Chờ thanh toán
+                </span>
+              }
             } @else {
-            <span class="badge badge-pending">
-              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="10"></circle>
-                <line x1="12" y1="8" x2="12" y2="12"></line>
-                <line x1="12" y1="16" x2="12.01" y2="16"></line>
-              </svg>
-              Chờ thanh toán
-            </span>
-            }
-            } @else {
-            <span class="badge badge-neutral">Đã hủy</span>
+              <span class="status-dot-label neutral">
+                <span class="s-dot" aria-hidden="true"></span>
+                Đã hủy
+              </span>
             }
           </div>
         </div>
@@ -299,13 +358,18 @@
             <div class="total-amount-display">
               {{ invoice.totalAmount | number }} <span class="currency">đ</span>
             </div>
+            @if (invoice.locationAddress) {
+            <div class="station-address-line" [title]="invoice.locationAddress">
+              {{ invoice.locationAddress }}
+            </div>
+            }
           </div>
 
           <div class="metadata-col">
             @if (invoice.customerName || invoice.customerEmail) {
             <div class="meta-item">
-              <span class="meta-label">Khách hàng:</span>
-              <span class="meta-value font-semibold">
+              <span class="meta-label">Khách hàng</span>
+              <span class="meta-value">
                 {{ invoice.customerName || invoice.customerEmail }}
                 @if (invoice.customerPhone) {
                   <span class="meta-sub">· {{ invoice.customerPhone }}</span>
@@ -315,28 +379,28 @@
             }
             @if (invoice.paidAtUtc) {
             <div class="meta-item">
-              <span class="meta-label">Thời điểm thanh toán:</span>
+              <span class="meta-label">Thời điểm thanh toán</span>
               <span class="meta-value">{{ invoice.paidAtUtc | date:'dd/MM/yyyy HH:mm':'+0700' }}</span>
             </div>
             }
             @if (invoice.dueAtUtc && invoice.status === 'Pending') {
             <div class="meta-item warning-text">
-              <span class="meta-label">Hạn trả nợ:</span>
+              <span class="meta-label">Hạn trả nợ</span>
               <span class="meta-value">{{ invoice.dueAtUtc | date:'dd/MM/yyyy HH:mm':'+0700' }}</span>
             </div>
             }
             @if (invoice.status === 'Paid') {
             <div class="meta-item">
-              <span class="meta-label">Nhân viên thu ngân:</span>
-              <span class="meta-value font-semibold">
+              <span class="meta-label">Kênh / Thu ngân</span>
+              <span class="meta-value">
                 {{ invoice.collectorName ? invoice.collectorName : (invoice.paymentMethod === 'Cash' ? 'Nhân viên trực quầy EVGo' : 'Cổng tự động VietQR') }}
               </span>
             </div>
             }
             @if (invoice.paymentReference) {
             <div class="meta-item">
-              <span class="meta-label">Mã giao dịch:</span>
-              <span class="meta-value font-mono">{{ invoice.paymentReference }}</span>
+              <span class="meta-label">Mã giao dịch</span>
+              <span class="meta-value font-mono ref-code" [title]="invoice.paymentReference">{{ invoice.paymentReference }}</span>
             </div>
             }
           </div>

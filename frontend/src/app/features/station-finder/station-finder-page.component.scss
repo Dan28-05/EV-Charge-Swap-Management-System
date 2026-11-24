@@ -1,71 +1,79 @@
 :host {
   display: block;
-  height: 100vh;
+  height: 100dvh;
   width: 100vw;
   overflow: hidden;
   color: #1e293b;
   background: #f8fafc;
 }
 
-/* Clean, sophisticated, modern top navigation bar */
+/* Google Maps-style Floating Pill Header over full-bleed map */
 .header {
-  height: 64px;
-  background: rgba(255, 255, 255, 0.94);
-  border-bottom: 1px solid rgba(226, 232, 240, 0.85);
+  position: fixed;
+  top: 14px;
+  left: 14px;
+  right: 14px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 24px;
-  position: relative;
-  z-index: 50;
-  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.03);
-
-  &::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    z-index: -1;
-    backdrop-filter: blur(16px) saturate(180%);
-    pointer-events: none;
-  }
-}
-
-.header-left {
-  display: flex;
-  align-items: center;
   gap: 12px;
+  z-index: 60;
+  pointer-events: none;
 }
 
-.brand {
+.header-left,
+.header-center,
+.header-nav {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.brand-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  height: 42px;
+  padding: 0 14px 0 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.1), 0 1px 2px rgba(15, 23, 42, 0.05);
   text-decoration: none;
   color: #0f172a;
-  transition: opacity 0.15s ease;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
 
   &:hover {
-    opacity: 0.9;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 14px rgba(15, 23, 42, 0.14);
   }
 }
 
-.brand-icon-box {
+.brand-logo-frame {
   width: 32px;
   height: 32px;
-  border-radius: 9px;
-  background: linear-gradient(135deg, #17634f 0%, #0d382d 100%);
-  color: #ffffff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 2px 6px rgba(23, 99, 79, 0.28);
+  border-radius: 999px;
+  background: #ffffff;
+  border: 1px solid rgba(184, 149, 65, 0.32);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
   flex-shrink: 0;
+  box-shadow: 0 1px 3px rgba(184, 149, 65, 0.18);
+
+  img {
+    width: 24px;
+    height: 24px;
+    object-fit: contain;
+    display: block;
+  }
 }
 
 .brand-text {
-  font-size: 20px;
+  font-size: 17px;
   font-weight: 800;
-  letter-spacing: -0.6px;
+  letter-spacing: -0.5px;
   color: #0f172a;
 }
 
@@ -76,48 +84,42 @@
   text-transform: uppercase;
   color: #17634f;
   background: rgba(23, 99, 79, 0.08);
-  border: 1px solid rgba(23, 99, 79, 0.18);
-  padding: 3px 8px;
-  border-radius: 6px;
+  border: 1px solid rgba(23, 99, 79, 0.16);
+  padding: 2px 8px;
+  border-radius: 999px;
 }
 
-.header-nav {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.nav-divider {
-  width: 1px;
-  height: 22px;
-  background: #e2e8f0;
-  margin: 0 4px;
-}
-
-.nav-item {
+/* Floating White Pill Chips (Google Maps style) */
+.floating-pill {
   display: inline-flex;
   align-items: center;
   gap: 7px;
+  height: 40px;
+  padding: 0 15px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.1), 0 1px 2px rgba(15, 23, 42, 0.05);
   font-size: 13.5px;
   font-weight: 600;
-  color: #475569;
+  color: #1e293b;
   text-decoration: none;
-  background: transparent;
-  border: 1px solid transparent;
   cursor: pointer;
-  padding: 7px 12px;
-  border-radius: 8px;
-  transition: all 0.15s ease;
+  white-space: nowrap;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 
   svg {
-    stroke-width: 2.2;
-    color: #64748b;
+    color: #475569;
+    flex-shrink: 0;
     transition: color 0.15s ease;
   }
 
   &:hover {
+    background: #ffffff;
     color: #0f172a;
-    background: #f1f5f9;
+    border-color: rgba(23, 99, 79, 0.28);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.14);
 
     svg {
       color: #17634f;
@@ -126,80 +128,87 @@
 
   &.current {
     color: #17634f;
-    background: #eaf5ed;
-    border-color: rgba(23, 99, 79, 0.12);
-    font-weight: 700;
+    background: #ecfdf5;
+    border-color: rgba(23, 99, 79, 0.25);
 
     svg {
       color: #17634f;
     }
   }
 
-  &.operator-link {
+  &.operator-pill {
     color: #17634f;
     background: #f0fdf4;
-    border-color: #bbf7d0;
+    border-color: rgba(23, 99, 79, 0.28);
+
+    svg {
+      color: #17634f;
+    }
 
     &:hover {
       background: #dcfce7;
-      border-color: #86efac;
     }
   }
 }
 
-.nav-cta-btn {
+.floating-icon-pill {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  padding: 7px 15px;
-  border-radius: 9px;
-  background: linear-gradient(135deg, #17634f 0%, #114c3c 100%);
-  color: #ffffff;
-  font-size: 13px;
-  font-weight: 700;
-  border: none;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.1), 0 1px 2px rgba(15, 23, 42, 0.05);
+  color: #334155;
+  text-decoration: none;
   cursor: pointer;
-  box-shadow: 0 2px 6px rgba(23, 99, 79, 0.22);
-  transition: all 0.15s ease;
-
-  svg {
-    stroke-width: 2.2;
-  }
+  transition: transform 0.15s ease, box-shadow 0.15s ease, color 0.15s ease;
 
   &:hover {
+    background: #ffffff;
+    color: #17634f;
     transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(23, 99, 79, 0.35);
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.14);
   }
+}
 
-  &:active {
-    transform: translateY(0);
-  }
+.mobile-only-nav {
+  display: none;
 }
 
 .nav-status-pill {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  padding: 6px 14px;
-  border-radius: 20px;
+  gap: 8px;
+  height: 40px;
+  padding: 0 16px;
+  border-radius: 999px;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   border: 1px solid transparent;
-  transition: all 0.15s ease;
+  box-shadow: 0 3px 12px rgba(15, 23, 42, 0.12);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 5px 16px rgba(15, 23, 42, 0.16);
+  }
 
   &.held {
     background: #ecfdf5;
     color: #065f46;
-    border-color: #a7f3d0;
-    box-shadow: 0 1px 4px rgba(16, 185, 129, 0.15);
+    border-color: #6ee7b7;
 
     .status-text {
-      font-size: 12px;
+      font-size: 12.5px;
       color: #047857;
     }
 
     .countdown-val {
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
       font-weight: 800;
       color: #065f46;
       font-variant-numeric: tabular-nums;
@@ -213,7 +222,7 @@
   &.checked-in {
     background: #eff6ff;
     color: #1d4ed8;
-    border-color: #bfdbfe;
+    border-color: #93c5fd;
     font-weight: 700;
 
     &:hover {
@@ -236,121 +245,277 @@
   100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
 }
 
-.user-pill {
-  display: flex;
+/* Modern Account Pill & Floating Dropdown */
+.account-menu {
+  position: relative;
+}
+
+.account-trigger-pill {
+  display: inline-flex;
   align-items: center;
   gap: 8px;
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
-  padding: 4px 8px 4px 5px;
-  border-radius: 10px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
-  transition: border-color 0.15s ease;
+  height: 40px;
+  padding: 0 12px 0 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.1), 0 1px 2px rgba(15, 23, 42, 0.05);
+  color: #0f172a;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+
+  &:hover,
+  &.open {
+    background: #ffffff;
+    border-color: rgba(23, 99, 79, 0.3);
+    box-shadow: 0 4px 14px rgba(15, 23, 42, 0.14);
+  }
 
   &:hover {
-    border-color: #cbd5e1;
+    transform: translateY(-1px);
+  }
+
+  &.open .account-chevron {
+    transform: rotate(180deg);
+    color: #17634f;
   }
 }
 
-.user-info-group {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  text-decoration: none;
-  cursor: pointer;
-}
-
-.user-avatar {
+.account-avatar {
+  position: relative;
   width: 30px;
   height: 30px;
-  border-radius: 8px;
-  background: linear-gradient(135deg, #17634f 0%, #0d382d 100%);
+  border-radius: 999px;
+  background: linear-gradient(135deg, #17634f 0%, #0f4c3a 100%);
   color: #ffffff;
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 800;
   display: grid;
   place-items: center;
-  box-shadow: 0 2px 4px rgba(23, 99, 79, 0.2);
   flex-shrink: 0;
+  box-shadow: 0 1px 4px rgba(23, 99, 79, 0.28);
+
+  .online-dot {
+    position: absolute;
+    bottom: -1px;
+    right: -1px;
+    width: 9px;
+    height: 9px;
+    border-radius: 999px;
+    background: #22c55e;
+    border: 2px solid #ffffff;
+  }
 }
 
-.user-meta {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.15;
-}
-
-.user-name {
-  font-size: 12.5px;
+.account-short-name {
+  font-size: 13px;
   font-weight: 700;
   color: #0f172a;
-  max-width: 140px;
+  max-width: 128px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.user-role {
-  font-size: 10px;
-  font-weight: 600;
+.account-chevron {
   color: #64748b;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
+  transition: transform 0.2s ease, color 0.15s ease;
+  flex-shrink: 0;
 }
 
-.logout-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11.5px;
-  font-weight: 600;
-  color: #64748b;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  padding: 4px 9px;
-  border-radius: 7px;
-  cursor: pointer;
-  transition: all 0.15s ease;
+.account-dropdown {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: 272px;
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 16px;
+  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.16), 0 2px 6px rgba(15, 23, 42, 0.06);
+  overflow: hidden;
+  z-index: 90;
+  animation: dropdownFadeIn 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+}
 
-  svg {
+@keyframes dropdownFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.dropdown-profile-head {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 14px 16px;
+  background: linear-gradient(135deg, #f0fdf4 0%, #f8fafc 100%);
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.dropdown-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #17634f 0%, #0d382d 100%);
+  color: #ffffff;
+  font-size: 16px;
+  font-weight: 800;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(23, 99, 79, 0.25);
+}
+
+.dropdown-identity {
+  min-width: 0;
+  flex: 1;
+}
+
+.dropdown-name {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dropdown-meta-row {
+  margin-top: 2px;
+}
+
+.dropdown-role-badge {
+  display: inline-block;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #17634f;
+  background: rgba(23, 99, 79, 0.1);
+  padding: 1px 7px;
+  border-radius: 999px;
+}
+
+.dropdown-email {
+  margin-top: 3px;
+  font-size: 11.5px;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dropdown-items {
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  text-decoration: none;
+  color: #1e293b;
+  font-size: 13px;
+  font-weight: 600;
+  transition: background 0.14s ease, color 0.14s ease;
+
+  .item-icon-box {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    background: #f1f5f9;
+    color: #475569;
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    transition: background 0.14s ease, color 0.14s ease;
+  }
+
+  .item-label {
+    flex: 1;
+  }
+
+  .item-arrow {
     color: #94a3b8;
-    transition: color 0.15s ease;
+    opacity: 0.7;
+    transition: transform 0.14s ease, color 0.14s ease;
   }
 
   &:hover {
-    background: #fef2f2;
-    color: #dc2626;
-    border-color: #fca5a5;
+    background: #f8fafc;
+    color: #0f172a;
 
-    svg {
-      color: #dc2626;
+    .item-icon-box {
+      background: #ecfdf5;
+      color: #17634f;
+    }
+
+    .item-arrow {
+      color: #17634f;
+      transform: translateX(2px);
     }
   }
 }
 
-.login-link {
-  display: inline-flex;
+.dropdown-footer {
+  padding: 6px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.dropdown-logout-btn {
+  width: 100%;
+  display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
+  gap: 7px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #dc2626;
   font-size: 13px;
-  font-weight: 700;
-  color: #ffffff;
-  background: linear-gradient(135deg, #17634f 0%, #114c3c 100%);
-  padding: 7px 16px;
-  border-radius: 8px;
-  text-decoration: none;
-  box-shadow: 0 2px 6px rgba(23, 99, 79, 0.22);
-  transition: all 0.15s ease;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease;
 
   &:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(23, 99, 79, 0.32);
+    background: #fef2f2;
+    border-color: #fecaca;
   }
 }
 
-/* Main Viewport & Map */
+.login-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 40px;
+  padding: 0 18px;
+  border-radius: 999px;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #ffffff;
+  background: linear-gradient(135deg, #17634f 0%, #114c3c 100%);
+  text-decoration: none;
+  box-shadow: 0 3px 10px rgba(23, 99, 79, 0.28);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 5px 14px rgba(23, 99, 79, 0.36);
+  }
+}
+
+/* Main Viewport & Map — Full-bleed under Floating Pills */
 .main-container {
-  height: calc(100vh - 64px);
+  height: 100dvh;
   width: 100vw;
   position: relative;
   overflow: hidden;
@@ -373,7 +538,7 @@
 /* Floating Sidebar containing Search & Filters */
 .floating-sidebar {
   position: absolute;
-  top: 14px;
+  top: 66px;
   left: 14px;
   bottom: 16px;
   width: 410px;
@@ -437,7 +602,7 @@
 
 .sidebar-docked-tab {
   position: absolute;
-  top: 14px;
+  top: 66px;
   left: 14px;
   z-index: 12;
   display: inline-flex;
@@ -789,13 +954,13 @@
 /* Detail Panel - Positioned on the Right Side */
 .detail {
   position: absolute;
-  top: 14px;
+  top: 66px;
   right: 14px;
   left: auto;
   bottom: auto;
   width: 380px;
   max-width: calc(100vw - 28px);
-  max-height: calc(100vh - 40px);
+  max-height: calc(100dvh - 84px);
   overflow-y: auto;
   background: #ffffff;
   border-radius: 14px;
@@ -1263,22 +1428,48 @@
 
 @media (max-width: 768px) {
   .header {
+    position: relative;
+    top: 0;
+    left: 0;
+    right: 0;
     height: 56px;
     padding: 0 12px;
+    background: #ffffff;
+    border-bottom: 1px solid #e2e8f0;
+    pointer-events: auto;
+  }
+  .brand-pill {
+    height: 36px;
+    padding: 0 10px 0 4px;
+    box-shadow: none;
+    border-color: #e2e8f0;
+  }
+  .brand-logo-frame {
+    width: 28px;
+    height: 28px;
   }
   .brand-tag,
-  .nav-divider,
-  .nav-item span,
-  .nav-cta-btn span,
-  .user-meta,
-  .logout-btn span {
+  .desktop-pill,
+  .account-short-name,
+  .floating-pill span {
+    display: none;
+  }
+  .header-center {
     display: none;
   }
   .header-nav {
     gap: 6px;
   }
-  .user-pill {
-    padding: 3px 6px;
+  .mobile-only-nav {
+    display: inline-flex;
+    width: 38px;
+    height: 38px;
+    padding: 0;
+    justify-content: center;
+  }
+  .account-trigger-pill {
+    height: 38px;
+    padding: 0 8px 0 4px;
   }
   .mobile-switch {
     display: flex;
@@ -1306,7 +1497,7 @@
     border-color: #17634f;
   }
   .main-container {
-    height: calc(100vh - 102px);
+    height: calc(100dvh - 102px);
   }
   .floating-sidebar {
     top: 0;

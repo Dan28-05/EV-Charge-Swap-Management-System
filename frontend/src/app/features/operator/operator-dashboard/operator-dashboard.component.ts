@@ -2,7 +2,7 @@ import { CommonModule } from '@angular/common';
 import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, HostListener, OnInit, computed, inject, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import {
   BatteryLifecycleState,
   ChargerEquipmentState,
@@ -30,7 +30,7 @@ type DashboardTab = 'operations' | 'bays' | 'batteries' | 'checkout';
   selector: 'app-operator-dashboard',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, InvoicesComponent, StationPricingComponent,
+  imports: [CommonModule, FormsModule, RouterLink, InvoicesComponent, StationPricingComponent,
     ReservationIncidentDialogComponent, NotificationBellComponent],
   templateUrl: './operator-dashboard.component.html',
   styleUrls: ['./operator-dashboard.component.scss'],
@@ -43,14 +43,71 @@ export class OperatorDashboardComponent implements OnInit {
   private readonly realtime = inject(ReservationRealtimeService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly dialog = inject(DialogService);
+  private readonly hostEl = inject(ElementRef<HTMLElement>);
+
+  readonly userMenuOpen = signal(false);
+
+  @HostListener('document:click', ['$event'])
+  onDocumentClick(event: MouseEvent): void {
+    if (!this.userMenuOpen()) return;
+    const target = event.target as Node | null;
+    if (target && !this.hostEl.nativeElement.querySelector('.account-menu')?.contains(target)) {
+      this.userMenuOpen.set(false);
+    }
+  }
 
   @HostListener('document:keydown.escape')
   onEscape(): void {
+    if (this.userMenuOpen()) {
+      this.userMenuOpen.set(false);
+      return;
+    }
     if (this.meterModalOpen()) {
       this.closeMeterModal();
     } else if (this.swapReservation() && !this.billingBusy()) {
       this.swapReservation.set(null);
     }
+  }
+
+  toggleUserMenu(): void {
+    this.userMenuOpen.update((v) => !v);
+  }
+
+  closeUserMenu(): void {
+    this.userMenuOpen.set(false);
+  }
+
+  hasOperatorRole(): boolean {
+    const roles = this.currentUser()?.roles ?? [];
+    return roles.includes('Operator') || roles.includes('StationOperator') || roles.includes('Admin');
+  }
+
+  roleDisplayLabel(roles?: string[]): string {
+    if (!roles?.length) return 'Nhân viên trạm';
+    if (roles.includes('Admin')) return 'Quản trị viên';
+    if (roles.includes('Operator') || roles.includes('StationOperator')) return 'Nhân viên trạm';
+    return 'Nhân viên trạm';
+  }
+
+  shortDisplayName(fullName?: string): string {
+    if (!fullName?.trim()) return 'Nhân viên';
+    const parts = fullName.trim().split(/\s+/);
+    return parts.length > 2 ? parts.slice(-2).join(' ') : fullName.trim();
+  }
+
+  async logout(): Promise<void> {
+    this.userMenuOpen.set(false);
+    const ok = await this.dialog.confirm(
+      'Bạn có chắc chắn muốn đăng xuất khỏi ca trực hiện tại không?',
+      {
+        title: 'Đăng xuất tài khoản',
+        confirmText: 'Đăng xuất',
+        cancelText: 'Ở lại',
+        tone: 'warning',
+      }
+    );
+    if (!ok) return;
+    this.authService.logout().pipe(takeUntilDestroyed(this.destroyRef)).subscribe();
   }
 
   readonly currentTab = signal<DashboardTab>('operations');
@@ -132,10 +189,6 @@ export class OperatorDashboardComponent implements OnInit {
     const filter = this.batteryFilter();
     if (filter === 'all') return all;
     return all.filter((b) => b.state === filter);
-  });
-
-  readonly customerBatteries = computed(() => {
-    return (this.stationData()?.batteries || []).filter((b) => b.state === BatteryLifecycleState.WithCustomer);
   });
 
   readonly isSerialConflict = computed(() => {
@@ -388,7 +441,7 @@ export class OperatorDashboardComponent implements OnInit {
     this.meterKwhInput.set(null);
   }
 
-  submitMeterReading(): void {
+  async submitMeterReading(): Promise<void> {
     const res = this.selectedReservation();
     const meter = this.meterKwhInput();
     if (!res || meter === null || !Number.isFinite(meter) || meter < 0) {
@@ -401,6 +454,20 @@ export class OperatorDashboardComponent implements OnInit {
       if (meter < start) {
         this.meterError.set(`Chỉ số cuối (${meter} kWh) không được nhỏ hơn chỉ số đầu (${start} kWh).`);
         return;
+      }
+
+      const consumedKwh = Math.round((meter - start) * 1000) / 1000;
+      if (consumedKwh > 120) {
+        const confirmed = await this.dialog.confirm(
+          `Sản lượng tiêu thụ tính được là ${consumedKwh} kWh (từ ${start} đến ${meter} kWh), cao bất thường so với dung lượng pin ô tô điện thông thường. Bạn chắc chắn đã nhập đúng chỉ số công tơ?`,
+          {
+            title: 'Cảnh báo sản lượng điện bất thường',
+            tone: 'warning',
+            confirmText: 'Đúng chỉ số, xuất hóa đơn',
+            cancelText: 'Kiểm tra lại',
+          },
+        );
+        if (!confirmed) return;
       }
     }
 

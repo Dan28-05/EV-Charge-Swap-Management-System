@@ -2,7 +2,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { ChangeDetectionStrategy, Component, DestroyRef, inject, OnInit, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
-import { Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { finalize } from 'rxjs';
 import { AuthenticatedUser, ProblemDetails } from '../models/authentication.models';
 import { AuthService } from '../services/auth.service';
@@ -21,6 +21,7 @@ const STRONG_PASSWORD_PATTERN = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/;
 export class ProfileComponent implements OnInit {
   protected readonly auth = inject(AuthService);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
   private readonly destroyRef = inject(DestroyRef);
   private copiedTimer?: ReturnType<typeof setTimeout>;
 
@@ -77,6 +78,10 @@ export class ProfileComponent implements OnInit {
     if (!this.auth.isAuthenticated()) {
       this.router.navigate(['/login'], { queryParams: { returnUrl: '/profile' } });
       return;
+    }
+    const requestedTab = this.route.snapshot.queryParamMap.get('tab');
+    if (requestedTab === 'personal' || requestedTab === 'security' || requestedTab === 'mobility') {
+      this.activeTab.set(requestedTab);
     }
     this.reload();
   }

@@ -26,9 +26,16 @@ export class AuthService {
   readonly session = signal<AuthenticationResponse | null>(this.loadInitialSession());
   readonly currentUser = computed<AuthenticatedUser | null>(() => this.session()?.user ?? null);
   readonly isAuthenticated = computed<boolean>(() => !!this.session());
-  readonly home = computed(() => this.currentUser()?.roles.includes('Operator')
-    ? { path: '/operator/dashboard', label: 'Vận hành trạm' }
-    : { path: '/', label: 'Bản đồ trạm' });
+  readonly home = computed(() => {
+    const roles = this.currentUser()?.roles ?? [];
+    if (roles.includes('Admin')) {
+      return { path: '/admin', label: 'Quản trị hệ thống' };
+    }
+    if (roles.includes('Operator')) {
+      return { path: '/operator/dashboard', label: 'Vận hành trạm' };
+    }
+    return { path: '/', label: 'Bản đồ trạm' };
+  });
   readonly isOperator = computed<boolean>(() => {
     const roles = this.currentUser()?.roles ?? [];
     return roles.includes('Operator');

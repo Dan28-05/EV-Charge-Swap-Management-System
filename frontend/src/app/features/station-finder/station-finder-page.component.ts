@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, DestroyRef, effect, inject, OnInit, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, DestroyRef, effect, ElementRef, HostListener, inject, OnInit, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
@@ -44,6 +44,7 @@ export class StationFinderPageComponent implements OnInit {
   private readonly realtimeService = inject(StationRealtimeService);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly hostEl = inject(ElementRef<HTMLElement>);
   private detailRequest?: Subscription;
   private stationRequest?: Subscription;
   private searchDelay?: Subscription;
@@ -59,10 +60,48 @@ export class StationFinderPageComponent implements OnInit {
   readonly hasRecentInventoryUpdate = signal(false);
 
   readonly currentUser = this.authService.currentUser;
+  readonly userMenuOpen = signal(false);
   readonly isOperator = computed(() => {
     const roles = this.currentUser()?.roles || [];
-    return roles.includes('Operator') || roles.includes('Admin');
+    return roles.includes('Operator') || roles.includes('StationOperator') || roles.includes('Admin');
   });
+
+  @HostListener('document:click', ['$event'])
+  onDocumentClick(event: MouseEvent): void {
+    if (!this.userMenuOpen()) return;
+    const target = event.target as Node | null;
+    if (target && !this.hostEl.nativeElement.querySelector('.account-menu')?.contains(target)) {
+      this.userMenuOpen.set(false);
+    }
+  }
+
+  @HostListener('document:keydown.escape')
+  onEscapeKey(): void {
+    if (this.userMenuOpen()) {
+      this.userMenuOpen.set(false);
+    }
+  }
+
+  toggleUserMenu(): void {
+    this.userMenuOpen.update((v) => !v);
+  }
+
+  closeUserMenu(): void {
+    this.userMenuOpen.set(false);
+  }
+
+  roleDisplayLabel(roles?: string[]): string {
+    if (!roles?.length) return 'Khách hàng';
+    if (roles.includes('Admin')) return 'Quản trị viên';
+    if (roles.includes('Operator') || roles.includes('StationOperator')) return 'Nhân viên trạm';
+    return 'Khách hàng';
+  }
+
+  shortDisplayName(fullName?: string): string {
+    if (!fullName?.trim()) return 'Tài khoản';
+    const parts = fullName.trim().split(/\s+/);
+    return parts.length > 2 ? parts.slice(-2).join(' ') : fullName.trim();
+  }
   readonly activeReservation = this.reservationService.activeReservation;
   readonly isHeld = this.reservationService.isHeld;
   readonly isCheckedIn = this.reservationService.isCheckedIn;
@@ -510,6 +549,7 @@ export class StationFinderPageComponent implements OnInit {
   }
 
   logout() {
+    this.userMenuOpen.set(false);
     this.authService.logout().pipe(takeUntilDestroyed(this.destroyRef)).subscribe();
   }
 }

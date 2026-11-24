@@ -316,6 +316,33 @@
             </div>
           </div>
 
+          <!-- Distance Guard Notice -->
+          @if (isTooFarToBook()) {
+            <div class="distance-alert blocked" role="alert">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+              </svg>
+              <div>
+                <strong>Trạm quá xa để giữ chỗ 15 phút ({{ distanceToStationKm() }} km)</strong>
+                <p>Hệ thống chỉ hỗ trợ đặt giữ chỗ 15 phút cho các trạm trong bán kính {{ distanceBlockKm }} km để đảm bảo bạn đến kịp giờ. Vui lòng chọn trạm gần hơn.</p>
+              </div>
+            </div>
+          } @else if (isFarWarning()) {
+            <div class="distance-alert warning" role="status">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true">
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                <line x1="12" y1="9" x2="12" y2="13"></line>
+                <line x1="12" y1="17" x2="12.01" y2="17"></line>
+              </svg>
+              <div>
+                <strong>Lưu ý khoảng cách ({{ distanceToStationKm() }} km)</strong>
+                <p>Trạm cách vị trí hiện tại hơn {{ distanceWarnKm }} km, bạn hãy cân nhắc thời gian di chuyển để đến kịp trong 15 phút giữ chỗ.</p>
+              </div>
+            </div>
+          }
+
           <!-- Guarantee Note -->
           <div class="policy-notice">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
@@ -333,7 +360,7 @@
               <button
                 type="button"
                 class="btn-confirm-hold"
-                [disabled]="loading()"
+                [disabled]="loading() || !station || isTooFarToBook()"
                 (click)="confirmHold()"
               >
                 @if (loading()) {

@@ -27,6 +27,15 @@ export const routes: Routes = [
   { path: 'notifications', canActivate: [authGuard], loadComponent: () => import('./features/notifications/notifications.component').then(m => m.NotificationsComponent), title: 'Thông báo — EVGo' },
   { path: 'invoices', canActivate: [authGuard], loadComponent: () => import('./features/invoices/invoices.component').then(m => m.InvoicesComponent), title: 'Hóa đơn — EVGo' },
   {
+    path: 'admin',
+    canMatch: [roleGuard(['Admin'])],
+    loadComponent: () =>
+      import('./features/admin/admin-dashboard/admin-dashboard.component').then(
+        (m) => m.AdminDashboardComponent,
+      ),
+    title: 'Quản trị Hệ thống — EVGo',
+  },
+  {
     path: 'operator/dashboard',
     canMatch: [roleGuard(['Operator'])],
     loadComponent: () =>

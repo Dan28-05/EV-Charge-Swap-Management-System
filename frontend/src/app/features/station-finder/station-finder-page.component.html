@@ -1,19 +1,37 @@
 <header class="header">
   <div class="header-left">
-    <a class="brand" routerLink="/" title="EVGo Charge & Swap">
-      <div class="brand-icon-box">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-        </svg>
+    <a class="brand-pill" routerLink="/" title="EVGo Charge & Swap">
+      <div class="brand-logo-frame">
+        <img src="favicon.png" alt="EVGo Logo" width="26" height="26" />
       </div>
       <span class="brand-text">EVGo</span>
       <span class="brand-tag">Charge & Swap</span>
     </a>
   </div>
 
+  <!-- TRẠNG THÁI GIỮ CHỖ ĐANG HOẠT ĐỘNG (NỔI Ở GIỮA) -->
+  @if (isHeld() || isCheckedIn()) {
+    <div class="header-center">
+      @if (isHeld()) {
+        <button type="button" class="nav-status-pill held" (click)="openReservationModal()" title="Xem phiếu giữ chỗ & đếm ngược thời gian">
+          <span class="pulse-beacon"></span>
+          <span class="status-text">Đang giữ chỗ:</span>
+          <strong class="countdown-val">{{ formattedCountdown() }}</strong>
+        </button>
+      } @else if (isCheckedIn()) {
+        <button type="button" class="nav-status-pill checked-in" (click)="openReservationModal()" title="Xem phiếu giữ chỗ đã check-in">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="20 6 9 17 4 12"></polyline>
+          </svg>
+          <span>Đã check-in tại trạm</span>
+        </button>
+      }
+    </div>
+  }
+
   <nav class="header-nav" aria-label="Điều hướng chính">
-    <!-- BẢN ĐỒ TRẠM -->
-    <button type="button" class="nav-item current" (click)="openStationList()" title="Danh sách & Bản đồ trạm">
+    <!-- BẢN ĐỒ TRẠM (chỉ hiện trên mobile <= 768px) -->
+    <button type="button" class="floating-pill current mobile-only-nav" (click)="openStationList()" title="Danh sách & Bản đồ trạm">
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
         <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon>
         <line x1="8" y1="2" x2="8" y2="18"></line>
@@ -22,36 +40,10 @@
       <span>Bản đồ trạm</span>
     </button>
 
-    <!-- ĐẶT GIỮ CHỖ / TRẠNG THÁI (PRIMARY CTA) -->
-    @if (isHeld()) {
-      <button type="button" class="nav-status-pill held" (click)="openReservationModal()" title="Xem phiếu giữ chỗ & đếm ngược thời gian">
-        <span class="pulse-beacon"></span>
-        <span class="status-text">Đang giữ chỗ:</span>
-        <strong class="countdown-val">{{ formattedCountdown() }}</strong>
-      </button>
-    } @else if (isCheckedIn()) {
-      <button type="button" class="nav-status-pill checked-in" (click)="openReservationModal()" title="Xem phiếu giữ chỗ đã check-in">
-        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="20 6 9 17 4 12"></polyline>
-        </svg>
-        <span>Đã check-in tại trạm</span>
-      </button>
-    } @else {
-      <button type="button" class="nav-cta-btn" (click)="openReservationModal()" title="Mở phiếu đặt giữ chỗ trong 15 phút">
-        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
-          <line x1="16" y1="2" x2="16" y2="6"></line>
-          <line x1="8" y1="2" x2="8" y2="6"></line>
-          <line x1="3" y1="10" x2="21" y2="10"></line>
-        </svg>
-        <span>Đặt giữ chỗ (15p)</span>
-      </button>
-    }
-
     <!-- DASHBOARD VẬN HÀNH (NẾU LÀ OPERATOR) -->
     @if (isOperator()) {
-      <a routerLink="/operator/dashboard" class="nav-item operator-link" title="Mở Dashboard vận hành trạm">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+      <a routerLink="/operator/dashboard" class="floating-pill operator-pill desktop-pill" title="Mở Dashboard vận hành trạm">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
           <rect x="3" y="3" width="7" height="9"></rect>
           <rect x="14" y="3" width="7" height="5"></rect>
           <rect x="14" y="12" width="7" height="9"></rect>
@@ -62,56 +54,145 @@
     }
 
     @if (currentUser(); as user) {
-      <div class="nav-divider" aria-hidden="true"></div>
-
-      @if (user.roles.includes('Customer')) {
-        <app-notification-bell audience="customer" (reservationRequested)="openNotificationReservation()" />
-      } @else {
-        <a class="nav-item" routerLink="/notifications" title="Trung tâm thông báo">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
-          <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
-        </svg>
-        <span>Thông báo</span>
-        </a>
-      }
-
-      <!-- HÓA ĐƠN -->
-      <a class="nav-item" routerLink="/invoices" title="Lịch sử hóa đơn & giao dịch">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+      <!-- LỊCH SỬ & HÓA ĐƠN -->
+      <a class="floating-pill desktop-pill" routerLink="/invoices" title="Lịch sử đặt chỗ & Hóa đơn thanh toán">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
           <polyline points="14 2 14 8 20 8"></polyline>
           <line x1="16" y1="13" x2="8" y2="13"></line>
           <line x1="16" y1="17" x2="8" y2="17"></line>
         </svg>
-        <span>Hóa đơn</span>
+        <span>Lịch sử & Hóa đơn</span>
       </a>
 
-      <div class="nav-divider" aria-hidden="true"></div>
-
-      <!-- USER PROFILE & LOGOUT -->
-      <div class="user-pill">
-        <a class="user-info-group" routerLink="/profile" title="Xem hồ sơ cá nhân">
-          <div class="user-avatar" aria-hidden="true">
-            {{ user.fullName.charAt(0).toUpperCase() }}
-          </div>
-          <div class="user-meta">
-            <span class="user-name">{{ user.fullName }}</span>
-            <span class="user-role">{{ user.roles[0] || 'Khách hàng' }}</span>
-          </div>
-        </a>
-        <button type="button" class="logout-btn" title="Đăng xuất khỏi hệ thống" (click)="logout()">
-          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
-            <polyline points="16 17 21 12 16 7"></polyline>
-            <line x1="21" y1="12" x2="9" y2="12"></line>
+      <!-- THÔNG BÁO -->
+      @if (user.roles.includes('Customer')) {
+        <app-notification-bell audience="customer" (reservationRequested)="openNotificationReservation()" />
+      } @else {
+        <a class="floating-icon-pill" routerLink="/notifications" title="Trung tâm thông báo" aria-label="Trung tâm thông báo">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+            <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
           </svg>
-          <span>Đăng xuất</span>
+        </a>
+      }
+
+      <!-- ACCOUNT DROPDOWN PILL -->
+      <div class="account-menu">
+        <button
+          type="button"
+          class="account-trigger-pill"
+          [class.open]="userMenuOpen()"
+          [attr.aria-expanded]="userMenuOpen()"
+          aria-haspopup="menu"
+          (click)="toggleUserMenu()"
+          title="Mở menu tài khoản"
+        >
+          <span class="account-avatar" aria-hidden="true">
+            {{ user.fullName.charAt(0).toUpperCase() }}
+            <span class="online-dot"></span>
+          </span>
+          <span class="account-short-name">{{ shortDisplayName(user.fullName) }}</span>
+          <svg class="account-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
         </button>
+
+        @if (userMenuOpen()) {
+          <div class="account-dropdown" role="menu" aria-label="Menu tài khoản">
+            <div class="dropdown-profile-head">
+              <div class="dropdown-avatar" aria-hidden="true">{{ user.fullName.charAt(0).toUpperCase() }}</div>
+              <div class="dropdown-identity">
+                <div class="dropdown-name">{{ user.fullName }}</div>
+                <div class="dropdown-meta-row">
+                  <span class="dropdown-role-badge">{{ roleDisplayLabel(user.roles) }}</span>
+                </div>
+                <div class="dropdown-email">{{ user.email }}</div>
+              </div>
+            </div>
+
+            <div class="dropdown-items">
+              <a class="dropdown-item" routerLink="/profile" role="menuitem" (click)="closeUserMenu()">
+                <span class="item-icon-box">
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                    <circle cx="12" cy="7" r="4"></circle>
+                  </svg>
+                </span>
+                <span class="item-label">Hồ sơ & Cài đặt</span>
+                <svg class="item-arrow" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+              </a>
+
+              <a class="dropdown-item" routerLink="/invoices" role="menuitem" (click)="closeUserMenu()">
+                <span class="item-icon-box">
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                    <polyline points="14 2 14 8 20 8"></polyline>
+                    <line x1="16" y1="13" x2="8" y2="13"></line>
+                    <line x1="16" y1="17" x2="8" y2="17"></line>
+                  </svg>
+                </span>
+                <span class="item-label">Lịch sử & Hóa đơn</span>
+                <svg class="item-arrow" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+              </a>
+
+              <a class="dropdown-item" routerLink="/notifications" role="menuitem" (click)="closeUserMenu()">
+                <span class="item-icon-box">
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                    <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+                  </svg>
+                </span>
+                <span class="item-label">Trung tâm thông báo</span>
+                <svg class="item-arrow" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+              </a>
+
+              <a class="dropdown-item" routerLink="/profile" [queryParams]="{ tab: 'security' }" role="menuitem" (click)="closeUserMenu()">
+                <span class="item-icon-box">
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                  </svg>
+                </span>
+                <span class="item-label">Bảo mật & Mật khẩu</span>
+                <svg class="item-arrow" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+              </a>
+
+              @if (isOperator()) {
+                <a class="dropdown-item" routerLink="/operator/dashboard" role="menuitem" (click)="closeUserMenu()">
+                  <span class="item-icon-box">
+                    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                      <rect x="3" y="3" width="7" height="9"></rect>
+                      <rect x="14" y="3" width="7" height="5"></rect>
+                      <rect x="14" y="12" width="7" height="9"></rect>
+                      <rect x="3" y="16" width="7" height="5"></rect>
+                    </svg>
+                  </span>
+                  <span class="item-label">Bảng điều khiển trạm</span>
+                  <svg class="item-arrow" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                </a>
+              }
+            </div>
+
+            <div class="dropdown-footer">
+              <button type="button" class="dropdown-logout-btn" role="menuitem" (click)="logout()">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                  <polyline points="16 17 21 12 16 7"></polyline>
+                  <line x1="21" y1="12" x2="9" y2="12"></line>
+                </svg>
+                <span>Đăng xuất</span>
+              </button>
+            </div>
+          </div>
+        }
       </div>
     } @else {
-      <a class="login-link" routerLink="/login" title="Đăng nhập tài khoản">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <a class="floating-pill desktop-pill" routerLink="/register" title="Tạo tài khoản mới">
+        <span>Đăng ký</span>
+      </a>
+      <a class="login-pill" routerLink="/login" title="Đăng nhập tài khoản">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3" />
         </svg>
         <span>Đăng nhập</span>
@@ -577,6 +658,7 @@
 @if (showReservationModal()) {
   <app-customer-reservation-modal
     [station]="detail()"
+    [userLocation]="userLocation()"
     [initialServiceType]="modalInitialServiceType()"
     (closed)="closeReservationModal()"
   />

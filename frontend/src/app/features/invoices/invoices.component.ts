@@ -1,6 +1,6 @@
 import { CommonModule, DatePipe, DecimalPipe } from '@angular/common';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { ChangeDetectionStrategy, Component, DestroyRef, HostListener, OnInit, computed, inject, input, isDevMode, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, HostListener, OnInit, computed, inject, input, isDevMode, signal } from '@angular/core';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
@@ -12,6 +12,7 @@ import { ReservationRealtimeService } from '../reservations/services/reservation
 
 export interface Invoice {
   id: string;
+  customerId?: string;
   reservationCode: string | null;
   totalKwh: number;
   kwhRate: number;
@@ -28,6 +29,11 @@ export interface Invoice {
   customerPhone?: string | null;
   customerEmail?: string | null;
   collectorName?: string | null;
+  locationName?: string | null;
+  locationAddress?: string | null;
+  bayCode?: string | null;
+  batterySerial?: string | null;
+  reservedAtUtc?: string | null;
 }
 
 export interface QrAttempt {
@@ -50,9 +56,56 @@ export class InvoicesComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
   private readonly realtime = inject(ReservationRealtimeService);
   private readonly dialog = inject(DialogService);
+  private readonly hostEl = inject(ElementRef<HTMLElement>);
   private readonly reload = new Subject<void>();
   private readonly rows = signal<Invoice[]>([]);
   private copiedTimer?: ReturnType<typeof setTimeout>;
+
+  readonly userMenuOpen = signal(false);
+
+  @HostListener('document:click', ['$event'])
+  onDocumentClick(event: MouseEvent): void {
+    if (!this.userMenuOpen()) return;
+    const target = event.target as Node | null;
+    if (target && !this.hostEl.nativeElement.querySelector('.account-menu')?.contains(target)) {
+      this.userMenuOpen.set(false);
+    }
+  }
+
+  toggleUserMenu(): void {
+    this.userMenuOpen.update((v) => !v);
+  }
+
+  closeUserMenu(): void {
+    this.userMenuOpen.set(false);
+  }
+
+  roleDisplayLabel(roles?: string[]): string {
+    if (!roles?.length) return 'Khách hàng';
+    if (roles.includes('Admin')) return 'Quản trị viên';
+    if (roles.includes('Operator') || roles.includes('StationOperator')) return 'Nhân viên trạm';
+    return 'Khách hàng';
+  }
+
+  shortDisplayName(fullName?: string): string {
+    if (!fullName?.trim()) return 'Tài khoản';
+    const parts = fullName.trim().split(/\s+/);
+    return parts.length > 2 ? parts.slice(-2).join(' ') : fullName.trim();
+  }
+
+  overdueDays(dueAtUtc: string | null | undefined): number {
+    if (!dueAtUtc) return 0;
+    const dueMs = new Date(dueAtUtc).getTime();
+    if (!Number.isFinite(dueMs)) return 0;
+    const diffMs = Date.now() - dueMs;
+    if (diffMs <= 0) return 0;
+    return Math.max(1, Math.ceil(diffMs / 86_400_000));
+  }
+
+  logout(): void {
+    this.userMenuOpen.set(false);
+    this.auth.logout().pipe(takeUntilDestroyed(this.destroyRef)).subscribe();
+  }
 
   readonly auth = inject(AuthService);
   protected readonly isDev = isDevMode();
@@ -90,6 +143,10 @@ export class InvoicesComponent implements OnInit {
 
     if (query) {
       list = list.filter((inv) =>
+        (inv.locationName && inv.locationName.toLowerCase().includes(query)) ||
+        (inv.locationAddress && inv.locationAddress.toLowerCase().includes(query)) ||
+        (inv.bayCode && inv.bayCode.toLowerCase().includes(query)) ||
+        (inv.batterySerial && inv.batterySerial.toLowerCase().includes(query)) ||
         (inv.reservationCode && inv.reservationCode.toLowerCase().includes(query)) ||
         (inv.customerName && inv.customerName.toLowerCase().includes(query)) ||
         (inv.customerPhone && inv.customerPhone.toLowerCase().includes(query)) ||
@@ -120,6 +177,16 @@ export class InvoicesComponent implements OnInit {
 
   readonly paidCount = computed(() => this.rows().filter((inv) => inv.status === 'Paid').length);
   readonly pendingCount = computed(() => this.rows().filter((inv) => inv.status === 'Pending').length);
+  readonly chargingCount = computed(() => this.rows().filter((inv) => inv.swapRate == null).length);
+  readonly swapCount = computed(() => this.rows().filter((inv) => inv.swapRate != null).length);
+  readonly uniqueCustomerCount = computed(() => {
+    const keys = new Set(
+      this.rows()
+        .map((inv) => inv.customerId || inv.customerEmail || inv.customerPhone || inv.customerName)
+        .filter((k): k is string => Boolean(k)),
+    );
+    return keys.size;
+  });
   readonly hasMorePages = computed(() => this.rows().length >= 100);
 
   readonly attempt = signal<(QrAttempt & { image: string }) | null>(null);

@@ -39,8 +39,36 @@ export class CustomerReservationModalComponent implements OnInit, OnChanges {
   private readonly destroyRef = inject(DestroyRef);
 
   @Input() station: Station | null = null;
+  @Input() userLocation: { lat: number; lng: number } | null = null;
   @Input() initialServiceType: ReservationServiceType | null = null;
   @Output() closed = new EventEmitter<void>();
+
+  readonly distanceWarnKm = 10;
+  readonly distanceBlockKm = 20;
+
+  readonly distanceToStationKm = computed<number | null>(() => {
+    const s = this.stationData();
+    const u = this.userLocationSignal();
+    if (!s) return null;
+    if (typeof s.distanceKm === 'number' && Number.isFinite(s.distanceKm) && s.distanceKm >= 0 && u) {
+      return Math.round(s.distanceKm * 10) / 10;
+    }
+    if (!u || !Number.isFinite(s.latitude) || !Number.isFinite(s.longitude)) return null;
+    const km = this.haversineKm(u.lat, u.lng, s.latitude, s.longitude);
+    return Math.round(km * 10) / 10;
+  });
+
+  readonly isTooFarToBook = computed(() => {
+    const km = this.distanceToStationKm();
+    return km !== null && km > this.distanceBlockKm;
+  });
+
+  readonly isFarWarning = computed(() => {
+    const km = this.distanceToStationKm();
+    return km !== null && km > this.distanceWarnKm && km <= this.distanceBlockKm;
+  });
+
+  private readonly userLocationSignal = signal<{ lat: number; lng: number } | null>(null);
 
   readonly currentUser = this.authService.currentUser;
   readonly activeReservation = this.reservationService.activeReservation;
@@ -95,6 +123,7 @@ export class CustomerReservationModalComponent implements OnInit, OnChanges {
   }
 
   ngOnInit(): void {
+    this.userLocationSignal.set(this.userLocation);
     if (this.currentUser()) {
       this.reservationService.getActive().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         error: () => {},
@@ -104,6 +133,9 @@ export class CustomerReservationModalComponent implements OnInit, OnChanges {
   }
 
   ngOnChanges(changes: SimpleChanges): void {
+    if (changes['userLocation']) {
+      this.userLocationSignal.set(this.userLocation);
+    }
     if (changes['station'] || changes['initialServiceType']) {
       this.syncServiceType();
     }
@@ -169,6 +201,10 @@ export class CustomerReservationModalComponent implements OnInit, OnChanges {
     }
 
     if (!this.station) return;
+    if (this.isTooFarToBook()) {
+      this.errorMessage.set(`Trạm cách bạn ${this.distanceToStationKm()} km (vượt quá giới hạn ${this.distanceBlockKm} km cho giữ chỗ 15 phút). Vui lòng chọn trạm gần hơn.`);
+      return;
+    }
 
     this.errorMessage.set(null);
     this.reservationService
@@ -241,6 +277,16 @@ export class CustomerReservationModalComponent implements OnInit, OnChanges {
     const st = this.stationData() || this.station;
     if (!st) return 'https://maps.google.com';
     return `https://www.google.com/maps/dir/?api=1&destination=${st.latitude},${st.longitude}`;
+  }
+
+  private haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const toRad = (deg: number) => (deg * Math.PI) / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   }
 
   private translateBackendError(detail: string): string {

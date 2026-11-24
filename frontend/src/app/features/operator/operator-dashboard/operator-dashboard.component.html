@@ -27,34 +27,129 @@
       </footer>
     </form>
   </dialog>
-  <!-- TOP APP BAR -->
+  <!-- TOP FLOATING PILL APP BAR -->
   <header class="dashboard-header">
     <div class="header-left">
-      <div class="brand-title">
+      <a class="brand-pill" routerLink="/operator/dashboard" title="EVGo — Cổng Vận Hành Trạm">
+        <div class="brand-logo-frame">
+          <img src="favicon.png" alt="EVGo Logo" width="26" height="26" />
+        </div>
         <span class="brand-logo">EVGo</span>
         <span class="portal-badge">Vận hành</span>
-      </div>
+      </a>
     </div>
 
+    @if (stationData(); as data) {
+      <div class="header-center">
+        <div class="station-pill" [class.open]="data.location.operatingStatus === 'Open'" [title]="data.location.address">
+          <span class="station-dot" aria-hidden="true"></span>
+          <span class="station-pill-name">{{ data.location.name }}</span>
+        </div>
+      </div>
+    }
+
     <div class="header-right">
-      @if (currentUser()?.roles?.includes('Operator')) {
-        <app-notification-bell audience="operator" />
-      }
-      <button type="button" class="refresh-btn" [class.spinning]="loading()" (click)="refresh()" title="Làm mới dữ liệu">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+      <button
+        type="button"
+        class="refresh-icon-pill"
+        [class.spinning]="loading()"
+        (click)="refresh()"
+        title="Làm mới dữ liệu trạm"
+        aria-label="Làm mới dữ liệu trạm"
+      >
+        <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
         </svg>
-        <span>Làm mới</span>
       </button>
 
-      <div class="operator-profile">
-        <div class="avatar-circle">
-          {{ currentUser()?.fullName ? currentUser()!.fullName.charAt(0) : 'O' }}
-        </div>
-        <div class="profile-info">
-          <span class="operator-name">{{ currentUser()?.fullName || 'Nhân viên vận hành' }}</span>
-          <span class="operator-role">Trực trạm</span>
-        </div>
+      @if (hasOperatorRole()) {
+        <app-notification-bell audience="operator" />
+      }
+
+      <div class="account-menu">
+        <button
+          type="button"
+          class="account-trigger-pill"
+          [class.open]="userMenuOpen()"
+          [attr.aria-expanded]="userMenuOpen()"
+          aria-haspopup="menu"
+          (click)="toggleUserMenu()"
+          title="Mở menu tài khoản"
+        >
+          <span class="account-avatar" aria-hidden="true">
+            {{ currentUser()?.fullName ? currentUser()!.fullName.charAt(0).toUpperCase() : 'O' }}
+            <span class="online-dot"></span>
+          </span>
+          <span class="account-short-name">{{ shortDisplayName(currentUser()?.fullName) }}</span>
+          <svg class="account-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </button>
+
+        @if (userMenuOpen()) {
+          <div class="account-dropdown" role="menu" aria-label="Menu tài khoản nhân viên">
+            <div class="dropdown-profile-head">
+              <div class="dropdown-avatar" aria-hidden="true">
+                {{ currentUser()?.fullName ? currentUser()!.fullName.charAt(0).toUpperCase() : 'O' }}
+              </div>
+              <div class="dropdown-identity">
+                <div class="dropdown-name">{{ currentUser()?.fullName || 'Nhân viên vận hành' }}</div>
+                <div class="dropdown-meta-row">
+                  <span class="dropdown-role-badge">{{ roleDisplayLabel(currentUser()?.roles) }}</span>
+                </div>
+                @if (currentUser()?.email) {
+                  <div class="dropdown-email">{{ currentUser()!.email }}</div>
+                }
+              </div>
+            </div>
+
+            <div class="dropdown-items">
+              <a class="dropdown-item" routerLink="/profile" role="menuitem" (click)="closeUserMenu()">
+                <span class="item-icon-box">
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                    <circle cx="12" cy="7" r="4"></circle>
+                  </svg>
+                </span>
+                <span class="item-label">Hồ sơ & Cài đặt</span>
+                <svg class="item-arrow" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+              </a>
+
+              <a class="dropdown-item" routerLink="/notifications" role="menuitem" (click)="closeUserMenu()">
+                <span class="item-icon-box">
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                    <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+                  </svg>
+                </span>
+                <span class="item-label">Trung tâm thông báo</span>
+                <svg class="item-arrow" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+              </a>
+
+              <a class="dropdown-item" routerLink="/profile" [queryParams]="{ tab: 'security' }" role="menuitem" (click)="closeUserMenu()">
+                <span class="item-icon-box">
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                  </svg>
+                </span>
+                <span class="item-label">Bảo mật & Mật khẩu</span>
+                <svg class="item-arrow" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+              </a>
+            </div>
+
+            <div class="dropdown-footer">
+              <button type="button" class="dropdown-logout-btn" role="menuitem" (click)="logout()">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                  <polyline points="16 17 21 12 16 7"></polyline>
+                  <line x1="21" y1="12" x2="9" y2="12"></line>
+                </svg>
+                <span>Đăng xuất ca trực</span>
+              </button>
+            </div>
+          </div>
+        }
       </div>
     </div>
   </header>
@@ -334,21 +429,13 @@
                     </div>
                   </div>
                   <input id="returned-serial" name="returnedSerial" maxlength="64" required
-                    placeholder="Quét mã QR hoặc nhập mã pin khách trả..."
+                    placeholder="Quét mã QR hoặc nhập mã pin trên xe khách..."
                     [class.input-error]="isSerialConflict()"
                     class="swap-input font-mono"
                     [ngModel]="returnedSerial()" (ngModelChange)="returnedSerial.set($event)">
-
-                  @if (customerBatteries().length > 0) {
-                    <div class="quick-chips">
-                      <span class="chip-lbl">Gợi ý pin khách đang giữ:</span>
-                      @for (bat of customerBatteries(); track bat.id) {
-                        <button type="button" class="quick-chip" (click)="returnedSerial.set(bat.serial)">
-                          + {{ bat.serial }}
-                        </button>
-                      }
-                    </div>
-                  }
+                  <p class="swap-field-note">
+                    Nhập mã serial in trên vỏ pin khách trả. Nếu khách đổi pin lần đầu, mã pin mới sẽ tự động được ghi nhận vào trạng thái <strong>Kiểm tra</strong>.
+                  </p>
                 </div>
 
                 <!-- ARROW CONNECTOR -->
@@ -365,16 +452,19 @@
                     <span class="step-num step-issue">2</span>
                     <div>
                       <label for="issued-serial" class="col-title">📤 Serial pin trạm giao (Pin đầy 100%)</label>
-                      <span class="col-hint">Viên pin trong kho trạm chuẩn bị lắp cho xe khách</span>
+                      <span class="col-hint">Viên pin đã khóa riêng cho phiếu đặt chỗ này</span>
                     </div>
                   </div>
                   <div class="issued-input-group">
-                    <input id="issued-serial" name="issuedSerial" maxlength="64" required
-                      class="swap-input font-mono"
+                    <input id="issued-serial" name="issuedSerial" maxlength="64" required readonly
+                      class="swap-input swap-input-locked font-mono"
                       [class.input-error]="isSerialConflict()"
-                      [ngModel]="issuedSerial()" (ngModelChange)="issuedSerial.set($event)">
-                    <span class="held-badge">Pin đã giữ trước</span>
+                      [ngModel]="issuedSerial()">
+                    <span class="held-badge">Đã khóa theo phiếu</span>
                   </div>
+                  <p class="swap-field-note">
+                    Bắt buộc giao đúng viên pin đã giữ chỗ. Nếu viên pin này gặp sự cố, hãy dùng <strong>Xử lý sự cố</strong> để đổi sang pin dự phòng.
+                  </p>
                 </div>
               </div>
 

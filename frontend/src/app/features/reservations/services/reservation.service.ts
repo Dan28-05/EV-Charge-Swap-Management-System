@@ -219,6 +219,7 @@ export class ReservationService {
     if (this.pollTimer) return;
     let heartbeat = 0;
     this.pollTimer = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
       const current = this.activeReservation();
       if (current && (current.status === 'Held' || current.status === 'CheckedIn')) {
         if (!this.realtime.connected() || ++heartbeat % 4 === 0) this.syncActive();

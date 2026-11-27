@@ -274,7 +274,7 @@ export class StationFinderPageComponent implements OnInit {
           this.total.set(0);
           this.hasMore.set(false);
         },
-        { enableHighAccuracy: true, timeout: 6000 },
+        { enableHighAccuracy: false, timeout: 3000, maximumAge: 60000 },
       );
     } else {
       this.loadMore();
@@ -288,7 +288,6 @@ export class StationFinderPageComponent implements OnInit {
     this.stationRequest?.unsubscribe();
     if (resetList) {
       this.page = 0;
-      this.stations.set([]);
     }
     this.loading.set(true);
     this.error.set('');
@@ -307,7 +306,9 @@ export class StationFinderPageComponent implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (result) => {
-          const merged = new Map(this.stations().map((s) => [s.id, s]));
+          const merged = resetList
+            ? new Map<string, Station>()
+            : new Map(this.stations().map((s) => [s.id, s]));
           for (const station of result.items) merged.set(station.id, station);
           this.stations.set([...merged.values()]);
           this.page = result.page;

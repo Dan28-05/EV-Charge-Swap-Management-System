@@ -184,6 +184,8 @@ export class StationMapComponent implements AfterViewInit, OnDestroy {
   private map?: L.Map;
   private resize?: ResizeObserver;
   private markers = new Map<string, L.Marker>();
+  private markerSignatures = new Map<string, string>();
+  private dragTimer?: ReturnType<typeof setTimeout>;
   private userMarker?: L.Marker;
   private userRadiusCircle?: L.Circle;
   private previousSelection: string | null = null;
@@ -219,8 +221,11 @@ export class StationMapComponent implements AfterViewInit, OnDestroy {
     }).addTo(this.map);
 
     this.map.on('dragend', () => {
-      const center = this.map?.getCenter();
-      if (center) this.mapAreaChanged.emit({ lat: center.lat, lng: center.lng });
+      clearTimeout(this.dragTimer);
+      this.dragTimer = setTimeout(() => {
+        const center = this.map?.getCenter();
+        if (center) this.mapAreaChanged.emit({ lat: center.lat, lng: center.lng });
+      }, 300);
     });
 
     if (typeof ResizeObserver !== 'undefined') {
@@ -350,13 +355,27 @@ export class StationMapComponent implements AfterViewInit, OnDestroy {
       if (!ids.has(id)) {
         marker.remove();
         this.markers.delete(id);
+        this.markerSignatures.delete(id);
       }
     }
 
-    // Vẽ markers theo chuẩn Google Maps Pin
+    // Vẽ markers theo chuẩn Google Maps Pin (chỉ cập nhật DOM khi marker thay đổi)
     for (const station of stations) {
-      const label = serviceLabel(station);
       const isSelected = station.id === selectedId;
+      const kind = station.offersCarCharging
+        ? station.offersBatterySwap
+          ? 'both'
+          : 'charging'
+        : 'swap';
+      const isInactive = station.operatingStatus === 'Maintenance' || station.operatingStatus === 'Closed';
+      const sig = `${kind}|${isInactive}|${isSelected}|${station.latitude}|${station.longitude}`;
+
+      let marker = this.markers.get(station.id);
+      if (marker && this.markerSignatures.get(station.id) === sig) {
+        continue;
+      }
+
+      const label = serviceLabel(station);
       const boltSvg = `<svg class="pin-svg pin-bolt" viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>`;
       const batterySvg = `<svg class="pin-svg pin-battery" viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M16 4h-1V2.5a.5.5 0 0 0-.5-.5h-5a.5.5 0 0 0-.5.5V4H8C6.34 4 5 5.34 5 7v12c0 1.66 1.34 3 3 3h8c1.66 0 3-1.34 3-3V7c0-1.66-1.34-3-3-3zm-1 12H9v-2h6v2zm0-4H9v-2h6v2zm0-4H9V6h6v2z"/></svg>`;
       const dualSvg = `<div class="pin-svg-dual">${boltSvg}${batterySvg}</div>`;
@@ -364,13 +383,7 @@ export class StationMapComponent implements AfterViewInit, OnDestroy {
       const symbol = station.offersCarCharging
         ? (station.offersBatterySwap ? dualSvg : boltSvg)
         : batterySvg;
-      const kind = station.offersCarCharging
-        ? station.offersBatterySwap
-          ? 'both'
-          : 'charging'
-        : 'swap';
 
-      const isInactive = station.operatingStatus === 'Maintenance' || station.operatingStatus === 'Closed';
       const pinColor = isInactive ? '#94a3b8' : '#17634f';
       const pinShadow = isInactive
         ? 'rgba(148, 163, 184, 0.35)'
@@ -393,7 +406,6 @@ export class StationMapComponent implements AfterViewInit, OnDestroy {
         iconAnchor: [22, 48],
       });
 
-      let marker = this.markers.get(station.id);
       if (!marker) {
         marker = L.marker([station.latitude, station.longitude], {
           icon,
@@ -414,6 +426,7 @@ export class StationMapComponent implements AfterViewInit, OnDestroy {
         marker.setLatLng([station.latitude, station.longitude]).setIcon(icon);
       }
 
+      this.markerSignatures.set(station.id, sig);
       marker.setZIndexOffset(isSelected ? 1000 : 0);
       marker.getElement()?.setAttribute('aria-label', `${station.name} — ${label}`);
       marker.getElement()?.setAttribute('aria-pressed', String(isSelected));
@@ -451,6 +464,7 @@ export class StationMapComponent implements AfterViewInit, OnDestroy {
   }
 
   ngOnDestroy() {
+    clearTimeout(this.dragTimer);
     this.resize?.disconnect();
     this.map?.remove();
   }

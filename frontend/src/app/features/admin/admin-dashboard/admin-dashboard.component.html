@@ -177,7 +177,11 @@
       </div>
       <div class="page-head-actions">
         <button type="button" class="btn-solid" (click)="openNewStationWizard()">
-          + Thêm trạm mới
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+          <span>Thêm trạm mới</span>
         </button>
       </div>
     </section>
@@ -186,21 +190,41 @@
     <nav class="admin-tabs" role="tablist" aria-label="Phân hệ quản trị">
       <button type="button" role="tab" [attr.aria-selected]="activeTab() === 'reports'"
         [class.active]="activeTab() === 'reports'" (click)="setTab('reports')">
-        Báo cáo & Doanh thu
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <line x1="18" y1="20" x2="18" y2="10"></line>
+          <line x1="12" y1="20" x2="12" y2="4"></line>
+          <line x1="6" y1="20" x2="6" y2="14"></line>
+        </svg>
+        <span>Báo cáo & Doanh thu</span>
       </button>
       <button type="button" role="tab" [attr.aria-selected]="activeTab() === 'stations'"
         [class.active]="activeTab() === 'stations'" (click)="setTab('stations')">
-        Trạm & Tài nguyên
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+        </svg>
+        <span>Trạm & Tài nguyên</span>
         <span class="tab-count">{{ locations().length }}</span>
       </button>
       <button type="button" role="tab" [attr.aria-selected]="activeTab() === 'operators'"
         [class.active]="activeTab() === 'operators'" (click)="setTab('operators')">
-        Nhân viên trạm
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+          <circle cx="9" cy="7" r="4"></circle>
+          <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+          <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+        </svg>
+        <span>Nhân viên trạm</span>
         <span class="tab-count">{{ operators().length }}</span>
       </button>
       <button type="button" role="tab" [attr.aria-selected]="activeTab() === 'invoices'"
         [class.active]="activeTab() === 'invoices'" (click)="setTab('invoices')">
-        Hóa đơn toàn mạng
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+          <polyline points="14 2 14 8 20 8"></polyline>
+          <line x1="16" y1="13" x2="8" y2="13"></line>
+          <line x1="16" y1="17" x2="8" y2="17"></line>
+        </svg>
+        <span>Hóa đơn toàn mạng</span>
       </button>
     </nav>
 
@@ -223,52 +247,115 @@
     <!-- =========================================================== -->
     @if (activeTab() === 'reports') {
       <section class="toolbar">
-        <div class="segmented">
-          <button type="button" [class.active]="reportRange() === '7d'" (click)="setReportRange('7d')">7 ngày</button>
-          <button type="button" [class.active]="reportRange() === '30d'" (click)="setReportRange('30d')">30 ngày</button>
-          <button type="button" [class.active]="reportRange() === 'month'" (click)="setReportRange('month')">Tháng này</button>
-          <button type="button" [class.active]="reportRange() === 'all'" (click)="setReportRange('all')">Toàn bộ</button>
+        <div class="toolbar-left">
+          <div class="option-group">
+            <span class="option-label">Kỳ báo cáo</span>
+            <div class="segmented">
+              <button type="button" [class.active]="reportRange() === '7d'" (click)="setReportRange('7d')">7 ngày</button>
+              <button type="button" [class.active]="reportRange() === '30d'" (click)="setReportRange('30d')">30 ngày</button>
+              <button type="button" [class.active]="reportRange() === 'month'" (click)="setReportRange('month')">Tháng này</button>
+              <button type="button" [class.active]="reportRange() === 'all'" (click)="setReportRange('all')">Toàn bộ</button>
+            </div>
+          </div>
         </div>
 
-        <select class="toolbar-select" aria-label="Lọc báo cáo theo trạm"
-          [ngModel]="reportLocationId()" (ngModelChange)="setReportLocation($event)">
-          <option value="">Tất cả trạm ({{ locations().length }})</option>
-          @for (item of locations(); track item.location.id) {
-            <option [value]="item.location.id">{{ item.location.name }}</option>
-          }
-        </select>
+        <div class="toolbar-right">
+          <div class="option-group">
+            <span class="option-label">Phạm vi</span>
+            <div class="select-field">
+              <svg class="select-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+                <circle cx="12" cy="10" r="3"></circle>
+              </svg>
+              <select class="toolbar-select" aria-label="Lọc báo cáo theo trạm"
+                [ngModel]="reportLocationId()" (ngModelChange)="setReportLocation($event)">
+                <option value="">Tất cả trạm ({{ locations().length }})</option>
+                @for (item of locations(); track item.location.id) {
+                  <option [value]="item.location.id">{{ item.location.name }}</option>
+                }
+              </select>
+            </div>
+          </div>
+        </div>
       </section>
 
       @if (report(); as rep) {
         <section class="kpi-strip">
           <div class="kpi-cell">
-            <span class="kpi-lbl">Doanh thu đã thu</span>
+            <div class="kpi-head">
+              <span class="kpi-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="2" y="6" width="20" height="12" rx="2"></rect>
+                  <circle cx="12" cy="12" r="2"></circle>
+                  <path d="M6 12h.01M18 12h.01"></path>
+                </svg>
+              </span>
+              <span class="kpi-lbl">Doanh thu đã thu</span>
+            </div>
             <strong class="kpi-val">{{ rep.paidRevenue | number }} <small>đ</small></strong>
             <span class="kpi-sub">Công nợ chờ thu: {{ rep.pendingAmount | number }} đ</span>
           </div>
           <div class="kpi-cell">
-            <span class="kpi-lbl">Phiên sạc & Điện năng</span>
+            <div class="kpi-head">
+              <span class="kpi-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                  <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                </svg>
+              </span>
+              <span class="kpi-lbl">Phiên sạc & Điện năng</span>
+            </div>
             <strong class="kpi-val">{{ rep.chargingSessionCount }} <small>phiên</small></strong>
             <span class="kpi-sub">Tổng nạp: {{ rep.totalKwh | number:'1.1-2' }} kWh</span>
           </div>
           <div class="kpi-cell">
-            <span class="kpi-lbl">Hoán đổi pin xe máy</span>
+            <div class="kpi-head">
+              <span class="kpi-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="2" y="7" width="16" height="10" rx="2"></rect>
+                  <line x1="22" y1="11" x2="22" y2="13"></line>
+                  <line x1="7" y1="12" x2="13" y2="12"></line>
+                </svg>
+              </span>
+              <span class="kpi-lbl">Hoán đổi pin xe máy</span>
+            </div>
             <strong class="kpi-val">{{ rep.batterySwapCount }} <small>lượt</small></strong>
             <span class="kpi-sub">{{ rep.activeStations }}/{{ rep.totalStations }} trạm đang mở bán</span>
           </div>
           <div class="kpi-cell">
-            <span class="kpi-lbl">Tỷ lệ khai thác trụ</span>
+            <div class="kpi-head">
+              <span class="kpi-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M22 12h-4l-3 9L9 3l-3 9H2"></path>
+                </svg>
+              </span>
+              <span class="kpi-lbl">Tỷ lệ khai thác trụ</span>
+            </div>
             <strong class="kpi-val">{{ rep.bayUtilizationPercent | number:'1.0-1' }}<small>%</small></strong>
+            <div class="kpi-meter" aria-hidden="true">
+              <div class="kpi-meter-fill" [style.width.%]="rep.bayUtilizationPercent"></div>
+            </div>
             <span class="kpi-sub">{{ rep.occupiedBays }}/{{ rep.totalBays }} trụ có xe · {{ rep.faultedBays }} trụ lỗi</span>
           </div>
           <div class="kpi-cell">
-            <span class="kpi-lbl">Sự cố thiết bị</span>
+            <div class="kpi-head">
+              <span class="kpi-icon" [class.danger]="rep.openIncidentCount > 0" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                  <line x1="12" y1="9" x2="12" y2="13"></line>
+                  <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                </svg>
+              </span>
+              <span class="kpi-lbl">Sự cố thiết bị</span>
+            </div>
             <strong class="kpi-val" [class.text-danger]="rep.openIncidentCount > 0">{{ rep.incidentCount }} <small>vụ</small></strong>
             <span class="kpi-sub">{{ rep.openIncidentCount }} sự cố chưa đóng · {{ rep.overdueInvoiceCount }} HĐ quá hạn</span>
           </div>
         </section>
 
         <section class="table-card">
+          @if (loading()) {
+            <div class="table-loading-bar" aria-hidden="true"></div>
+          }
           <div class="table-card-head">
             <h2>Hiệu suất theo từng Trạm</h2>
             <span class="muted-note">{{ rep.byLocation.length }} trạm trong phạm vi lọc</span>
@@ -329,22 +416,36 @@
     @if (activeTab() === 'stations') {
       <section class="toolbar">
         <div class="toolbar-left">
-          <input type="text" class="toolbar-search" placeholder="Tìm theo tên hoặc địa chỉ trạm..."
-            [ngModel]="stationSearch()" (ngModelChange)="stationSearch.set($event)" />
+          <div class="search-field">
+            <svg class="search-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+            <input type="text" class="toolbar-search" placeholder="Tìm theo tên hoặc địa chỉ trạm..."
+              [ngModel]="stationSearch()" (ngModelChange)="stationSearch.set($event)" />
+            @if (stationSearch()) {
+              <button type="button" class="search-clear" aria-label="Xóa tìm kiếm" (click)="stationSearch.set('')">×</button>
+            }
+          </div>
 
-          <div class="segmented">
-            <button type="button" [class.active]="stationVisibilityFilter() === 'all'" (click)="stationVisibilityFilter.set('all')">Tất cả</button>
-            <button type="button" [class.active]="stationVisibilityFilter() === 'active'" (click)="stationVisibilityFilter.set('active')">Đang hiển thị</button>
-            <button type="button" [class.active]="stationVisibilityFilter() === 'draft'" (click)="stationVisibilityFilter.set('draft')">Nháp / Ẩn</button>
+          <div class="option-group">
+            <span class="option-label">Hiển thị</span>
+            <div class="segmented">
+              <button type="button" [class.active]="stationVisibilityFilter() === 'all'" (click)="stationVisibilityFilter.set('all')">Tất cả</button>
+              <button type="button" [class.active]="stationVisibilityFilter() === 'active'" (click)="stationVisibilityFilter.set('active')">Đang hiển thị</button>
+              <button type="button" [class.active]="stationVisibilityFilter() === 'draft'" (click)="stationVisibilityFilter.set('draft')">Nháp / Ẩn</button>
+            </div>
           </div>
         </div>
 
         <div class="toolbar-right">
           <button type="button" class="btn-outline" [disabled]="actionBusy()" (click)="rebuildSearchIndex()">
-            Đồng bộ chỉ mục tìm kiếm
-          </button>
-          <button type="button" class="btn-solid" (click)="openNewStationWizard()">
-            + Thêm trạm mới
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="23 4 23 10 17 10"></polyline>
+              <polyline points="1 20 1 14 7 14"></polyline>
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+            </svg>
+            <span>Đồng bộ chỉ mục tìm kiếm</span>
           </button>
         </div>
       </section>
@@ -393,7 +494,14 @@
                       <span>{{ item.location.availableBatteries ?? 0 }} pin</span>
                     }
                   </td>
-                  <td>{{ operatingStatusLabel(item.location.operatingStatus) }}</td>
+                  <td>
+                    <span class="op-chip"
+                      [class.is-open]="item.location.operatingStatus === 'Open'"
+                      [class.is-maint]="item.location.operatingStatus === 'Maintenance'"
+                      [class.is-closed]="item.location.operatingStatus === 'Closed'">
+                      {{ operatingStatusLabel(item.location.operatingStatus) }}
+                    </span>
+                  </td>
                   <td>
                     <span class="status-dot-label" [class.active]="item.isActive">
                       <span class="s-dot"></span>
@@ -428,12 +536,25 @@
     @if (activeTab() === 'operators') {
       <section class="toolbar">
         <div class="toolbar-left">
-          <input type="text" class="toolbar-search" placeholder="Tìm nhân viên theo tên, email, SĐT hoặc trạm..."
-            [ngModel]="operatorSearch()" (ngModelChange)="operatorSearch.set($event)" />
+          <div class="search-field">
+            <svg class="search-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+            <input type="text" class="toolbar-search" placeholder="Tìm nhân viên theo tên, email, SĐT hoặc trạm..."
+              [ngModel]="operatorSearch()" (ngModelChange)="operatorSearch.set($event)" />
+            @if (operatorSearch()) {
+              <button type="button" class="search-clear" aria-label="Xóa tìm kiếm" (click)="operatorSearch.set('')">×</button>
+            }
+          </div>
         </div>
         <div class="toolbar-right">
           <button type="button" class="btn-solid" (click)="openCreateOperatorModal()">
-            + Tạo nhân viên Operator
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            <span>Tạo nhân viên Operator</span>
           </button>
         </div>
       </section>
@@ -454,8 +575,13 @@
               @for (op of filteredOperators(); track op.id) {
                 <tr>
                   <td>
-                    <strong class="cell-primary">{{ op.fullName }}</strong>
-                    <span class="cell-sub">{{ op.email }}</span>
+                    <div class="op-identity">
+                      <span class="op-avatar" aria-hidden="true">{{ op.fullName ? op.fullName.charAt(0).toUpperCase() : 'O' }}</span>
+                      <div>
+                        <strong class="cell-primary">{{ op.fullName }}</strong>
+                        <span class="cell-sub">{{ op.email }}</span>
+                      </div>
+                    </div>
                   </td>
                   <td class="font-mono">{{ op.phoneNumber || '—' }}</td>
                   <td>

@@ -20,13 +20,12 @@
   border-right: 1px solid #e2e8f0;
 }
 
-/* Ambient Lighting Glows */
+/* Ambient Lighting Glows — Soft radial gradients without costly blur(80px) pass */
 .ambient-glow {
   position: absolute;
   border-radius: 50%;
   pointer-events: none;
-  filter: blur(80px);
-  opacity: 0.4;
+  opacity: 0.75;
 }
 
 .glow-top {
@@ -123,12 +122,21 @@
 }
 
 .pulse-indicator {
+  position: relative;
   width: 8px;
   height: 8px;
   border-radius: 50%;
   background: #10b981;
-  box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.6);
-  animation: pulse-ring 2s infinite;
+
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: rgba(16, 185, 129, 0.5);
+    animation: pulse-ring 2s infinite;
+    will-change: transform, opacity;
+  }
 }
 
 /* Body */
@@ -529,11 +537,11 @@ h1 {
   margin-top: 1px;
 }
 
-/* Keyframes */
+/* Keyframes (GPU-composited transform/opacity only) */
 @keyframes pulse-ring {
-  0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.6); }
-  70% { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+  0% { transform: scale(1); opacity: 0.85; }
+  70% { transform: scale(2.4); opacity: 0; }
+  100% { transform: scale(2.4); opacity: 0; }
 }
 
 @keyframes pulse-node {

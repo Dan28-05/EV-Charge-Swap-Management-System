@@ -210,7 +210,12 @@ export class OperatorDashboardComponent implements OnInit {
       if (invoice) this.openCheckout(invoice);
       else if (reservation) this.currentTab.set('operations');
     });
-    merge(this.realtime.operatorChanged$, timer(12000, 12000)).pipe(
+    merge(
+      this.realtime.operatorChanged$,
+      timer(45000, 45000).pipe(
+        filter(() => (typeof document === 'undefined' || !document.hidden) && !this.realtime.connected()),
+      ),
+    ).pipe(
       auditTime(150),
       filter(() => this.authService.isOperator() && !this.loading()),
       switchMap(() => this.operatorService.getStationDashboard(true).pipe(catchError(() => EMPTY))),

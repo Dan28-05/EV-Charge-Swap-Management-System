@@ -129,29 +129,46 @@ import {
       margin: 0;
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 2px;
     }
     .station-card {
       display: flex;
       align-items: flex-start;
       gap: 8px;
-      border: 1px solid #e2e8f0;
-      border-radius: 10px;
-      background: #ffffff;
-      padding: 13px 14px;
-      transition: all 0.18s ease;
+      border: 1px solid transparent;
+      border-radius: 14px;
+      background: transparent;
+      padding: 12px 12px;
+      transition: background 0.15s ease, border-color 0.15s ease;
       position: relative;
+    }
+    .station-card:not(:last-child)::after {
+      content: '';
+      position: absolute;
+      left: 62px;
+      right: 12px;
+      bottom: -1px;
+      height: 1px;
+      background: #eef2f6;
+      pointer-events: none;
+    }
+    .station-card:hover::after,
+    .station-card.selected::after,
+    .station-card:has(+ .station-card:hover)::after,
+    .station-card:has(+ .station-card.selected)::after {
+      opacity: 0;
     }
     .station-card.is-inactive {
       opacity: 0.52;
-      background: #fbfcfd;
+      background: transparent;
     }
     .station-card.is-inactive:hover {
       opacity: 0.85;
     }
     .station-card:hover {
-      border-color: #94a3b8;
-      box-shadow: 0 3px 10px rgba(0, 0, 0, 0.05);
+      background: #f8fafc;
+      border-color: transparent;
+      box-shadow: none;
     }
     .station-card:hover .directions-link {
       opacity: 1;
@@ -159,9 +176,9 @@ import {
       background: #eaf5ed;
     }
     .selected {
-      border-color: #17634f !important;
-      background: #f4f8f6 !important;
-      box-shadow: 0 0 0 1px #17634f !important;
+      background: #f0fdf4 !important;
+      border-color: rgba(23, 99, 79, 0.28) !important;
+      box-shadow: inset 3px 0 0 #17634f !important;
     }
     .choose {
       display: flex;
@@ -181,7 +198,7 @@ import {
       flex: none;
       width: 38px;
       height: 38px;
-      border-radius: 8px;
+      border-radius: 11px;
       display: grid;
       place-items: center;
       background: #eaf5ed;
@@ -341,16 +358,16 @@ import {
     }
     .directions-link {
       flex: none;
-      width: 28px;
-      height: 28px;
-      border-radius: 6px;
+      width: 32px;
+      height: 32px;
+      border-radius: 999px;
       display: grid;
       place-items: center;
-      color: #94a3b8;
+      color: #64748b;
       background: transparent;
       text-decoration: none;
-      transition: all 0.15s ease;
-      opacity: 0.4;
+      transition: background 0.15s ease, color 0.15s ease, opacity 0.15s ease;
+      opacity: 0.65;
       align-self: center;
     }
     .directions-link:hover {

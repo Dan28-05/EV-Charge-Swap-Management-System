@@ -13,8 +13,8 @@ export const STATION_FINDER_CONFIG = new InjectionToken<StationFinderConfig>(
     providedIn: 'root',
     factory: () => ({
       apiUrl: '/api',
-      tileUrl: 'https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png',
-      subdomains: ['a', 'b'],
+      tileUrl: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      subdomains: ['a', 'b', 'c'],
       placeSearchUrl: 'https://nominatim.openstreetmap.org/search',
     }),
   },

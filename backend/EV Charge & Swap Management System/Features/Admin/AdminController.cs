@@ -434,52 +434,85 @@ public sealed class AdminController(
             .Select(x => new { LocationId = x.LocationId!.Value, x.State })
             .ToListAsync(ct);
 
-        // Fetch bounded projection and apply DateTimeOffset filter in memory for PostgreSQL + SQLite parity.
-        var sessionsRaw = await (
+        var useSqlDateFilter = db.Database.IsNpgsql();
+
+        var sessionsQuery =
             from s in db.Set<ChargingSession>().AsNoTracking()
             join r in db.Reservations.AsNoTracking() on s.ReservationId equals r.Id
             where locIds.Contains(r.LocationId)
-            select new { r.LocationId, s.StartedAtUtc, s.StartMeterKwh, s.EndMeterKwh }
-        ).ToListAsync(ct);
+            select new { r.LocationId, s.StartedAtUtc, s.StartMeterKwh, s.EndMeterKwh };
 
-        var sessions = sessionsRaw
-            .Where(x => (!fromUtc.HasValue || x.StartedAtUtc >= fromUtc.Value) &&
-                        (!toUtc.HasValue || x.StartedAtUtc <= toUtc.Value))
-            .ToList();
+        if (useSqlDateFilter)
+        {
+            if (fromUtc.HasValue) sessionsQuery = sessionsQuery.Where(x => x.StartedAtUtc >= fromUtc.Value);
+            if (toUtc.HasValue) sessionsQuery = sessionsQuery.Where(x => x.StartedAtUtc <= toUtc.Value);
+        }
 
-        var swapsRaw = await (
+        var sessionsRaw = await sessionsQuery.ToListAsync(ct);
+        var sessions = useSqlDateFilter
+            ? sessionsRaw
+            : sessionsRaw
+                .Where(x => (!fromUtc.HasValue || x.StartedAtUtc >= fromUtc.Value) &&
+                            (!toUtc.HasValue || x.StartedAtUtc <= toUtc.Value))
+                .ToList();
+
+        var swapsQuery =
             from sw in db.BatterySwaps.AsNoTracking()
             join r in db.Reservations.AsNoTracking() on sw.ReservationId equals r.Id
             where locIds.Contains(r.LocationId)
-            select new { r.LocationId, sw.CompletedAtUtc }
-        ).ToListAsync(ct);
+            select new { r.LocationId, sw.CompletedAtUtc };
 
-        var swaps = swapsRaw
-            .Where(x => (!fromUtc.HasValue || x.CompletedAtUtc >= fromUtc.Value) &&
-                        (!toUtc.HasValue || x.CompletedAtUtc <= toUtc.Value))
-            .ToList();
+        if (useSqlDateFilter)
+        {
+            if (fromUtc.HasValue) swapsQuery = swapsQuery.Where(x => x.CompletedAtUtc >= fromUtc.Value);
+            if (toUtc.HasValue) swapsQuery = swapsQuery.Where(x => x.CompletedAtUtc <= toUtc.Value);
+        }
 
-        var invoicesRaw = await (
+        var swapsRaw = await swapsQuery.ToListAsync(ct);
+        var swaps = useSqlDateFilter
+            ? swapsRaw
+            : swapsRaw
+                .Where(x => (!fromUtc.HasValue || x.CompletedAtUtc >= fromUtc.Value) &&
+                            (!toUtc.HasValue || x.CompletedAtUtc <= toUtc.Value))
+                .ToList();
+
+        var invoicesQuery =
             from inv in db.Invoices.AsNoTracking()
             join r in db.Reservations.AsNoTracking() on inv.ReservationId equals r.Id
             where locIds.Contains(r.LocationId)
-            select new { r.LocationId, inv.TotalAmount, inv.TotalKwh, inv.Status, inv.CreatedAtUtc, inv.DueAtUtc }
-        ).ToListAsync(ct);
+            select new { r.LocationId, inv.TotalAmount, inv.TotalKwh, inv.Status, inv.CreatedAtUtc, inv.DueAtUtc };
 
-        var invoices = invoicesRaw
-            .Where(x => (!fromUtc.HasValue || x.CreatedAtUtc >= fromUtc.Value) &&
-                        (!toUtc.HasValue || x.CreatedAtUtc <= toUtc.Value))
-            .ToList();
+        if (useSqlDateFilter)
+        {
+            if (fromUtc.HasValue) invoicesQuery = invoicesQuery.Where(x => x.CreatedAtUtc >= fromUtc.Value);
+            if (toUtc.HasValue) invoicesQuery = invoicesQuery.Where(x => x.CreatedAtUtc <= toUtc.Value);
+        }
 
-        var incidentsRaw = await db.Set<IncidentReport>().AsNoTracking()
+        var invoicesRaw = await invoicesQuery.ToListAsync(ct);
+        var invoices = useSqlDateFilter
+            ? invoicesRaw
+            : invoicesRaw
+                .Where(x => (!fromUtc.HasValue || x.CreatedAtUtc >= fromUtc.Value) &&
+                            (!toUtc.HasValue || x.CreatedAtUtc <= toUtc.Value))
+                .ToList();
+
+        var incidentsQuery = db.Set<IncidentReport>().AsNoTracking()
             .Where(x => locIds.Contains(x.LocationId))
-            .Select(x => new { x.LocationId, x.ReportedAtUtc, x.ResolvedAtUtc })
-            .ToListAsync(ct);
+            .Select(x => new { x.LocationId, x.ReportedAtUtc, x.ResolvedAtUtc });
 
-        var incidents = incidentsRaw
-            .Where(x => (!fromUtc.HasValue || x.ReportedAtUtc >= fromUtc.Value) &&
-                        (!toUtc.HasValue || x.ReportedAtUtc <= toUtc.Value))
-            .ToList();
+        if (useSqlDateFilter)
+        {
+            if (fromUtc.HasValue) incidentsQuery = incidentsQuery.Where(x => x.ReportedAtUtc >= fromUtc.Value);
+            if (toUtc.HasValue) incidentsQuery = incidentsQuery.Where(x => x.ReportedAtUtc <= toUtc.Value);
+        }
+
+        var incidentsRaw = await incidentsQuery.ToListAsync(ct);
+        var incidents = useSqlDateFilter
+            ? incidentsRaw
+            : incidentsRaw
+                .Where(x => (!fromUtc.HasValue || x.ReportedAtUtc >= fromUtc.Value) &&
+                            (!toUtc.HasValue || x.ReportedAtUtc <= toUtc.Value))
+                .ToList();
 
         var byLocation = locations.Select(loc =>
         {

@@ -3,7 +3,7 @@ import { HttpClient } from '@angular/common/http';
 import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, HostListener, computed, inject, input, output, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
-import { EMPTY, Subject, auditTime, catchError, finalize, merge, switchMap, timer } from 'rxjs';
+import { EMPTY, Subject, auditTime, catchError, filter, finalize, merge, of, switchMap, timer } from 'rxjs';
 import { RealtimeNotification, ReservationRealtimeService } from '../reservations/services/reservation-realtime.service';
 
 interface Inbox {
@@ -284,7 +284,18 @@ export class NotificationBellComponent {
       this.showNextPreview();
     });
     this.destroyRef.onDestroy(() => clearTimeout(this.previewTimer));
-    merge(timer(0, 20000), this.refresh, this.realtime.notificationsChanged$).pipe(
+    merge(
+      of(undefined),
+      timer(60000, 60000).pipe(
+        filter(
+          () =>
+            (typeof document === 'undefined' || !document.hidden) &&
+            !(typeof this.realtime.connected === 'function' && this.realtime.connected()),
+        ),
+      ),
+      this.refresh,
+      this.realtime.notificationsChanged$,
+    ).pipe(
       auditTime(100),
       switchMap(() => this.http.get<Inbox>('/api/notifications').pipe(catchError(() => {
         this.loadError.set(true);

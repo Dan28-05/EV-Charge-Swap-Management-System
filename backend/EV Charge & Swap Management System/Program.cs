@@ -59,7 +59,9 @@ builder.Services.AddOpenTelemetry()
             .AddMeter("EVChargeSwap.LocationSearch", "EVChargeSwap.RedisCache")
             .AddAspNetCoreInstrumentation()
             .AddHttpClientInstrumentation()
-            .AddNpgsqlInstrumentation();
+            .AddNpgsqlInstrumentation()
+            .AddRuntimeInstrumentation()
+            .AddPrometheusExporter();
         if (!string.IsNullOrWhiteSpace(otelEndpoint))
             metrics.AddOtlpExporter();
     });
@@ -160,6 +162,7 @@ builder.Services.AddSingleton<ElasticLocationIndex>();
 builder.Services.AddScoped<LocationSearchService>();
 builder.Services.AddScoped<LocationIndexer>();
 builder.Services.AddHostedService<LocationSearchInitializer>();
+
 var signalR = builder.Services.AddSignalR();
 if (builder.Configuration.GetValue("SignalR:UseRedisBackplane", false) && !string.IsNullOrWhiteSpace(redisConn))
 {
@@ -354,6 +357,7 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions
     Predicate = check => check.Tags.Contains("ready"),
     ResponseWriter = HealthResponseWriter.WriteAsync
 });
+app.MapPrometheusScrapingEndpoint("/metrics");
 app.MapControllers();
 app.MapHub<StationHub>("/hubs/stations");
 app.MapHub<EVChargeSwap.Features.Users.Hubs.NotificationHub>("/hubs/notifications",

@@ -4,7 +4,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, HostListene
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { EMPTY, Subject, catchError, finalize, merge, of, startWith, switchMap, timer } from 'rxjs';
+import { EMPTY, Subject, catchError, filter, finalize, merge, of, startWith, switchMap, timer } from 'rxjs';
 import * as QRCode from 'qrcode';
 import { AuthService } from '../auth/services/auth.service';
 import { DialogService } from '../../core/services/dialog.service';
@@ -226,7 +226,17 @@ export class InvoicesComponent implements OnInit {
         this.searchQuery.set('');
       }
     });
-    merge(this.reload, this.realtime.invoiceChanged$, timer(15000, 15000)).pipe(
+    merge(
+      this.reload,
+      this.realtime.invoiceChanged$,
+      timer(60000, 60000).pipe(
+        filter(
+          () =>
+            (typeof document === 'undefined' || !document.hidden) &&
+            !(typeof this.realtime.connected === 'function' && this.realtime.connected()),
+        ),
+      ),
+    ).pipe(
       startWith(undefined),
       switchMap(() => this.auth.isAuthenticated() ? this.http.get<Invoice[]>('/api/invoices', { params: { page: this.page() } }).pipe(
         catchError(() => {

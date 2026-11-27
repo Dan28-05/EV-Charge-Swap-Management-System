@@ -161,6 +161,13 @@ export class AdminDashboardComponent implements OnInit {
     this.activeTab.set(tab);
     this.error.set(null);
     this.notice.set(null);
+    if (tab === 'reports' && !this.report()) {
+      this.loadReport();
+    } else if (tab === 'operators' && this.operators().length === 0) {
+      this.loadOperators();
+    } else if (tab === 'stations' && this.locations().length === 0) {
+      this.loadLocations();
+    }
   }
 
   toggleUserMenu(): void {
@@ -178,11 +185,17 @@ export class AdminDashboardComponent implements OnInit {
   }
 
   refreshAll(): void {
-    this.loading.set(true);
     this.error.set(null);
     this.loadLocations();
-    this.loadOperators();
-    this.loadReport();
+    const tab = this.activeTab();
+    if (tab === 'reports') {
+      this.loadReport();
+    } else if (tab === 'operators') {
+      this.loadOperators();
+    }
+    if (this.operators().length === 0 && tab !== 'operators') {
+      this.loadOperators();
+    }
   }
 
   loadLocations(): void {
@@ -253,10 +266,12 @@ export class AdminDashboardComponent implements OnInit {
 
   // Station Onboarding Wizard triggers
   openNewStationWizard(): void {
+    if (this.operators().length === 0) this.loadOperators();
     this.wizard().openNew();
   }
 
   openStationConfigWizard(item: AdminLocationItem): void {
+    if (this.operators().length === 0) this.loadOperators();
     this.wizard().openExistingDraft(item.location.id, item.isActive ? 2 : 4);
   }
 

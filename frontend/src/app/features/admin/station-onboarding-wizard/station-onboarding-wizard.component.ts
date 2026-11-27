@@ -18,6 +18,7 @@ import { finalize, switchMap } from 'rxjs';
 import { extractApiError } from '../../../core/utils/api-error.util';
 import { PlaceSearchResult } from '../../station-finder/models/place-search.model';
 import { PlaceSearchService } from '../../station-finder/services/place-search.service';
+import { STATION_FINDER_CONFIG } from '../../station-finder/station-finder.config';
 import {
   AdminLocationResources,
   AdminOperatorSummary,
@@ -39,6 +40,7 @@ export type WizardStep = 1 | 2 | 3 | 4;
 export class StationOnboardingWizardComponent {
   private readonly adminService = inject(AdminService);
   private readonly placeSearch = inject(PlaceSearchService);
+  private readonly mapConfig = inject(STATION_FINDER_CONFIG);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly operators = input<AdminOperatorSummary[]>([]);
@@ -444,9 +446,9 @@ export class StationOnboardingWizardComponent {
       zoomControl: true,
     });
 
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-      maxZoom: 19,
-      attribution: '&copy; OpenStreetMap &copy; CARTO',
+    L.tileLayer(this.mapConfig.tileUrl, {
+      subdomains: this.mapConfig.subdomains || ['0', '1', '2', '3'],
+      maxZoom: 20,
     }).addTo(map);
 
     const icon = L.divIcon({
